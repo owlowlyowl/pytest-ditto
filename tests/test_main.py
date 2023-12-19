@@ -1,15 +1,15 @@
 import pytest
 
-from ditto.marks import record
+import ditto
 
 
-@record("yaml")
+@ditto.record("yaml")
 def test_asdf(snapshot):
     assert {"a": 1} == snapshot({"a": 1})
     assert {"x": 2} == snapshot({"x": 2}, suffix="x")
 
 
-@record("pkl", zxcv=1)
+@ditto.record("pkl", zxcv=1)
 @pytest.mark.parametrize(
     "a,b",
     [
@@ -23,6 +23,6 @@ def test_qwe(snapshot, a, b):
     assert b == snapshot(2)
 
 
-@record("json")
+@ditto.record("json")
 def test_cvn(snapshot):
     assert "this string" == snapshot("this string")

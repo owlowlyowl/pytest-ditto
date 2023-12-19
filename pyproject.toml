@@ -1,5 +1,5 @@
 [project]
-name = "pytest-ditto"
+name = "ditto"
 version = "0.0.1"
 description = ""
 keywords = ["pytest"]
