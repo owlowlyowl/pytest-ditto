@@ -1,0 +1,40 @@
+[project]
+name = "pytest-ditto"
+version = "0.0.1"
+description = ""
+keywords = ["pytest"]
+authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
+maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
+requires-python = ">=3.10"
+# license = "MIT"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Testing",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.5",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pytest>=3.5.0",
+    "pyyaml",
+]
+[project.optional-dependencies]
+# yaml = ["pyyaml"]
+
+[project.entry-points.pytest11]
+recording = "ditto.plugin"
