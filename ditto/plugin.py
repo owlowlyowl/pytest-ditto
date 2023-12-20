@@ -2,22 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from ditto.io import IO_MAP
 from ditto.snapshot import Snapshot
-from ditto.io.protocol import SnapshotIO
 from ditto.io._pickle import PickleIO
-from ditto.io._json import JsonIO
-from ditto.io._yaml import YamlIO
-
-
-IO_MAP: dict[str, SnapshotIO] = {
-    "pkl": PickleIO(),
-    "json": JsonIO(),
-    "yaml": YamlIO(),
-}
-
-
-def register_io(name: str, io: SnapshotIO) -> None:
-    IO_MAP[name] = io
 
 
 @pytest.fixture(scope="function")
@@ -25,11 +12,15 @@ def snapshot(request) -> Snapshot:
 
     # TODO: ability 
     io_name = None
+    parameters = {}
     for mark in request.node.iter_markers(name="record"):
         if mark.args:
             if io_name is not None:
                 pytest.fail("Only one 'record' mark is allowed.")
             io_name = mark.args[0]
+
+        if mark.kwargs:
+            parameters.update(mark.kwargs)
     
     io_name = io_name if io_name is not None else "pkl"
         
@@ -40,10 +31,14 @@ def snapshot(request) -> Snapshot:
     path = request.path.parent / ".ditto"
     path.mkdir(exist_ok=True)
 
+    # Get the snapshot identifier from the 'record' mark parameters (via kwargs) if it
+    # exists; otherwise, use the test function name.
+    identifier = parameters.get("identifier", request.node.name)
+
     return Snapshot(
         path=path,
-        name=request.node.name,
-        record=True,
+        name=identifier,
+        # record=True,
         io=IO_MAP.get(io_name, PickleIO()),
     )
 
