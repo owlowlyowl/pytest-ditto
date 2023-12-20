@@ -33,7 +33,11 @@ dependencies = [
 ]
 [project.optional-dependencies]
 # yaml = ["pyyaml"]
+test = [
+    "pytest-cov",
+]
 dev = [
+    "ditto[test]",
     "black",
     "ruff",
     "pre-commit",
@@ -78,7 +82,7 @@ exclude = '''
 
 [tool.coverage.run]
 branch = true
-source = ["ffma_synth"]
+source = ["ditto"]
 
 [tool.coverage.report]
 show_missing = true
@@ -124,10 +128,6 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
-]
-extend-exclude = [
-    # Third party blpapi package wrapper, horrible code.
-    "ffma_synth/external/providers/third_party/bloomberg.py",
 ]
 
 # Same as Black.
