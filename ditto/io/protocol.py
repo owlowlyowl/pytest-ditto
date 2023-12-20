@@ -1,5 +1,10 @@
 from pathlib import Path
-from typing import Protocol, ClassVar, Any
+from typing import ClassVar, Any
+
+try:
+    from typing import Protocol
+except ImportError:
+    from typing_extensions import Protocol
 
 
 class SnapshotIO(Protocol):
