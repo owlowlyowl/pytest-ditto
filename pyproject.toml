@@ -5,7 +5,7 @@ description = ""
 keywords = ["pytest"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
-requires-python = ">=3.10"
+requires-python = ">=3.7"
 # license = "MIT"
 readme = "README.md"
 classifiers = [
@@ -17,8 +17,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.5",
-    "Programming Language :: Python :: 3.6",
     "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -35,6 +33,110 @@ dependencies = [
 ]
 [project.optional-dependencies]
 # yaml = ["pyyaml"]
+dev = [
+    "black",
+    "ruff",
+    "pre-commit",
+]
 
 [project.entry-points.pytest11]
 recording = "ditto.plugin"
+
+[tool.pytest.ini_options]
+testpaths = "tests"
+filterwarnings = [
+    # "error",
+    "ignore::UserWarning",
+    # note the use of single quote below to denote "raw" strings in TOML
+    'ignore::DeprecationWarning',
+]
+
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+exclude = '''
+# A regex preceded with ^/ will apply only to files and directories
+# in the root of the project.
+^/(
+  (
+      \.eggs
+    | \.git
+    | \.pytest_cache
+    | \.vscode
+    | \.mypy_cache
+    | __pycache__
+    | _cache
+    | app_data
+    | logs
+    | venv
+    | build
+    | dist
+  )/
+)
+'''
+
+[tool.coverage.run]
+branch = true
+source = ["ffma_synth"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
+[tool.ruff]
+# Enable the following rule sets:
+# pycodestyle (`E`) https://docs.astral.sh/ruff/rules/#pyflakes-f
+# Pyflakes (`F`) https://docs.astral.sh/ruff/rules/#pyflakes-f
+# flake8-bugbear (B) https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+# flake8-simplify (SIM) https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
+# flake8-quotes (Q) https://docs.astral.sh/ruff/rules/#flake8-quotes-q
+select = ["E", "F", "C90", "B", "SIM"]
+extend-select = ["Q"]
+ignore = []
+# F401 - imported but unused
+# F841 - local variable assigned but never used
+extend-ignore = ["F401", "F841"]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["A", "B", "C", "D", "E", "F"]
+unfixable = []
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+extend-exclude = [
+    # Third party blpapi package wrapper, horrible code.
+    "ffma_synth/external/providers/third_party/bloomberg.py",
+]
+
+# Same as Black.
+line-length = 88
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+target-version = "py310"
+
+[tool.ruff.mccabe]
+max-complexity = 5
