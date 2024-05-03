@@ -1,16 +1,14 @@
-from __future__ import annotations
+from typing import Any
 
 import pytest
 
-from ditto.io import IO_MAP
 from ditto.snapshot import Snapshot
-from ditto.io._pickle import PickleIO
+from ditto import io
 
 
 @pytest.fixture(scope="function")
 def snapshot(request) -> Snapshot:
 
-    # TODO: ability 
     io_name = None
     parameters = {}
     for mark in request.node.iter_markers(name="record"):
@@ -39,10 +37,32 @@ def snapshot(request) -> Snapshot:
         path=path,
         name=identifier,
         # record=True,
-        io=IO_MAP.get(io_name, PickleIO()),
+        io=io.IO_MAP.get(io_name, PickleIO()),
     )
 
 
+#
+# @pytest.hookimpl(tryfirst=True)
+# def pytest_fixture_setup(fixturedef, request):
+#     print('Fixture setup: ', fixturedef.argname)
+#     print(fixturedef)
+#
+#
+# def pytest_addoption(parser):
+#     parser.addoption(
+#         "-E",
+#         action="store",
+#         metavar="NAME",
+#         help="only run tests matching the environment NAME.",
+#     )
+#     parser.addoption(
+#         "-R",
+#         action="store",
+#         metavar="RECORD",
+#         help="only run tests matching the environment NAME.",
+#     )
+#
+#
 def pytest_configure(config):
     # register an additional marker
     config.addinivalue_line(

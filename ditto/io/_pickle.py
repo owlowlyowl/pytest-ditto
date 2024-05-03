@@ -3,14 +3,18 @@ from typing import ClassVar, Any
 
 import pickle
 
+from ditto.io import SnapshotIO
 
-class PickleIO:
+
+class PickleIO(SnapshotIO):
     extension: ClassVar[str] = "pkl"
 
-    def save(self, data: Any, filepath: Path) -> None:
+    @staticmethod
+    def save(data: Any, filepath: Path) -> None:
         with open(filepath, "wb") as f:
             pickle.dump(data, f)
 
-    def load(self, filepath: Path) -> Any:
+    @staticmethod
+    def load(filepath: Path) -> Any:
         with open(filepath, "rb") as f:
             return pickle.load(f)

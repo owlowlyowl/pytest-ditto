@@ -5,8 +5,8 @@ description = ""
 keywords = ["pytest"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
-requires-python = ">=3.7"
-# license = "MIT"
+requires-python = ">=3.10"
+license = "MIT"
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -30,16 +30,11 @@ classifiers = [
 dependencies = [
     "pytest>=3.5.0",
     "pyyaml",
+    "pandas",
+    "pyarrow",
 ]
 [project.optional-dependencies]
-# yaml = ["pyyaml"]
-test = [
-    "pytest-cov",
-]
 dev = [
-    "ditto[test]",
-    "black",
-    "ruff",
     "pre-commit",
 ]
 

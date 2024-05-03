@@ -1,17 +1,13 @@
 from pathlib import Path
-from typing import ClassVar, Any
-
-try:
-    from typing import Protocol
-except ImportError:
-    from typing_extensions import Protocol
+from typing import ClassVar, Any, Protocol
 
 
+# TODO: maybe use abstract base class instead
 class SnapshotIO(Protocol):
     extension: ClassVar[str]
 
-    def save(self, data: Any, filepath: Path) -> None:
-        ...
+    @staticmethod
+    def save(data: Any, filepath: Path) -> None: ...
 
-    def load(self, filepath: Path) -> Any:
-        ...
+    @staticmethod
+    def load(filepath: Path) -> Any: ...

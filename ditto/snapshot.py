@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ditto import io
 from ditto.io import io_default
 from ditto.io.protocol import SnapshotIO
 
@@ -16,7 +17,7 @@ class Snapshot:
         path: Path,
         name: str,
         record: bool = False,
-        io: SnapshotIO | None = None,
+        io: io.SnapshotIO = io.PickleIO,
         identifier: str | None = None
     ) -> None:
         self.path = path
