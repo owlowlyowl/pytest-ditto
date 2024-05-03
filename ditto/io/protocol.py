@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Protocol, ClassVar, Any
+from typing import ClassVar, Any, Protocol
 
 
 # TODO: maybe use abstract base class instead

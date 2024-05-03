@@ -1,6 +1,6 @@
-from ditto import DittoTestCase
+import ditto
 
     
-class TestAwesome(DittoTestCase):
+class TestAwesome(ditto.DittoTestCase):
     def test_yio(self):
-        assert {1: "unittest"} == self.snapshot({1: "unittest"})
+        assert {1: "unittest"} == self.snapshot({1: "unittest"}, identifier="wowow")

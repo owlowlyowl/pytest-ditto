@@ -6,10 +6,10 @@ import ditto
 @ditto.record("yaml")
 def test_asdf(snapshot):
     assert {"a": 1} == snapshot({"a": 1})
-    assert {"x": 2} == snapshot({"x": 2}, suffix="x")
+    assert {"x": 2} == snapshot({"x": 2}, identifier="x")
 
 
-@ditto.record("pkl", zxcv=1)
+@ditto.record("pkl", identifier="custom-test-id-xyz")
 @pytest.mark.parametrize(
     "a,b",
     [
@@ -19,7 +19,7 @@ def test_asdf(snapshot):
     ],
 )
 def test_qwe(snapshot, a, b):
-    assert a == snapshot(1, suffix="a")
+    assert a == snapshot(1, identifier="custom-data-id-abc")
     assert b == snapshot(2)
 
 
