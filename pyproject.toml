@@ -6,7 +6,7 @@ keywords = ["pytest"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 requires-python = ">=3.10"
-# license = "MIT"
+license = "MIT"
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,9 +32,13 @@ classifiers = [
 dependencies = [
     "pytest>=3.5.0",
     "pyyaml",
+    "pandas",
+    "pyarrow",
 ]
 [project.optional-dependencies]
-# yaml = ["pyyaml"]
+dev = [
+    "pre-commit",
+]
 
 [project.entry-points.pytest11]
 recording = "ditto.plugin"
