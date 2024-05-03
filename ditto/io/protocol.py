@@ -2,11 +2,12 @@ from pathlib import Path
 from typing import Protocol, ClassVar, Any
 
 
+# TODO: maybe use abstract base class instead
 class SnapshotIO(Protocol):
     extension: ClassVar[str]
 
-    def save(self, data: Any, filepath: Path) -> None:
-        ...
+    @staticmethod
+    def save(data: Any, filepath: Path) -> None: ...
 
-    def load(self, filepath: Path) -> Any:
-        ...
+    @staticmethod
+    def load(filepath: Path) -> Any: ...
