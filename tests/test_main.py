@@ -34,8 +34,8 @@ def test_pickle_int_snapshot_when_changing_params(snapshot, a, b):
     def fn(x: int) -> int:
         return x
 
-    assert fn(a) == snapshot(fn(1), identifier="custom-data-id-abc")
-    assert fn(b) == snapshot(fn(2))
+    assert fn(a) == snapshot(fn(a), identifier="custom-data-id-abc")
+    assert fn(b) == snapshot(fn(b))
 
 
 @ditto.record("json")
