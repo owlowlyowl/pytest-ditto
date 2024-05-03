@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ditto import io
-from ditto.io import io_default
+from ditto.io import default
 from ditto.io.protocol import SnapshotIO
 
 
@@ -18,12 +18,12 @@ class Snapshot:
         name: str,
         record: bool = False,
         io: io.SnapshotIO = io.PickleIO,
-        identifier: str | None = None
+        identifier: str | None = None,
     ) -> None:
         self.path = path
         self.name = name
         self.record = record
-        self.io = io if io is not None else io_default()
+        self.io = io if io is not None else default()
         self.identifier = identifier
         self.data = None
 
@@ -50,6 +50,9 @@ class Snapshot:
             self._save(data, identifier)
             print(f"END RECORDING: {self.filepath(identifier)}")
             self.data = data
+
+            # FIXME: shouldn't really return the data here, should fail test if data
+            #  doesn't exist.
 
         return self.data
 

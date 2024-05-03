@@ -19,9 +19,9 @@ def snapshot(request) -> Snapshot:
 
         if mark.kwargs:
             parameters.update(mark.kwargs)
-    
+
     io_name = io_name if io_name is not None else "pkl"
-        
+
     # TODO: do i like this?
     # if io_name is None:
     #     pytest.fail("'record' is a required mark when using the 'snapshot' fixture.")
@@ -37,7 +37,7 @@ def snapshot(request) -> Snapshot:
         path=path,
         name=identifier,
         # record=True,
-        io=io.IO_MAP.get(io_name, PickleIO()),
+        io=io.get(io_name, default=io.PickleIO),
     )
 
 
@@ -65,9 +65,8 @@ def snapshot(request) -> Snapshot:
 #
 def pytest_configure(config):
     # register an additional marker
-    config.addinivalue_line(
-        "markers", "record(io): snapshot values"
-    )
+    config.addinivalue_line("markers", "record(io): snapshot values")
+
 
 # @pytest.hookimpl(tryfirst=True)
 # def pytest_fixture_setup(fixturedef, request):
@@ -97,6 +96,6 @@ def pytest_configure(config):
 #             pytest.skip("test requires env in {!r}".format(envnames))
 
 #     for mark in item.iter_markers(name="record"):
-#         msg =f"recording: args={mark.args}; kwargs={mark.kwargs}" 
+#         msg =f"recording: args={mark.args}; kwargs={mark.kwargs}"
 #         pytest.skip(msg)
 #         # print(msg)

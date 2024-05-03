@@ -8,7 +8,7 @@ from ditto.io._pandas_parquet import PandasParquetIO
 __all__ = ["SnapshotIO", "YamlIO", "JsonIO", "PickleIO", "PandasParquetIO"]
 
 
-IO_MAP: dict[str, type[SnapshotIO]] = {
+_NAME_IO_MAP: dict[str, type[SnapshotIO]] = {
     "pkl": PickleIO,
     "json": JsonIO,
     "yaml": YamlIO,
@@ -16,9 +16,13 @@ IO_MAP: dict[str, type[SnapshotIO]] = {
 }
 
 
-def register_io(name: str, io: type[SnapshotIO]) -> None:
-    IO_MAP[name] = io
+def register(name: str, io: type[SnapshotIO]) -> None:
+    _NAME_IO_MAP[name] = io
 
 
-def io_default() -> type[SnapshotIO]:
+def get(name: str, default: SnapshotIO = PickleIO) -> SnapshotIO:
+    return _NAME_IO_MAP.get(name, default)
+
+
+def default() -> type[SnapshotIO]:
     return PickleIO
