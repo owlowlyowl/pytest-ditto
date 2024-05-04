@@ -1,7 +1,6 @@
 import pytest
 
+from ditto.snapshot import Snapshot
 from ditto._unittest import DittoTestCase
-
-dev = pytest.mark.env("dev")
 
 record = pytest.mark.record

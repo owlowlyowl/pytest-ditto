@@ -46,27 +46,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "record(io): snapshot values")
 
 
-# @pytest.hookimpl(tryfirst=True)
-# def pytest_fixture_setup(fixturedef, request):
-#     # print('Fixture setup: ', fixturedef.argname)
-#     # print(fixturedef)
-#     pass
-
-
-# def pytest_addoption(parser):
-#     parser.addoption(
-#         "-E",
-#         action="store",
-#         metavar="NAME",
-#         help="only run tests matching the environment NAME.",
-#     )
-#     parser.addoption(
-#         "-R",
-#         action="store",
-#         metavar="RECORD",
-#         help="only run tests matching the environment NAME.",
-#     )
-
 # def pytest_runtest_setup(item):
 #     # envnames = [mark.args[0] for mark in item.iter_markers(name="env")]
 #     # if envnames:
