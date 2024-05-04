@@ -36,10 +36,34 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pre-commit",
+    "hatch>=1.9.4",
+    "hatch-vcs>=0.4.0",
 ]
 
 [project.entry-points.pytest11]
 recording = "ditto.plugin"
+
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build]
+hooks.vcs.version-file = "ditto/_version.py"
+hooks.vcs.template = "__version__ = {version!r}"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ditto"]
+strict-naming = false
+
+[tool.hatch.build.targets.sdist]
+packages = ["ditto"]
+strict-naming = false
+
+[tool.hatch.version]
+source = "vcs"
+
 
 [tool.pytest.ini_options]
 testpaths = "tests"
