@@ -59,6 +59,18 @@ strict-naming = false
 [tool.hatch.version]
 source = "vcs"
 
+[tool.hatch.envs.default]
+python = "3.10"
+dependencies = [
+  "pytest",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+
+[[tool.hatch.envs.all.matrix]]
+python = ["3.10", "3.11", "3.12"]
+
 
 [tool.pytest.ini_options]
 testpaths = "tests"
