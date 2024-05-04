@@ -3,8 +3,10 @@ from typing import ClassVar, Any
 
 import yaml
 
+from ditto.io._protocol import Base
 
-class YamlIO:
+
+class Yaml(Base):
     extension: ClassVar[str] = "yaml"
 
     @staticmethod
