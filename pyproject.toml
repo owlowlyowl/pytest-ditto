@@ -49,14 +49,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build]
 hooks.vcs.version-file = "ditto/_version.py"
 hooks.vcs.template = "__version__ = {version!r}"
-
-[tool.hatch.build.targets.wheel]
-packages = ["ditto"]
-strict-naming = false
-
-[tool.hatch.build.targets.sdist]
-packages = ["ditto"]
-strict-naming = false
+targets.wheel.packages = ["ditto"]
+targets.wheel.strict-naming = false
+targets.sdist.packages = ["ditto"]
+targets.sdist.strict-naming = false
 
 [tool.hatch.version]
 source = "vcs"
