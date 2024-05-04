@@ -36,5 +36,6 @@ def test_use_cached_input_data_and_snapshot_result(snapshot, data) -> None:
     assert result == snapshot(result)
 
 
+@pytest.mark.xfail(reason="Set to fail: 1 != 2")
 def test_neq():
     assert 1 == 2
