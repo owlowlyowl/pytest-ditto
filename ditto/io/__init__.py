@@ -5,7 +5,16 @@ from ditto.io._pickle import PickleIO
 from ditto.io._pandas_parquet import PandasParquetIO
 
 
-__all__ = ["SnapshotIO", "YamlIO", "JsonIO", "PickleIO", "PandasParquetIO"]
+__all__ = [
+    "SnapshotIO",
+    "YamlIO",
+    "JsonIO",
+    "PickleIO",
+    "PandasParquetIO",
+    "register",
+    "get",
+    "default",
+]
 
 
 _NAME_IO_MAP: dict[str, type[SnapshotIO]] = {

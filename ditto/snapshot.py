@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
+import pytest
 
 from ditto import io
-from ditto.io import default
-from ditto.io.protocol import SnapshotIO
 
 
 class Snapshot:
@@ -23,7 +20,7 @@ class Snapshot:
         self.path = path
         self.name = name
         self.record = record
-        self.io = io if io is not None else default()
+        self.io = io if io is not None else io.default()
         self.identifier = identifier
         self.data = None
 
