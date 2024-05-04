@@ -1,6 +1,8 @@
 [project]
-name = "ditto"
-version = "0.0.1"
+name = "pytest-ditto"
+dynamic = [
+    "version",
+]
 description = ""
 keywords = ["pytest"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
