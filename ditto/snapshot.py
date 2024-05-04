@@ -38,18 +38,31 @@ class Snapshot:
         return self.io.load(self.filepath(identifier))
 
     def __call__(self, data: Any, identifier: str | None = None) -> Any:
-        # If the snapshot data exists and we are not recording, load the data from the
+        # If the snapshot data exists, and we are not recording, load the data from the
         # snapshot file; otherwise, save the data to the snapshot file.
-        if self.filepath(identifier).exists() and not self.record:
+
+        # TODO: At the moment there is no way to re-record snapshots. The approach is to
+        #  manually delete the snapshot files and re-run the tests. Using another mark,
+        #  e.g., 'record' might be a good way to do this?
+        if self.filepath(identifier).exists():
             self.data = self._load(identifier)
+
         else:
-            print(f"START RECORDING: {self.filepath(identifier)}")
             self._save(data, identifier)
-            print(f"END RECORDING: {self.filepath(identifier)}")
             self.data = data
 
-            # FIXME: shouldn't really return the data here, should fail test if data
-            #  doesn't exist.
+            _msg = (
+                f"\nNo snapshot found: {identifier=}"
+                f"\nRecoding new snapshot to {self.filepath(identifier)!r}. "
+                "\nRun again to test with recorded snapshot."
+            )
+
+            # FIXME: For tests that contain multiple snapshots, when initially recording
+            #  the snapshot files, this call to pytest.skip results in the test exiting
+            #  early and the remaining snapshots to remain unsaved. This means we need
+            #  to run the test N times to get all snapshot files saved, where N is the
+            #  number of snapshot calls in the test.
+            pytest.skip(_msg)
 
         return self.data
 

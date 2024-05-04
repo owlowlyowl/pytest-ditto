@@ -35,6 +35,12 @@ def test_pickle_int_snapshot_when_changing_params(snapshot, a, b):
         return x
 
     assert fn(a) == snapshot(fn(a), identifier="custom-data-id-abc")
+
+    # FIXME: if multiple snapshots exists in the same test, at the moment recording
+    #  each of the snapshots requires running N times where N is the number of snapshot
+    #  uses in the test. This is happening because the `Snapshot` class is calling
+    #  pytest.skip if the snapshot file doesn't exist, which exits the entire test.
+
     assert fn(b) == snapshot(fn(b))
 
 

@@ -68,12 +68,25 @@ def pytest_configure(config):
 #     )
 
 # def pytest_runtest_setup(item):
-#     envnames = [mark.args[0] for mark in item.iter_markers(name="env")]
-#     if envnames:
-#         if item.config.getoption("-E") not in envnames:
-#             pytest.skip("test requires env in {!r}".format(envnames))
-
+#     # envnames = [mark.args[0] for mark in item.iter_markers(name="env")]
+#     # if envnames:
+#     #     if item.config.getoption("-E") not in envnames:
+#     #         pytest.skip("test requires env in {!r}".format(envnames))
+#     #
 #     for mark in item.iter_markers(name="record"):
 #         msg =f"recording: args={mark.args}; kwargs={mark.kwargs}"
-#         pytest.skip(msg)
-#         # print(msg)
+#
+#         path = item.path.parent / ".ditto"
+#         name = mark.kwargs.get("identifier", mark.name)
+#         identifier = mark.kwargs.get("identifier")
+#         io_name = next(iter(mark.args))
+#
+#         snapshot = Snapshot(
+#             path=path,
+#             name=name,
+#             record=False,
+#             io=io.get(io_name, default=io.PickleIO),
+#             identifier=identifier,
+#         )
+#         if not snapshot.filepath(identifier=identifier).exists():
+#             pytest.skip(msg)
