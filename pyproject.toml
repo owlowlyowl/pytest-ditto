@@ -108,6 +108,10 @@ show_missing = true
 fail_under = 80
 
 [tool.ruff]
+line-length = 88  # same as Black.
+target-version = "py310"
+
+[tool.ruff.lint]
 # Enable the following rule sets:
 # pycodestyle (`E`) https://docs.astral.sh/ruff/rules/#pyflakes-f
 # Pyflakes (`F`) https://docs.astral.sh/ruff/rules/#pyflakes-f
@@ -119,7 +123,8 @@ extend-select = ["Q"]
 ignore = []
 # F401 - imported but unused
 # F841 - local variable assigned but never used
-extend-ignore = ["F401", "F841"]
+# SIM300 - Yoda conditions are discouraged
+extend-ignore = ["F401", "F841", "SIM300"]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
 fixable = ["A", "B", "C", "D", "E", "F"]
@@ -149,13 +154,4 @@ exclude = [
     "venv",
 ]
 
-# Same as Black.
-line-length = 88
-
-# Allow unused variables when underscore-prefixed.
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-
-target-version = "py310"
-
-[tool.ruff.mccabe]
-max-complexity = 5
+mccabe.max-complexity = 5
