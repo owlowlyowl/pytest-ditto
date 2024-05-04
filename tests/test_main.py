@@ -40,6 +40,8 @@ def test_pickle_int_snapshot_when_changing_params(snapshot, a, b):
     #  each of the snapshots requires running N times where N is the number of snapshot
     #  uses in the test. This is happening because the `Snapshot` class is calling
     #  pytest.skip if the snapshot file doesn't exist, which exits the entire test.
+    #  This may not really be necessary though as this test could be parametrised
+    #  differently, with a and b separate.
 
     assert fn(b) == snapshot(fn(b))
 
