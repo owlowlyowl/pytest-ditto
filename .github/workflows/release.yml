@@ -18,7 +18,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
     - run: |
+        git tag --list
         git fetch --prune --unshallow --tags
         echo exit code $?
         git tag --list
