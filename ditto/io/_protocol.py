@@ -1,13 +1,15 @@
 from pathlib import Path
-from typing import ClassVar, Any, Protocol
+from typing import ClassVar, Any
+from abc import ABCMeta, abstractmethod
 
 
-# TODO: maybe use abstract base class instead
-class SnapshotIO(Protocol):
+class Base(metaclass=ABCMeta):
     extension: ClassVar[str]
 
     @staticmethod
+    @abstractmethod
     def save(data: Any, filepath: Path) -> None: ...
 
     @staticmethod
+    @abstractmethod
     def load(filepath: Path) -> Any: ...

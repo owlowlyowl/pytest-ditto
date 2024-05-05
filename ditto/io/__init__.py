@@ -1,37 +1,36 @@
-from ditto.io.protocol import SnapshotIO
-from ditto.io._yaml import YamlIO
-from ditto.io._json import JsonIO
-from ditto.io._pickle import PickleIO
-from ditto.io._pandas_parquet import PandasParquetIO
+from ditto.io._protocol import Base
+from ditto.io._yaml import Yaml
+from ditto.io._json import Json
+from ditto.io._pickle import Pickle
+from ditto.io._pandas_parquet import PandasParquet
 
 
 __all__ = [
-    "SnapshotIO",
-    "YamlIO",
-    "JsonIO",
-    "PickleIO",
-    "PandasParquetIO",
+    "Base" "Yaml",
+    "Json",
+    "Pickle",
+    "PandasParquet",
     "register",
     "get",
     "default",
 ]
 
 
-_NAME_IO_MAP: dict[str, type[SnapshotIO]] = {
-    "pkl": PickleIO,
-    "json": JsonIO,
-    "yaml": YamlIO,
-    "pandas_parquet": PandasParquetIO,
+_NAME_IO_MAP: dict[str, type[Base]] = {
+    "pkl": Pickle,
+    "json": Json,
+    "yaml": Yaml,
+    "pandas_parquet": PandasParquet,
 }
 
 
-def register(name: str, io: type[SnapshotIO]) -> None:
+def register(name: str, io: type[Base]) -> None:
     _NAME_IO_MAP[name] = io
 
 
-def get(name: str, default: SnapshotIO = PickleIO) -> SnapshotIO:
+def get(name: str, default: type[Base] = Pickle) -> type[Base]:
     return _NAME_IO_MAP.get(name, default)
 
 
-def default() -> type[SnapshotIO]:
-    return PickleIO
+def default() -> type[Base]:
+    return Pickle

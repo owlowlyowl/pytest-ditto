@@ -3,10 +3,10 @@ from typing import ClassVar
 
 import pandas as pd
 
-from ditto.io.protocol import SnapshotIO
+from ditto.io._protocol import Base
 
 
-class PandasParquetIO(SnapshotIO):
+class PandasParquet(Base):
     extension: ClassVar[str] = "parquet"
 
     @staticmethod

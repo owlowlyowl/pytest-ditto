@@ -3,7 +3,7 @@ import inspect
 from typing import ClassVar
 from pathlib import Path
 
-from ditto.snapshot import Snapshot
+from ditto import Snapshot
 
 
 def _calling_test_path() -> Path:
