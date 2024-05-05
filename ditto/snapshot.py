@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Any
-import pytest
 
 from ditto import io
 
@@ -41,28 +40,12 @@ class Snapshot:
         # If the snapshot data exists, and we are not recording, load the data from the
         # snapshot file; otherwise, save the data to the snapshot file.
 
-        # TODO: At the moment there is no way to re-record snapshots. The approach is to
-        #  manually delete the snapshot files and re-run the tests. Using another mark,
-        #  e.g., 'record' might be a good way to do this?
         if self.filepath(identifier).exists():
             self.data = self._load(identifier)
 
         else:
             self._save(data, identifier)
             self.data = data
-
-            _msg = (
-                f"\nNo snapshot found: {identifier=}"
-                f"\nRecoding new snapshot to {self.filepath(identifier)!r}. "
-                "\nRun again to test with recorded snapshot."
-            )
-
-            # FIXME: For tests that contain multiple snapshots, when initially recording
-            #  the snapshot files, this call to pytest.skip results in the test exiting
-            #  early and the remaining snapshots to remain unsaved. This means we need
-            #  to run the test N times to get all snapshot files saved, where N is the
-            #  number of snapshot calls in the test.
-            pytest.skip(_msg)
 
         return self.data
 
