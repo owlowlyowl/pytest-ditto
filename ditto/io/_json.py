@@ -3,8 +3,10 @@ from typing import ClassVar, Any
 
 import json
 
+from ditto.io._protocol import Base
 
-class JsonIO:
+
+class Json(Base):
     extension: ClassVar[str] = "json"
 
     @staticmethod

@@ -13,7 +13,7 @@ class Snapshot:
         path: Path,
         name: str,
         record: bool = False,
-        io: io.SnapshotIO = io.PickleIO,
+        io: io.Base = io.Pickle,
         identifier: str | None = None,
     ) -> None:
         self.path = path

@@ -1,6 +1,6 @@
 import pytest
 
-from ditto.snapshot import Snapshot
+from ditto import Snapshot
 from ditto import io
 
 
@@ -20,6 +20,7 @@ def snapshot(request) -> Snapshot:
 
     io_name = io_name if io_name is not None else "pkl"
 
+    # TODO: parameterise the output path
     path = request.path.parent / ".ditto"
     path.mkdir(exist_ok=True)
 
@@ -31,7 +32,7 @@ def snapshot(request) -> Snapshot:
         path=path,
         name=identifier,
         # record=True,
-        io=io.get(io_name, default=io.PickleIO),
+        io=io.get(io_name, default=io.Pickle),
     )
 
 
