@@ -55,7 +55,11 @@ targets.sdist.packages = ["ditto"]
 targets.sdist.strict-naming = false
 
 [tool.hatch.version]
-source = "vcs"
+#source = "vcs"
+source = "code"
+path = "version_builder.py"
+expression = "_version()"
+
 
 [tool.hatch.envs.default]
 python = "3.10"
