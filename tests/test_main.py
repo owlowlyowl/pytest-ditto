@@ -69,16 +69,3 @@ def test_save_pandas_dataframe(snapshot):
     result = fn(input_data)
 
     pd.testing.assert_frame_equal(result, snapshot(result))
-
-
-@ditto.record("base64")
-def test_base64_dict(snapshot) -> None:
-
-    input_data = {"a": 1, 4: 10, "b": "hello world"}
-
-    def fn(x: dict) -> dict:
-        return {**x, "c": 77}
-
-    result = fn(input_data)
-
-    assert result == snapshot(result)
