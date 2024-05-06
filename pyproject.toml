@@ -3,8 +3,8 @@ name = "pytest-ditto"
 dynamic = [
     "version",
 ]
-description = ""
-keywords = ["pytest"]
+description = "Snapshot testing pytest plugin with minimal ceremony and flexible persistence formats."
+keywords = ["pytest" , "testing"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 requires-python = ">=3.10"
