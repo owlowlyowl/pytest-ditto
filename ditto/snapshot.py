@@ -1,11 +1,34 @@
 from pathlib import Path
 from typing import Any
+from collections import defaultdict
 
 from ditto import io
 
 
+class DittoException(Exception):
+    pass
+
+
+class DittoSecondLoadError(DittoException):
+    def __init__(self, filepath: Path) -> None:
+        _msg = (
+            "Snapshot has been loaded more than \n"
+            "once within the same test. \n"
+            f"Filepath is {filepath}. \n"
+            "If there are multiple snapshots in use within the same test, use the \n"
+            "`identifier` parameter to give them unique names. Otherwise, if the \n"
+            "snapshot is intentionally being used with the same underlying data, then\n"
+            "assign the snapshot call result to a variable to use throughout the test."
+        )
+        super().__init__(_msg)
+
+
 class Snapshot:
 
+    # _key_refs = defaultdict(int)
+    _save_refs = defaultdict(int)
+    _load_refs = defaultdict(int)
+    # _key_refs = {}
     data: Any | None
 
     def __init__(
@@ -25,8 +48,9 @@ class Snapshot:
 
     def filepath(self, identifier: str | None = None) -> Path:
         identifier = identifier if identifier is not None else ""
-        identifier = f"{self.name}@{identifier}" if identifier else self.name
-        return self.path / f"{identifier}.{self.io.extension}"
+        # should name this stem
+        stem = f"{self.name}@{identifier}" if identifier else self.name
+        return self.path / f"{stem}.{self.io.extension}"
 
     def _save(self, data: Any, identifier: str | None = None) -> None:
         identifier = identifier if identifier is not None else ""
@@ -36,16 +60,26 @@ class Snapshot:
         identifier = identifier if identifier is not None else ""
         return self.io.load(self.filepath(identifier))
 
-    def __call__(self, data: Any, identifier: str | None = None) -> Any:
+    # def add_key(self, key: str) -> None:
+    #     self._key_refs.add(key)
+    #
+    # def is_existing_reference(self, key: str) -> bool:
+    #     return key in self._key_refs
+
+    def __call__(self, data: Any, identifier: str) -> Any:
         # If the snapshot data exists, and we are not recording, load the data from the
         # snapshot file; otherwise, save the data to the snapshot file.
 
         if self.filepath(identifier).exists():
             self.data = self._load(identifier)
+            if self._load_refs[identifier] >= 1:
+                raise DittoSecondLoadError(self.filepath(identifier))
+            self._load_refs[identifier] += 1
 
         else:
             self._save(data, identifier)
             self.data = data
+            self._save_refs[identifier] += 1
 
         return self.data
 
