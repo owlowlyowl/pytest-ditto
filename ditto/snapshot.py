@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Any
-from collections import defaultdict
 
 from ditto import io
 
