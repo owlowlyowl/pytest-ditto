@@ -11,40 +11,36 @@ class Snapshot:
     def __init__(
         self,
         path: Path,
-        name: str,
-        record: bool = False,
+        group_name: str,
         io: io.Base = io.Pickle,
-        identifier: str | None = None,
+        key: str | None = None,
     ) -> None:
         self.path = path
-        self.name = name
-        self.record = record
+        self.group_name = group_name
         self.io = io if io is not None else io.default()
-        self.identifier = identifier
+        self.key = key
         self.data = None
 
-    def filepath(self, identifier: str | None = None) -> Path:
-        identifier = identifier if identifier is not None else ""
-        identifier = f"{self.name}@{identifier}" if identifier else self.name
-        return self.path / f"{identifier}.{self.io.extension}"
+    def filepath(self, key: str) -> Path:
+        stem = f"{self.group_name}@{key}"
+        return self.path / f"{stem}.{self.io.extension}"
 
-    def _save(self, data: Any, identifier: str | None = None) -> None:
-        identifier = identifier if identifier is not None else ""
-        self.io.save(data, self.filepath(identifier))
+    def save(self, data: Any, key: str) -> None:
+        self.path.mkdir(parents=True, exist_ok=True)
+        self.io.save(data, self.filepath(key))
 
-    def _load(self, identifier: str | None = None) -> Any:
-        identifier = identifier if identifier is not None else ""
-        return self.io.load(self.filepath(identifier))
+    def load(self, key: str) -> Any:
+        return self.io.load(self.filepath(key))
 
-    def __call__(self, data: Any, identifier: str | None = None) -> Any:
+    def __call__(self, data: Any, key: str) -> Any:
         # If the snapshot data exists, and we are not recording, load the data from the
         # snapshot file; otherwise, save the data to the snapshot file.
 
-        if self.filepath(identifier).exists():
-            self.data = self._load(identifier)
+        if self.filepath(key).exists():
+            self.data = self.load(key)
 
         else:
-            self._save(data, identifier)
+            self.save(data, key)
             self.data = data
 
         return self.data

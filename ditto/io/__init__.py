@@ -1,3 +1,5 @@
+from enum import Enum
+
 from ditto.io._protocol import Base
 from ditto.io._yaml import Yaml
 from ditto.io._json import Json
@@ -6,7 +8,8 @@ from ditto.io._pandas_parquet import PandasParquet
 
 
 __all__ = [
-    "Base" "Yaml",
+    "Base",
+    "Yaml",
     "Json",
     "Pickle",
     "PandasParquet",
@@ -16,11 +19,18 @@ __all__ = [
 ]
 
 
+class IO(str, Enum):
+    PICKLE = "pickle"
+    JSON = "json"
+    YAML = "yaml"
+    PANDAS_PARQUET = "pandas_parquet"
+
+
 _NAME_IO_MAP: dict[str, type[Base]] = {
-    "pkl": Pickle,
-    "json": Json,
-    "yaml": Yaml,
-    "pandas_parquet": PandasParquet,
+    IO.PICKLE: Pickle,
+    IO.JSON: Json,
+    IO.YAML: Yaml,
+    IO.PANDAS_PARQUET: PandasParquet,
 }
 
 
