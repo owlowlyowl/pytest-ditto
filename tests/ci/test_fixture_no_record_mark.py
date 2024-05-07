@@ -6,9 +6,9 @@ def test_snapshot_fixture_exists(snapshot):
 
 
 def test_snapshot_record(snapshot):
-    snapshot(77)
+    snapshot(77, key="b")
 
 
 def test_snapshot_twice(snapshot):
-    snapshot(77, identifier="a")
-    snapshot("(>'.')>", identifier="b")
+    snapshot(77, key="a")
+    snapshot("(>'.')>", key="b")

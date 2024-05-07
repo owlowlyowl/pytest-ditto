@@ -10,13 +10,10 @@ import ditto
 # called using the same parameters, so can stop multiple same calls.
 
 
-@pytest.mark.xfail(
-    reason="snapshot used twice, no ids", raises=ditto.snapshot.DittoSecondLoadError
-)
 @ditto.record("json")
 def test_multiple_uses_of_snapshot(snapshot):
-    assert 1 == snapshot(1)
-    assert 2 == snapshot(2)
+    assert 1 == snapshot(1, identifier="1")
+    assert 2 == snapshot(2, identifier="2")
 
 
 @ditto.record("json")

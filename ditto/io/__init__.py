@@ -8,7 +8,8 @@ from ditto.io._pandas_parquet import PandasParquet
 
 
 __all__ = [
-    "Base" "Yaml",
+    "Base",
+    "Yaml",
     "Json",
     "Pickle",
     "PandasParquet",
