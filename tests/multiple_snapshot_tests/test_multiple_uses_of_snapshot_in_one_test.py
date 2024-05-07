@@ -12,11 +12,11 @@ import ditto
 
 @ditto.record("json")
 def test_multiple_uses_of_snapshot(snapshot):
-    assert 1 == snapshot(1, identifier="1")
-    assert 2 == snapshot(2, identifier="2")
+    assert 1 == snapshot(1, key="1")
+    assert 2 == snapshot(2, key="2")
 
 
 @ditto.record("json")
 def test_one_none_one_empty_id(snapshot):
     assert 1 == snapshot(1)
-    assert 2 == snapshot(2, identifier="b")
+    assert 2 == snapshot(2, key="b")

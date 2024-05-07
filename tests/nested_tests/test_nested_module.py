@@ -14,7 +14,7 @@ def func(value: int) -> int:
 @ditto.record("yaml")
 def test_cache_input_data(snapshot) -> None:
     x = 1
-    data = snapshot(get_data(x), identifier="input_data")
+    data = snapshot(get_data(x), key="input_data")
     assert func(data) == func(x)
 
 
@@ -26,7 +26,7 @@ def test_cache_input_data(snapshot) -> None:
 # FIXME: handle use of snapshot from within fixtures.
 @pytest.fixture(scope="function")
 def data(snapshot) -> int:
-    return snapshot(get_data(1), identifier="data")
+    return snapshot(get_data(1), key="data")
 
 
 @pytest.mark.xfail(

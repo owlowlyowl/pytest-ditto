@@ -4,8 +4,8 @@ import ditto
 
 
 class TestAwesome(ditto.DittoTestCase):
-    def test_yio(self):
-        assert {1: "unittest"} == self.snapshot({1: "unittest"}, identifier="wowow")
+    def test_dict(self):
+        assert {1: "unittest"} == self.snapshot({1: "unittest"}, key="wowow")
 
     def test_dataframe(self):
 
@@ -17,4 +17,4 @@ class TestAwesome(ditto.DittoTestCase):
 
         result = fn(input_data)
 
-        pd.testing.assert_frame_equal(result, self.snapshot(result))
+        pd.testing.assert_frame_equal(result, self.snapshot(result, key="df"))

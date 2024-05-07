@@ -24,6 +24,5 @@ class DittoTestCase(unittest.TestCase):
 
         return Snapshot(
             path=path,
-            name=".".join(self.id().split(".")[-3:]),
-            record=self.record,
+            group_name=".".join(self.id().split(".")[-3:]),
         )

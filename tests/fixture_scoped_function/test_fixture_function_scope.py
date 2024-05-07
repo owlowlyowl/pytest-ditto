@@ -13,7 +13,7 @@ def func(value: int) -> int:
 
 @pytest.fixture(scope="function")
 def data_fixture_with_id(snapshot) -> int:
-    return snapshot(get_data(1), identifier="data")
+    return snapshot(get_data(1), key="data")
 
 
 @pytest.fixture(scope="function")
