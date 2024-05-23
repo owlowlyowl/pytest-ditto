@@ -1,17 +1,14 @@
-from types import SimpleNamespace
-
-import pytest
-
 from ditto._version import __version__ as version
 from ditto.snapshot import Snapshot
 from ditto._unittest import DittoTestCase
+from ditto import marks
+# Using wildcard import as marks has an __all__. Still feels dirty...
+from ditto.marks import *
 
-record = pytest.mark.record
 
-yaml = record("yaml")
-json = record("json")
-pickle = record("pkl")
-
-pandas = SimpleNamespace(
-    parquet=record("pandas_parquet"),
-)
+__all__ = [
+    "version",
+    "Snapshot",
+    "DittoTestCase",
+    *marks.__all__,
+]
