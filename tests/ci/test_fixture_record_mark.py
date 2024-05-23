@@ -44,3 +44,11 @@ def test_pandas_parquet(snapshot) -> None:
 @ditto.record("json")
 def test_only_one_record_mark_allowed(snapshot) -> None:
     snapshot(1, key="a")
+
+
+@ditto.yaml
+def test_explicit_mark_yaml(snapshot) -> None:
+    key = "xyz"
+    snapshot(77, key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".yaml"
