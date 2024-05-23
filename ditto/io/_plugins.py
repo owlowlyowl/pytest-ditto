@@ -13,8 +13,6 @@ IO_REGISTRY = {}
 def _load_plugins():
     for entry_point in importlib.metadata.entry_points(group='ditto'):
         plugin_class = entry_point.load()
-        print("loading plugins", plugin_class)
-        print(entry_point.__dict__)
         IO_REGISTRY[entry_point.name] = plugin_class
 
 

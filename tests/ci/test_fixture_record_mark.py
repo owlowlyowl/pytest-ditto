@@ -3,6 +3,7 @@ import pytest
 
 import ditto
 import ditto.exceptions
+import ditto.marks
 
 
 @ditto.record("pkl")
@@ -57,6 +58,14 @@ def test_explicit_mark_yaml(snapshot) -> None:
 @ditto.pandas.parquet
 def test_explicit_mark_pandas_parquet(snapshot) -> None:
     key = "ijk"
+    snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".parquet"
+
+
+@ditto.marks.pandas.parquet
+def test_explicit_mark_with_import_pandas_parquet(snapshot) -> None:
+    key = "marks"
     snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
     assert snapshot.filepath(key).exists()
     assert snapshot.filepath(key).suffix == ".parquet"
