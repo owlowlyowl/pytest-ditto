@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot, io
+from ditto.io._json import Json
+
 
 TEST_DIR = Path(__file__).parent / "tmp-test_snapshot"
 
@@ -43,7 +45,7 @@ def test_snapshot_load(tmp_dir) -> None:
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(value, f)
 
-    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=io.Json)
+    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
     assert snapshot.filepath(
         key
     ).exists(), "Artificial snapshot should exist as part of test setup."
@@ -86,7 +88,7 @@ def test_snapshot_call_load(monkeypatch, tmp_dir) -> None:
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(value, f)
 
-    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=io.Json)
+    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
     assert snapshot.filepath(
         key
     ).exists(), "Artificial snapshot should exist as part of test setup."
