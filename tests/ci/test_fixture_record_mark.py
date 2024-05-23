@@ -44,3 +44,19 @@ def test_pandas_parquet(snapshot) -> None:
 @ditto.record("json")
 def test_only_one_record_mark_allowed(snapshot) -> None:
     snapshot(1, key="a")
+
+
+@ditto.yaml
+def test_explicit_mark_yaml(snapshot) -> None:
+    key = "xyz"
+    snapshot(77, key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".yaml"
+
+
+@ditto.pandas.parquet
+def test_explicit_mark_pandas_parquet(snapshot) -> None:
+    key = "ijk"
+    snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".parquet"
