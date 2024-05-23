@@ -41,10 +41,10 @@ dev = [
 recording = "ditto.plugin"
 
 [project.entry-points.ditto]
-yaml = "ditto.io:Yaml"
-json = "ditto.io:Json"
-pandas_parquet = "ditto.io:PandasParquet"
-pickle = "ditto.io:Pickle"
+yaml = "ditto.io._yaml:Yaml"
+json = "ditto.io._json:Json"
+pandas_parquet = "ditto.io._pandas_parquet:PandasParquet"
+pickle = "ditto.io._pickle:Pickle"
 
 
 [build-system]

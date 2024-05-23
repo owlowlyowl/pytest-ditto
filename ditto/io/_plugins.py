@@ -14,7 +14,8 @@ def _load_plugins():
     for entry_point in pkg_resources.iter_entry_points('ditto'):
         plugin_class = entry_point.load()
         print("loading plugins", plugin_class)
-        IO_REGISTRY[plugin_class.__name__] = plugin_class
+        print(entry_point.__dict__)
+        IO_REGISTRY[entry_point.name] = plugin_class
 
 
 # Load plugins when the module is imported.

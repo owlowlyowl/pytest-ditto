@@ -9,10 +9,10 @@ from ditto import io
     [
         pytest.param(data, io.get(io_type), id=io_type)
         for data, io_type in [
-            (1, io.IO.PICKLE),
-            (2, io.IO.JSON),
-            (3, io.IO.YAML),
-            (pd.DataFrame({"a": [1, 2], "b": [3, 4]}), io.IO.PANDAS_PARQUET),
+            (1, "pickle"),
+            (2, "json"),
+            (3, "yaml"),
+            (pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_parquet"),
         ]
     ],
 )
