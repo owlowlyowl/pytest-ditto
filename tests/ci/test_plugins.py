@@ -2,4 +2,5 @@ import ditto
 
 
 def test_plugin_load() -> None:
-    assert ditto.io.io_registry
+    print(ditto.io.IO_REGISTRY)
+    assert ditto.io.IO_REGISTRY

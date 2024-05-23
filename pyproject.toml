@@ -43,7 +43,8 @@ recording = "ditto.plugin"
 [project.entry-points.ditto]
 yaml = "ditto.io:Yaml"
 json = "ditto.io:Json"
-        
+pandas_parquet = "ditto.io:PandasParquet"
+pickle = "ditto.io:Pickle"
 
 
 [build-system]

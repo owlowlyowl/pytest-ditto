@@ -5,7 +5,10 @@ from ditto.io._yaml import Yaml
 from ditto.io._json import Json
 from ditto.io._pickle import Pickle
 from ditto.io._pandas_parquet import PandasParquet
-from ditto.io._plugins import load_plugins, io_registry
+
+# Importing from `ditto.io._plugins` runs the `_load_plugins` function which will
+# discover and register any internal and externally registered IO class plugins.
+from ditto.io._plugins import IO_REGISTRY
 
 
 __all__ = [
@@ -18,9 +21,6 @@ __all__ = [
     "get",
     "default",
 ]
-
-
-load_plugins()
 
 
 class IO(str, Enum):
