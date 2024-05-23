@@ -40,6 +40,11 @@ dev = [
 [project.entry-points.pytest11]
 recording = "ditto.plugin"
 
+[project.entry-points.ditto]
+yaml = "ditto.io:Yaml"
+json = "ditto.io:Json"
+        
+
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

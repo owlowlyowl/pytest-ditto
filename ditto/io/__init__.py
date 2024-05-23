@@ -5,6 +5,7 @@ from ditto.io._yaml import Yaml
 from ditto.io._json import Json
 from ditto.io._pickle import Pickle
 from ditto.io._pandas_parquet import PandasParquet
+from ditto.io._plugins import load_plugins, io_registry
 
 
 __all__ = [
@@ -17,6 +18,9 @@ __all__ = [
     "get",
     "default",
 ]
+
+
+load_plugins()
 
 
 class IO(str, Enum):
