@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+from dataclasses import dataclass
 
 import pytest
 
@@ -20,7 +20,13 @@ json = record("json")
 pickle = record("pkl")
 
 # Explicit library specific marks with multiple output formats.
-pandas = SimpleNamespace(
+@dataclass(frozen=True)
+class PandasMarks:
+    parquet: pytest.MarkDecorator
+    json: pytest.MarkDecorator
+
+
+pandas = PandasMarks(
     parquet=record("pandas_parquet"),
-    # json=record("pandas_json"),
+    json=record("pandas_json"),
 )

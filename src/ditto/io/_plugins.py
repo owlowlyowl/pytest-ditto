@@ -15,6 +15,7 @@ def _load_plugins():
         plugin_class = entry_point.load()
         IO_REGISTRY[entry_point.name] = plugin_class
 
+    print(IO_REGISTRY)
 
 # Load plugins when the module is imported.
 _load_plugins()

@@ -44,6 +44,7 @@ recording = "ditto.plugin"
 yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
 pandas_parquet = "ditto.io._pandas_parquet:PandasParquet"
+pandas_json = "ditto.io._pandas_parquet:PandasJson"
 pickle = "ditto.io._pickle:Pickle"
 
 
