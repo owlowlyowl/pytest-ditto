@@ -1,4 +1,5 @@
 import pandas as pd
+import polars as pl
 import pytest
 
 import ditto
@@ -75,5 +76,13 @@ def test_explicit_mark_with_import_pandas_parquet(snapshot) -> None:
 def test_explicit_mark_with_import_pandas_json(snapshot) -> None:
     key = "marks"
     snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".json"
+
+
+@ditto.polars.parquet
+def test_explicit_mark_with_import_polars_parquet(snapshot) -> None:
+    key = "marks"
+    snapshot(pl.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
     assert snapshot.filepath(key).exists()
     assert snapshot.filepath(key).suffix == ".parquet"

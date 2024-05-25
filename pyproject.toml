@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml",
     "pandas",
     "pyarrow",
+    "polars",
 ]
 [project.optional-dependencies]
 dev = [
@@ -41,11 +42,15 @@ dev = [
 recording = "ditto.plugin"
 
 [project.entry-points.ditto]
+pickle = "ditto.io._pickle:Pickle"
 yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
 pandas_parquet = "ditto.io._pandas_parquet:PandasParquet"
 pandas_json = "ditto.io._pandas_parquet:PandasJson"
-pickle = "ditto.io._pickle:Pickle"
+polars_parquet = "ditto_polars.io:PolarsParquet"
+
+[project.entry-points.ditto_marks]
+polars = "ditto_polars.marks:marks"
 
 
 [build-system]
