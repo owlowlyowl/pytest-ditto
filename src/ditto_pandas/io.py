@@ -3,10 +3,8 @@ from typing import ClassVar
 
 import pandas as pd
 
-from ditto.io._protocol import Base
 
-
-class PandasParquet(Base):
+class PandasParquet:
     extension: ClassVar[str] = "pandas.parquet"
 
     @staticmethod
@@ -18,7 +16,7 @@ class PandasParquet(Base):
         return pd.read_parquet(filepath)
 
 
-class PandasJson(Base):
+class PandasJson:
     extension: ClassVar[str] = "pandas.json"
 
     @staticmethod

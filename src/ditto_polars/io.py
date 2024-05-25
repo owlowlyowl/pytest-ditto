@@ -3,10 +3,8 @@ from typing import ClassVar
 
 import polars as pl
 
-from ditto.io._protocol import Base
 
-
-class PolarsParquet(Base):
+class PolarsParquet:
     extension: ClassVar[str] = "polars.parquet"
 
     @staticmethod
