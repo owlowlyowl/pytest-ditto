@@ -26,3 +26,15 @@ class PandasJson:
     @staticmethod
     def load(filepath: Path) -> pd.DataFrame:
         return pd.read_json(filepath, orient="table")
+
+
+class PandasCsv:
+    extension: ClassVar[str] = "pandas.csv"
+
+    @staticmethod
+    def save(data: pd.DataFrame, filepath: Path) -> None:
+        data.to_csv(filepath)
+
+    @staticmethod
+    def load(filepath: Path) -> pd.DataFrame:
+        return pd.read_csv(filepath)

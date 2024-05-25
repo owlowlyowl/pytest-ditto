@@ -47,6 +47,7 @@ yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
 pandas_parquet = "ditto_pandas.io:PandasParquet"
 pandas_json = "ditto_pandas.io:PandasJson"
+pandas_csv = "ditto_pandas.io:PandasCsv"
 polars_parquet = "ditto_polars.io:PolarsParquet"
 
 [project.entry-points.ditto_marks]

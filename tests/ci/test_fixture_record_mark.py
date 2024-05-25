@@ -86,3 +86,11 @@ def test_explicit_mark_with_import_polars_parquet(snapshot) -> None:
     snapshot(pl.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
     assert snapshot.filepath(key).exists()
     assert snapshot.filepath(key).suffix == ".parquet"
+
+
+@ditto.pandas.csv
+def test_explicit_mark_with_import_pandas_csv(snapshot) -> None:
+    key = "marks"
+    snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
+    assert snapshot.filepath(key).exists()
+    assert snapshot.filepath(key).suffix == ".csv"
