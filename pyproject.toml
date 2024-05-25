@@ -42,8 +42,8 @@ dev = [
     "hatch-vcs>=0.4.0",
 ]
 test = [
-    "ditto[pandas]",
-    "ditto[polars]",
+    "pytest-ditto[pandas]",
+    "pytest-ditto[polars]",
 ]
 
 [project.entry-points.pytest11]
