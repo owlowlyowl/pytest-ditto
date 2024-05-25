@@ -27,9 +27,6 @@ classifiers = [
 dependencies = [
     "pytest>=3.5.0",
     "pyyaml",
-    # "pandas",
-    # "pyarrow",
-    # "polars",
 ]
 [project.optional-dependencies]
 pandas = [
@@ -43,6 +40,10 @@ dev = [
     "pre-commit",
     "hatch>=1.9.4",
     "hatch-vcs>=0.4.0",
+]
+test = [
+    "ditto[pandas]",
+    "ditto[polars]",
 ]
 
 [project.entry-points.pytest11]
