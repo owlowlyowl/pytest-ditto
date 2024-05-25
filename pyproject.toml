@@ -62,7 +62,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build]
 hooks.vcs.version-file = "src/ditto/_version.py"
 hooks.vcs.template = "__version__ = {version!r}"
-targets.wheel.packages = ["src/ditto"]
+targets.wheel.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars"]
 targets.wheel.strict-naming = false
 targets.sdist.packages = ["src/ditto"]
 targets.sdist.strict-naming = false
