@@ -45,12 +45,13 @@ recording = "ditto.plugin"
 pickle = "ditto.io._pickle:Pickle"
 yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
-pandas_parquet = "ditto.io._pandas_parquet:PandasParquet"
-pandas_json = "ditto.io._pandas_parquet:PandasJson"
+pandas_parquet = "ditto_pandas.io:PandasParquet"
+pandas_json = "ditto_pandas.io:PandasJson"
 polars_parquet = "ditto_polars.io:PolarsParquet"
 
 [project.entry-points.ditto_marks]
 polars = "ditto_polars.marks:marks"
+pandas = "ditto_pandas.marks:marks"
 
 
 [build-system]

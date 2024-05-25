@@ -10,5 +10,5 @@ class PolarsMarks:
 
 def marks() -> PolarsMarks:
     return PolarsMarks(
-        parquet=pytest.mark.record("pandas_parquet"),
+        parquet=pytest.mark.record("polars_parquet"),
     )

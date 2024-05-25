@@ -11,7 +11,6 @@ class PolarsParquet(Base):
 
     @staticmethod
     def save(data: pl.DataFrame, filepath: Path) -> None:
-        print("HASDKHKASDHKAJDHKASDHKAJSBQMBQIURQH")
         data.write_parquet(filepath)
 
     @staticmethod
