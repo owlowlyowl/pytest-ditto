@@ -27,11 +27,18 @@ classifiers = [
 dependencies = [
     "pytest>=3.5.0",
     "pyyaml",
-    "pandas",
-    "pyarrow",
-    "polars",
+    # "pandas",
+    # "pyarrow",
+    # "polars",
 ]
 [project.optional-dependencies]
+pandas = [
+    "pandas",
+    "pyarrow",
+]
+polars = [
+    "polars",
+]
 dev = [
     "pre-commit",
     "hatch>=1.9.4",
@@ -63,9 +70,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build]
 hooks.vcs.version-file = "src/ditto/_version.py"
 hooks.vcs.template = "__version__ = {version!r}"
-targets.wheel.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars"]
+targets.wheel.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars", "src/ditto_utils"]
 targets.wheel.strict-naming = false
-targets.sdist.packages = ["src/ditto"]
+targets.sdist.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars", "src/ditto_utils"]
 targets.sdist.strict-naming = false
 
 [tool.hatch.version]
