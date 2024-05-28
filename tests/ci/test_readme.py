@@ -3,6 +3,17 @@ import pandas as pd
 import ditto
 
 
+def fn(x: int) -> int:
+    return x + 1  # original implementation
+    # return x + 2  # new implementation
+
+
+def test_fn(snapshot) -> None:
+    x = 1
+    result = fn(x)
+    assert result == snapshot(result, key="fn")
+
+
 def awesome_fn_to_test(df: pd.DataFrame):
     df.loc[:, "a"] *= 2
     return df
