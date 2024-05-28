@@ -30,4 +30,6 @@ jobs:
         pip install .[test]
     - name: Test with pytest
       run: |
+        echo "Checking installed packages..."
+        python -c "import importlib.metadata;print(importlib.metadata.packages_distributions())"
         pytest tests/ci/
