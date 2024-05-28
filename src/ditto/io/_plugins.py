@@ -18,7 +18,6 @@ def _load_plugins():
         IO_REGISTRY[entry_point.name] = plugin_class
 
     for entry_point in importlib.metadata.entry_points(group="ditto_marks"):
-        print(entry_point)
         mark_fn = entry_point.load()
         MARK_REGISTRY[entry_point.name] = mark_fn()
 
