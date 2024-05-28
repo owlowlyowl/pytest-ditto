@@ -34,4 +34,5 @@ jobs:
       run: |
         echo "Checking installed packages with importlib.metadata"
         python -c "import importlib.metadata;print(importlib.metadata.packages_distributions())"
+        python -c "import pandas"
         pytest tests/ci/
