@@ -29,21 +29,10 @@ dependencies = [
     "pyyaml",
 ]
 [project.optional-dependencies]
-pandas = [
-    "pandas",
-    "pyarrow",
-]
-polars = [
-    "polars",
-]
 dev = [
     "pre-commit",
     "hatch>=1.9.4",
     "hatch-vcs>=0.4.0",
-]
-test = [
-    "pytest-ditto[pandas]",
-    "pytest-ditto[polars]",
 ]
 
 [project.entry-points.pytest11]
@@ -53,14 +42,9 @@ recording = "ditto.plugin"
 pickle = "ditto.io._pickle:Pickle"
 yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
-pandas_parquet = "ditto_pandas.io:PandasParquet"
-pandas_json = "ditto_pandas.io:PandasJson"
-pandas_csv = "ditto_pandas.io:PandasCsv"
-polars_parquet = "ditto_polars.io:PolarsParquet"
 
 [project.entry-points.ditto_marks]
-polars = "ditto_polars.marks:marks"
-pandas = "ditto_pandas.marks:marks"
+# placeholder for ditto IO plugins to use to register marks.
 
 
 [build-system]
@@ -71,13 +55,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build]
 hooks.vcs.version-file = "src/ditto/_version.py"
 hooks.vcs.template = "__version__ = {version!r}"
-targets.wheel.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars", "src/ditto_utils"]
+targets.wheel.packages = ["src/ditto"]
 targets.wheel.strict-naming = false
-targets.sdist.packages = ["src/ditto", "src/ditto_pandas", "src/ditto_polars", "src/ditto_utils"]
+targets.sdist.packages = ["src/ditto"]
 targets.sdist.strict-naming = false
 
 [tool.hatch.version]
-#source = "vcs"
 source = "code"
 path = "version_builder.py"
 expression = "_version()"

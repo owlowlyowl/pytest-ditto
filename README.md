@@ -38,8 +38,8 @@ By default, the snapshot data is converted and persisted using `pickle`; however
 are a range of persistence formats that can be used.
 
 ### @ditto Marks
-If the default persistence format, `pickle`, isn't appropriate this can be specified per
-test by using `ditto` marks - customised `pytest` mark decorators.
+If the default persistence format, `pickle`, isn't appropriate different formats can be
+specified per test by using `ditto` marks - customised `pytest` mark decorators.
 
 
 
