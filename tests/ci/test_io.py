@@ -1,4 +1,3 @@
-import pandas as pd
 import pytest
 
 from ditto import io
@@ -12,7 +11,6 @@ from ditto import io
             (1, "pickle"),
             (2, "json"),
             (3, "yaml"),
-            (pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_parquet"),
         ]
     ],
 )

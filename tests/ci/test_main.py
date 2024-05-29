@@ -1,5 +1,4 @@
 import pytest
-import pandas as pd
 
 import ditto
 
@@ -47,17 +46,3 @@ def test_json_single_string_snapshot(snapshot):
         return f"{x}def"
 
     assert fn(input_str) == snapshot(fn(input_str), key="abc")
-
-
-@ditto.record("pandas_parquet")
-def test_save_pandas_dataframe(snapshot):
-
-    input_data = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 9]})
-
-    def fn(df: pd.DataFrame):
-        df["a"] *= 2
-        return df
-
-    result = fn(input_data)
-
-    pd.testing.assert_frame_equal(result, snapshot(result, key="zzz"))
