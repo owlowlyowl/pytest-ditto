@@ -27,8 +27,6 @@ classifiers = [
 dependencies = [
     "pytest>=3.5.0",
     "pyyaml",
-    "pandas",
-    "pyarrow",
 ]
 [project.optional-dependencies]
 dev = [
@@ -41,10 +39,12 @@ dev = [
 recording = "ditto.plugin"
 
 [project.entry-points.ditto]
+pickle = "ditto.io._pickle:Pickle"
 yaml = "ditto.io._yaml:Yaml"
 json = "ditto.io._json:Json"
-pandas_parquet = "ditto.io._pandas_parquet:PandasParquet"
-pickle = "ditto.io._pickle:Pickle"
+
+[project.entry-points.ditto_marks]
+# placeholder for ditto IO plugins to use to register marks.
 
 
 [build-system]
@@ -61,7 +61,6 @@ targets.sdist.packages = ["src/ditto"]
 targets.sdist.strict-naming = false
 
 [tool.hatch.version]
-#source = "vcs"
 source = "code"
 path = "version_builder.py"
 expression = "_version()"

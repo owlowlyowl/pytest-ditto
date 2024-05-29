@@ -5,7 +5,7 @@ import ditto
 
 @pytest.mark.parametrize(
     "plugin_name",
-    ("pickle", "yaml", "json", "pandas_parquet"),
+    ("pickle", "yaml", "json"),
 )
 def test_plugin_load(plugin_name: str) -> None:
     print(ditto.io.IO_REGISTRY)

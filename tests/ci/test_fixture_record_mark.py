@@ -1,4 +1,3 @@
-import pandas as pd
 import pytest
 
 import ditto
@@ -30,14 +29,6 @@ def test_yaml(snapshot) -> None:
     assert snapshot.filepath(key).suffix == ".yaml"
 
 
-@ditto.record("pandas_parquet")
-def test_pandas_parquet(snapshot) -> None:
-    key = "abc"
-    snapshot(pd.DataFrame({"a": [1, 2], "b": [3, 4]}), key=key)
-    assert snapshot.filepath(key).exists()
-    assert snapshot.filepath(key).suffix == ".parquet"
-
-
 @pytest.mark.xfail(
     reason="multiple record markers", raises=ditto.exceptions.AdditionalMarkError
 )
@@ -53,19 +44,3 @@ def test_explicit_mark_yaml(snapshot) -> None:
     snapshot(77, key=key)
     assert snapshot.filepath(key).exists()
     assert snapshot.filepath(key).suffix == ".yaml"
-
-
-@ditto.pandas.parquet
-def test_explicit_mark_pandas_parquet(snapshot) -> None:
-    key = "ijk"
-    snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
-    assert snapshot.filepath(key).exists()
-    assert snapshot.filepath(key).suffix == ".parquet"
-
-
-@ditto.marks.pandas.parquet
-def test_explicit_mark_with_import_pandas_parquet(snapshot) -> None:
-    key = "marks"
-    snapshot(pd.DataFrame({"a": [44, 77], "qwer": [3, 4]}), key=key)
-    assert snapshot.filepath(key).exists()
-    assert snapshot.filepath(key).suffix == ".parquet"

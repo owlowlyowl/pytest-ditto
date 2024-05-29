@@ -1,6 +1,8 @@
-from types import SimpleNamespace
+import sys
 
 import pytest
+
+from ditto.io._plugins import MARK_REGISTRY
 
 
 __all__ = [
@@ -8,7 +10,7 @@ __all__ = [
     "yaml",
     "json",
     "pickle",
-    "pandas",
+    *MARK_REGISTRY.keys(),
 ]
 
 # Base mark for ditto package.
@@ -19,8 +21,10 @@ yaml = record("yaml")
 json = record("json")
 pickle = record("pkl")
 
-# Explicit library specific marks with multiple output formats.
-pandas = SimpleNamespace(
-    parquet=record("pandas_parquet"),
-    # json=record("pandas_json"),
-)
+    
+def _load_plugin_marks() -> None:
+    for name, marks in MARK_REGISTRY.items():
+        setattr(sys.modules[__name__], name, marks)
+
+
+_load_plugin_marks()
