@@ -41,7 +41,9 @@ are a range of persistence formats that can be used.
 If the default persistence format, `pickle`, isn't appropriate different formats can be
 specified per test by using `ditto` marks - customised `pytest` mark decorators.
 
-
+The default persistence types are: `pickle`, `yaml` and `json`; however additional
+plugins can be installed as per below:
+- pandas via `pytest-ditto-pandas`
 
 
 ## Usage
