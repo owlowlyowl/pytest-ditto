@@ -3,10 +3,8 @@ from typing import ClassVar, Any
 
 import pickle
 
-from ditto.io._protocol import Base
 
-
-class Pickle(Base):
+class Pickle:
     extension: ClassVar[str] = "pkl"
 
     @staticmethod
