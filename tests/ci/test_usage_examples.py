@@ -3,7 +3,7 @@ import pytest
 import ditto
 
 
-@ditto.record("yaml")
+@ditto.yaml
 def test_yaml_dict_snapshot(snapshot):
     def fn(x: dict[str, int]) -> dict[str, int]:
         return {k: v + 1 for k, v in x.items()}
@@ -12,32 +12,31 @@ def test_yaml_dict_snapshot(snapshot):
     assert fn({"x": 2}) == snapshot(fn({"x": 2}), key="x")
 
 
-@ditto.record("pkl", key="custom-test-id-xyz")
+@ditto.pickle
 @pytest.mark.parametrize(
-    "a,b",
+    ("a", "b"),
     [
         pytest.param(1, 2, id="First"),
-        pytest.param(
-            3,
-            4,
-            id="Second",
-            marks=pytest.mark.xfail(
-                reason="Expecting to fail as this is run second with different",
-                raises=AssertionError,
-            ),
-        ),
+        pytest.param(3, 4, id="Second"),
     ],
 )
-def test_pickle_int_snapshot_when_changing_params(snapshot, a, b):
+def test_pickle_int_snapshot_with_parametrize(snapshot, a, b):
+    """
+    Each param set should be saved with filenames as per below:
+    - test_pickle_int_snapshot_with_parametrize[First]@a.pkl
+    - test_pickle_int_snapshot_with_parametrize[First]@b.pkl
+    - test_pickle_int_snapshot_with_parametrize[Second]@a.pkl
+    - test_pickle_int_snapshot_with_parametrize[Second]@b.pkl
+    """
 
     def fn(x: int) -> int:
         return x
 
-    assert fn(a) == snapshot(fn(a), key="custom-data-id-abc")
+    assert fn(a) == snapshot(fn(a), key="a")
     assert fn(b) == snapshot(fn(b), key="b")
 
 
-@ditto.record("json")
+@ditto.json
 def test_json_single_string_snapshot(snapshot):
 
     input_str = "abc"
