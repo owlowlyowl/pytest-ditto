@@ -84,6 +84,23 @@ test = "pytest {args:tests/ci}"
 python = ["3.10", "3.11", "3.12"]
 
 
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+pixi_py = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test = "python -m pytest -rA tests/ci/"
+
+[tool.pixi.dependencies]
+python = ">=3.12.3,<3.13"
+
+[tool.pixi.feature.test.tasks]
+test = "pytest -rA tests/ci"
+
+
 [tool.pytest.ini_options]
 testpaths = "tests"
 filterwarnings = [
