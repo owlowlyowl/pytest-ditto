@@ -1,4 +1,6 @@
-name: Pre-release Testing Prior to Publish
+name: Pre-release Testing
+
+on: workflow_dispatch
 
 permissions:
   contents: read
