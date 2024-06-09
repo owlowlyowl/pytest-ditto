@@ -43,14 +43,11 @@ specified per test by using `ditto` marks - customised `pytest` mark decorators.
 
 The default persistence types are: `pickle`, `yaml` and `json`; however additional
 plugins can be installed as per below:
-- `pandas` via `pytest-ditto-pandas`
-    - `@ditto.pandas.parquet`
-    - `@ditto.pandas.json`
-    - `@ditto.pandas.csv`
-- `pyarrow` via `pytest-ditto-pyarrow`
-    - `@ditto.pyarrow.parquet`
-    - `@ditto.pyarrow.feather`
-    - `@ditto.pyarrow.csv`
+
+| Types | Plugin | Marks |
+| --- | --- | --- |
+| `pandas` | `pytest-ditto-pandas` | <ul><li>`@ditto.pandas.parquet`</li><li>`@ditto.pandas.json`</li><li>`@ditto.pandas.csv`</li> |
+| `pyarrow` | `pytest-ditto-pyarrow` | <ul><li>`@ditto.pyarrow.parquet`</li><li>`@ditto.pyarrow.feather`</li><li>`@ditto.pyarrow.csv`</li> |
 
 
 ## Usage
