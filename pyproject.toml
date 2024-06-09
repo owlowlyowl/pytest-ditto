@@ -30,6 +30,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]
+pyarrow = ["pytest-ditto-pyarrow"]
 test = [
     "pytest-ditto[pandas]",
 ]
