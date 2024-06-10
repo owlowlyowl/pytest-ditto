@@ -16,12 +16,10 @@ class Snapshot:
         path: Path,
         group_name: str,
         io: io.Base = io.Pickle,
-        key: str | None = None,
     ) -> None:
         self.path = path
         self.group_name = group_name
         self.io = io if io is not None else io.default()
-        self.key = key
         self.data = None
 
     def filepath(self, key: str) -> Path:

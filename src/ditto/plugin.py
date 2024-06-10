@@ -35,7 +35,7 @@ def snapshot(request) -> Snapshot:
     path = request.path.parent / _DEFAULT_OUTPUT_DIR_NAME
     path.mkdir(exist_ok=True)
 
-    return Snapshot(path=path, group_name=request.node.name, key={}, io=io_type)
+    return Snapshot(path=path, group_name=request.node.name, io=io_type)
 
 
 def pytest_configure(config):
