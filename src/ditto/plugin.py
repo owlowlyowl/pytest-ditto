@@ -1,5 +1,3 @@
-# from dataclasses import dataclass
-
 import pytest
 
 from ditto import Snapshot
@@ -7,36 +5,34 @@ from ditto import io
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
 
 
-# @dataclass(frozen=True)
-# class Parameters:
-#     io_name: str
+__all__ = ("snapshot",)
 
 
-def _record_mark(node) -> pytest.Mark:
-    marks = list(node.iter_markers(name="record"))
-    if len(marks) > 1:
-        raise AdditionalMarkError()
-    return marks[0]
+# TODO: parameterise the output path?
+_DEFAULT_OUTPUT_DIR_NAME = ".ditto"
 
 
 @pytest.fixture
 def snapshot(request) -> Snapshot:
 
-    # mark = _record_mark(request.node)
     marks = list(request.node.iter_markers(name="record"))
     match len(marks):
+        # No ditto record mark exists, use defaults.
         case 0:
             io_type = io.Pickle
             parameters = {}
+
+        # Ditto mark exists, get IO type and associated parameters from the mark.
         case 1:
             if (io_type := io.get(marks[0].args[0])) is None:
                 raise DittoMarkHasNoIOType()
             parameters = marks[0].kwargs
+
+        # More than one mark exists - not allowed.
         case _:
             raise AdditionalMarkError()
 
-    # TODO: parameterise the output path?
-    path = request.path.parent / ".ditto"
+    path = request.path.parent / _DEFAULT_OUTPUT_DIR_NAME
     path.mkdir(exist_ok=True)
 
     return Snapshot(path=path, group_name=request.node.name, key={}, io=io_type)
