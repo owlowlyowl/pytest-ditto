@@ -4,6 +4,9 @@ from typing import ClassVar, Any
 import yaml
 
 
+__all__ = ("Yaml",)
+
+
 class Yaml:
     extension: ClassVar[str] = "yaml"
 

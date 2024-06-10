@@ -1,3 +1,10 @@
+__all__ = (
+    "DittoException",
+    "AdditionalMarkError",
+    "DittoMarkHasNoIOType",
+)
+
+
 class DittoException(Exception):
     pass
 

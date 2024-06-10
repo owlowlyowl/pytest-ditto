@@ -4,6 +4,9 @@ from typing import Any
 from ditto import io
 
 
+__all__ = ("Snapshot",)
+
+
 class Snapshot:
 
     data: Any | None

@@ -4,6 +4,9 @@ from typing import ClassVar, Any
 import pickle
 
 
+__all__ = ("Pickle",)
+
+
 class Pickle:
     extension: ClassVar[str] = "pkl"
 
