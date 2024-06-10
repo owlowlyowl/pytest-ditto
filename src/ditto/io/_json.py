@@ -4,6 +4,9 @@ from typing import ClassVar, Any
 import json
 
 
+__all__ = ("Json",)
+
+
 class Json:
     extension: ClassVar[str] = "json"
 

@@ -6,6 +6,9 @@ from pathlib import Path
 from ditto import Snapshot
 
 
+__all__ = ("DittoTestCase",)
+
+
 def _calling_test_path() -> Path:
     frame = inspect.currentframe()
     outer_frames = inspect.getouterframes(frame)

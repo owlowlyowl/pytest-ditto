@@ -2,36 +2,40 @@ import pytest
 
 from ditto import Snapshot
 from ditto import io
-from ditto.exceptions import AdditionalMarkError
+from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
+
+
+__all__ = ("snapshot",)
+
+
+# TODO: parameterise the output path?
+_DEFAULT_OUTPUT_DIR_NAME = ".ditto"
 
 
 @pytest.fixture
 def snapshot(request) -> Snapshot:
 
-    # TODO: sanitise the below mark parsing
-    io_name = None
-    parameters = {}
-    for mark in request.node.iter_markers(name="record"):
-        if mark.args:
-            if io_name is not None:
-                raise AdditionalMarkError()
-            io_name = mark.args[0]
+    marks = list(request.node.iter_markers(name="record"))
+    match len(marks):
+        # No ditto record mark exists, use defaults.
+        case 0:
+            io_type = io.Pickle
+            parameters = {}
 
-        if mark.kwargs:
-            parameters.update(mark.kwargs)
+        # Ditto mark exists, get IO type and associated parameters from the mark.
+        case 1:
+            if (io_type := io.get(marks[0].args[0])) is None:
+                raise DittoMarkHasNoIOType()
+            parameters = marks[0].kwargs
 
-    io_name = io_name if io_name is not None else "pkl"
+        # More than one mark exists - not allowed.
+        case _:
+            raise AdditionalMarkError()
 
-    # TODO: parameterise the output path?
-    path = request.path.parent / ".ditto"
+    path = request.path.parent / _DEFAULT_OUTPUT_DIR_NAME
     path.mkdir(exist_ok=True)
 
-    return Snapshot(
-        path=path,
-        group_name=request.node.name,
-        key=parameters.get("key"),
-        io=io.get(io_name, default=io.Pickle),
-    )
+    return Snapshot(path=path, group_name=request.node.name, io=io_type)
 
 
 def pytest_configure(config):
