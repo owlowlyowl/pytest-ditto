@@ -10,7 +10,6 @@ __all__ = ("DittoTestCase",)
 
 
 class DittoTestCase(unittest.TestCase):
-
     # cached_property rather than property: constructs the Snapshot once per test
     # instance and stores it on the instance dict. unittest creates a fresh instance
     # per test method, so the cache is naturally scoped to one test — no teardown
