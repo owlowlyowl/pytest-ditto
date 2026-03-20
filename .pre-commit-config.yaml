@@ -1,22 +1,31 @@
+# https://github.com/prefix-dev/pixi/pull/1493
+exclude: |
+  (?x)
+  ^\.pixi/
+  | ^pixi\.lock$
 repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+  - repo: local
     hooks:
-      - id: check-ast
-      - id: check-yaml
-      - id: check-json
-      - id: check-toml
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-    - id: black
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.2
-    hooks:
-      - id: ruff
-#  - repo: https://github.com/pre-commit/mirrors-mypy
-#    rev: v1.10.0
-#    hooks:
-#      - id: mypy
+      - id: pixi-install
+        name: pixi-install
+        entry: pixi install -e lint
+        language: system
+        always_run: true
+        require_serial: true
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff
+        entry: pixi run -e lint ruff check --exit-non-zero-on-fix --fix --force-exclude
+        language: system
+        files: ^(src|tests)/
+        types_or: [python, pyi]
+        require_serial: true
+        verbose: true
+      - id: ruff-format
+        name: ruff-format
+        entry: pixi run -e lint ruff format --force-exclude
+        language: system
+        files: ^(src|tests)/
+        types_or: [python, pyi]
+        require_serial: true
+        verbose: true

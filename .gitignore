@@ -11,3 +11,6 @@ venv*
 
 dist/
 archive/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
