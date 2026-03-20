@@ -118,6 +118,7 @@ def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
         "#0000ff",
         "#4b0082",
     ]
+
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(stored, f)
     snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
