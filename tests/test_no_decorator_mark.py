@@ -1,6 +1,3 @@
-import pytest
-
-
 def test_snapshot_fixture_without_use_of_decorator_mark(snapshot):
     snapshot("dummy value")
     assert snapshot.filepath().exists()

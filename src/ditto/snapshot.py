@@ -8,7 +8,6 @@ __all__ = ("Snapshot",)
 
 
 class Snapshot:
-
     data: Any | None
 
     def __init__(

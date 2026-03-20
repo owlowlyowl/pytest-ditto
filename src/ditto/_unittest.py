@@ -17,7 +17,6 @@ def _calling_test_path() -> Path:
 
 
 class DittoTestCase(unittest.TestCase):
-
     record: ClassVar[bool] = True
 
     @property
