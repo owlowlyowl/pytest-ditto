@@ -19,7 +19,7 @@ record = pytest.mark.record
 # Explicit IO based marks.
 yaml = record("yaml")
 json = record("json")
-pickle = record("pkl")
+pickle = record("pickle")
 
 
 def _load_plugin_marks() -> None:
