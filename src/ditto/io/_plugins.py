@@ -14,10 +14,7 @@ def load_io_plugins() -> dict[str, type]:
     Discovers and returns all IO handler classes registered under the 'ditto'
     entry point group. Returns a new dict each call — callers own the result.
     """
-    return {
-        ep.name: ep.load()
-        for ep in importlib.metadata.entry_points(group="ditto")
-    }
+    return {ep.name: ep.load() for ep in importlib.metadata.entry_points(group="ditto")}
 
 
 def load_mark_plugins() -> dict[str, object]:
