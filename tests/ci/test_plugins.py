@@ -1,12 +1,19 @@
 import pytest
 
 import ditto
-from ditto.io._plugins import load_io_plugins, load_mark_plugins, IO_REGISTRY, MARK_REGISTRY
+from ditto.io._plugins import (
+    load_io_plugins,
+    load_mark_plugins,
+    IO_REGISTRY,
+    MARK_REGISTRY,
+)
 from ditto.io._pickle import Pickle
 
 
 @pytest.mark.parametrize("plugin_name", ("pickle", "yaml", "json"))
-def test_builtin_io_plugin_is_present_in_registry_after_import(plugin_name: str) -> None:
+def test_builtin_io_plugin_is_present_in_registry_after_import(
+    plugin_name: str,
+) -> None:
     """Each built-in IO format is discoverable from the module-level IO_REGISTRY."""
     assert plugin_name in ditto.io.IO_REGISTRY
 
@@ -28,7 +35,10 @@ def test_mutating_loaded_io_plugins_does_not_affect_shared_registry() -> None:
 
 
 def test_mutating_loaded_mark_plugins_does_not_affect_shared_registry() -> None:
-    """Modifying a registry returned by load_mark_plugins leaves MARK_REGISTRY unchanged."""
+    """
+    Modifying a registry returned by load_mark_plugins leaves MARK_REGISTRY
+    unchanged.
+    """
     registry = load_mark_plugins()
 
     registry["custom"] = object()
@@ -51,7 +61,10 @@ def test_get_returns_default_when_name_absent_from_registry() -> None:
 
 
 def test_register_adds_handler_to_supplied_registry_only() -> None:
-    """io.register writes to the supplied registry and leaves the global registry unchanged."""
+    """
+    io.register writes to the supplied registry and leaves the global registry
+    unchanged.
+    """
     isolated = {}
 
     ditto.io.register("custom", Pickle, registry=isolated)

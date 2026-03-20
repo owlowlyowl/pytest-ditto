@@ -3,7 +3,6 @@ from pathlib import Path
 
 
 class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
-
     def test_returns_same_instance_on_repeated_access(self):
         """cached_property returns the same Snapshot object across multiple accesses."""
         first = self.snapshot
@@ -47,6 +46,7 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
 class TestAwesome(ditto.DittoTestCase):
     def test_dict(self):
         """Snapshot round-trips a dict value produced by a pure function."""
+
         def fn(x: dict[str, int]) -> dict[str, int]:
             return {k: v + 1 for k, v in x.items()}
 
