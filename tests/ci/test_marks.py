@@ -11,7 +11,7 @@ def test_no_mark(snapshot) -> None:
     assert snapshot.filepath(key).suffix == ".pkl"
 
 
-@ditto.record("pkl")
+@ditto.record("pickle")
 def test_raw_mark_pickle(snapshot) -> None:
     key = "raw-mark"
     snapshot(1, key=key)
