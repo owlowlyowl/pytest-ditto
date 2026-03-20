@@ -1,9 +1,15 @@
 import json
+from dataclasses import FrozenInstanceError
 from pathlib import Path
+
+import pytest
 
 from ditto import Snapshot
 from ditto.io._json import Json
 from ditto.snapshot import load_snapshot, save_snapshot
+
+
+# --- Snapshot dataclass ---
 
 
 def test_filepath_combines_group_name_key_and_io_extension() -> None:
@@ -17,6 +23,26 @@ def test_filepath_combines_group_name_key_and_io_extension() -> None:
     assert actual == Path(__file__).parent / f"{group_name}@{key}.pkl"
 
 
+def test_filepath_reflects_io_handler_extension() -> None:
+    """Filepath extension matches the extension of the configured IO handler."""
+    snapshot = Snapshot(path=Path("/tests"), group_name="test", io=Json)
+
+    actual = snapshot.filepath("key")
+
+    assert actual.suffix == ".json"
+
+
+def test_snapshot_is_immutable() -> None:
+    """Snapshot rejects attribute assignment — frozen dataclass contract."""
+    snapshot = Snapshot(path=Path("/tests"), group_name="test")
+
+    with pytest.raises(FrozenInstanceError):
+        snapshot.group_name = "other"
+
+
+# --- save_snapshot ---
+
+
 def test_save_snapshot_creates_file_on_disk(tmp_dir) -> None:
     """save_snapshot writes the snapshot file to the configured path."""
     key = "langford-skolem-pair"
@@ -27,6 +53,19 @@ def test_save_snapshot_creates_file_on_disk(tmp_dir) -> None:
     assert snapshot.filepath(key).exists()
 
 
+def test_save_snapshot_creates_output_directory_if_absent(tmp_dir) -> None:
+    """save_snapshot creates the snapshot directory when it does not already exist."""
+    path = tmp_dir / "nested" / "output"
+    snapshot = Snapshot(path=path, group_name="group")
+
+    save_snapshot(snapshot, 42, "key")
+
+    assert path.exists()
+
+
+# --- load_snapshot ---
+
+
 def test_load_snapshot_returns_stored_value(tmp_dir) -> None:
     """load_snapshot deserialises and returns the value previously written to disk."""
     key = "A006877"
@@ -35,12 +74,14 @@ def test_load_snapshot_returns_stored_value(tmp_dir) -> None:
 
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(value, f)
-
     snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
 
     actual = load_snapshot(snapshot, key)
 
     assert actual == value
+
+
+# --- resolve_snapshot (via __call__) ---
 
 
 def test_saves_file_to_disk_on_first_call(tmp_dir) -> None:
@@ -54,11 +95,19 @@ def test_saves_file_to_disk_on_first_call(tmp_dir) -> None:
     assert snapshot.filepath(key).exists()
 
 
+def test_returns_data_on_first_call(tmp_dir) -> None:
+    """Calling snapshot when no file exists returns the passed data."""
+    key = "A001844"
+    snapshot = Snapshot(path=tmp_dir, group_name="OEIS")
+    data = [1, 5, 13, 25, 41, 61, 85, 113, 145, 181, 221, 265, 313]
+
+    actual = snapshot(data, key)
+
+    assert actual == data
+
+
 def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
-    """
-    Calling snapshot with an existing file returns the stored value, not the
-    argument.
-    """
+    """Calling snapshot with an existing file returns the stored value, not the argument."""
     key = "rainbow"
     group_name = "colours"
     stored = [
@@ -69,10 +118,8 @@ def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
         "#0000ff",
         "#4b0082",
     ]
-
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(stored, f)
-
     snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
 
     actual = snapshot(["something-different"], key)
