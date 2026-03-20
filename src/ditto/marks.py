@@ -21,7 +21,7 @@ yaml = record("yaml")
 json = record("json")
 pickle = record("pkl")
 
-    
+
 def _load_plugin_marks() -> None:
     for name, marks in MARK_REGISTRY.items():
         setattr(sys.modules[__name__], name, marks)

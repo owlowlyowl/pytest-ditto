@@ -5,7 +5,7 @@ import pytest
 from ditto import Snapshot
 
 
-TEST_DATA_DIR = Path(__file__).parent / ".ditto" 
+TEST_DATA_DIR = Path(__file__).parent / ".ditto"
 
 
 def test_snapshot_fixture_exists(snapshot) -> None:
@@ -54,5 +54,3 @@ def test_snapshot_read(snapshot) -> None:
 def test_snapshot_used_twice_different_keys(snapshot) -> None:
     snapshot(77, key="a")
     snapshot("(>'.')>", key="b")
-
-

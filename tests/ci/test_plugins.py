@@ -11,4 +11,3 @@ def test_plugin_load(plugin_name: str) -> None:
     print(ditto.io.IO_REGISTRY)
     assert ditto.io.IO_REGISTRY
     assert plugin_name in ditto.io.IO_REGISTRY
-    

@@ -1,10 +1,8 @@
-import shutil
 import json
 from pathlib import Path
 
-import pytest
 
-from ditto import Snapshot, io
+from ditto import Snapshot
 from ditto.io._json import Json
 
 
@@ -28,9 +26,9 @@ def test_snapshot_save(tmp_dir) -> None:
 
     snapshot = Snapshot(path=tmp_dir, group_name=group_name)
 
-    assert not snapshot.filepath(
-        key
-    ).exists(), "No snapshot path should exist prior to calling save."
+    assert not snapshot.filepath(key).exists(), (
+        "No snapshot path should exist prior to calling save."
+    )
     snapshot.save(41312432, key)
     assert snapshot.filepath(key).exists(), "The snapshot should now exist."
 
@@ -46,9 +44,9 @@ def test_snapshot_load(tmp_dir) -> None:
         json.dump(value, f)
 
     snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
-    assert snapshot.filepath(
-        key
-    ).exists(), "Artificial snapshot should exist as part of test setup."
+    assert snapshot.filepath(key).exists(), (
+        "Artificial snapshot should exist as part of test setup."
+    )
 
     result = snapshot.load(key)
     assert result == value
@@ -61,9 +59,9 @@ def test_snapshot_call_save(tmp_dir) -> None:
 
     snapshot = Snapshot(path=tmp_dir, group_name=group_name)
 
-    assert not snapshot.filepath(
-        key
-    ).exists(), "No snapshot path should exist prior to calling save."
+    assert not snapshot.filepath(key).exists(), (
+        "No snapshot path should exist prior to calling save."
+    )
     snapshot(data, key)
     assert snapshot.filepath(key).exists(), "The snapshot should now exist."
 
@@ -89,9 +87,9 @@ def test_snapshot_call_load(monkeypatch, tmp_dir) -> None:
         json.dump(value, f)
 
     snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
-    assert snapshot.filepath(
-        key
-    ).exists(), "Artificial snapshot should exist as part of test setup."
+    assert snapshot.filepath(key).exists(), (
+        "Artificial snapshot should exist as part of test setup."
+    )
 
     result = snapshot(value, key)
     assert result == value
