@@ -82,92 +82,108 @@ python = ["3.10", "3.11", "3.12"]
 
 
 [tool.pytest.ini_options]
-testpaths = "tests"
+minversion = "8.3"
+testpaths = "tests/ci"
+addopts = [
+  "-lv",
+  "--tb=short",
+  "--color=yes",
+  "--code-highlight=yes",
+  "--junit-xml=.pytest/test-results.xml",
+]
+junit_family = "xunit2"
 filterwarnings = [
-    # "error",
     "ignore::UserWarning",
-    # note the use of single quote below to denote "raw" strings in TOML
-    'ignore::DeprecationWarning',
+    "ignore::DeprecationWarning",
 ]
 
-
-[tool.black]
-line-length = 88
-target-version = ['py310', 'py311', 'py312']
-exclude = '''
-# A regex preceded with ^/ will apply only to files and directories
-# in the root of the project.
-^/(
-  (
-      \.eggs
-    | \.git
-    | \.pytest_cache
-    | \.vscode
-    | \.mypy_cache
-    | __pycache__
-    | _cache
-    | app_data
-    | logs
-    | venv
-    | build
-    | dist
-  )/
-)
-'''
 
 [tool.coverage.run]
 branch = true
 source = ["src/ditto"]
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true
 fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
 
 [tool.ruff]
-line-length = 88  # same as Black.
+preview = true
+src = ["src/ditto"]
+line-length = 88
 target-version = "py310"
 
 [tool.ruff.lint]
-# Enable the following rule sets:
-# pycodestyle (`E`) https://docs.astral.sh/ruff/rules/#pyflakes-f
-# Pyflakes (`F`) https://docs.astral.sh/ruff/rules/#pyflakes-f
-# flake8-bugbear (B) https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
-# flake8-simplify (SIM) https://docs.astral.sh/ruff/rules/#flake8-simplify-sim
-# flake8-quotes (Q) https://docs.astral.sh/ruff/rules/#flake8-quotes-q
-select = ["E", "F", "C90", "B", "SIM"]
-extend-select = ["Q"]
-ignore = []
-# F401 - imported but unused
-# F841 - local variable assigned but never used
-# SIM300 - Yoda conditions are discouraged
-extend-ignore = ["F401", "F841", "SIM300"]
+select = ["E", "F", "PERF", "W"]
+ignore = ["F841"]
 
-# Allow autofix for all enabled rules (when `--fix`) is provided.
-fixable = ["A", "B", "C", "D", "E", "F"]
-unfixable = []
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
 
-# Exclude a variety of commonly ignored directories.
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-]
+[tool.ruff.format]
+preview = true
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
-mccabe.max-complexity = 5
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+pytest-ditto = { path = ".", editable = true }
+
+[tool.pixi.feature.lint.dependencies]
+pre-commit = ">=4.0.1,<5"
+ruff = ">=0.8.4,<1"
+
+[tool.pixi.feature.lint.tasks]
+lint = "pre-commit run --all"
+
+[tool.pixi.feature.test.dependencies]
+pytest = ">=8.3,<9"
+pytest-cov = ">=6.0,<7"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py312.tasks]
+test = "pytest"
+test-cov = "pytest --cov=ditto --cov-report=html --cov-report=term --cov-report=xml"
+
+[tool.pixi.feature.py314.dependencies]
+python = "3.14.*"
+
+[tool.pixi.feature.py314.tasks]
+test = "pytest"
+test-cov = "pytest --cov=ditto --cov-report=html --cov-report=term --cov-report=xml"
+
+[tool.pixi.feature.build.dependencies]
+uv = ">=0.5"
+
+[tool.pixi.feature.build.tasks]
+build = "uv build --sdist && uv build --wheel"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+pandas = { features = ["pandas"], solve-group = "default" }
+pyarrow = { features = ["pyarrow"], solve-group = "default" }
+lint = { features = ["lint"] }
+py312 = { features = ["py312", "test"] }
+py314 = { features = ["py314", "test"] }
+build = { features = ["build"] }
+
+[tool.pixi.tasks]

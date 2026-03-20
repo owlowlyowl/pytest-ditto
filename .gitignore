@@ -1,13 +1,26 @@
 .ditto
 
-.pytest_cache
+# Python
 __pycache__
 *.egg-info
+*.pyc
 
-venv*
+# Testing
+.pytest_cache
+.pytest
+.coverage
 
+# Linting
+.ruff_cache
+
+# IDE
 .idea/
 .vscode/
 
+# Build artifacts
 dist/
 archive/
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
