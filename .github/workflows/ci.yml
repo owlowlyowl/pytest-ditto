@@ -17,16 +17,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["12", "14"]
+        python-version: ["12", "13", "14"]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.3
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.62.2
+          pixi-version: v0.66.0
           cache: true
 
       - name: Run tests (Python 3.${{ matrix.python-version }})

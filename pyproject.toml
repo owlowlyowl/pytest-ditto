@@ -7,7 +7,7 @@ description = "Snapshot testing pytest plugin with minimal ceremony and flexible
 keywords = ["pytest" , "testing"]
 authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
 maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "MIT"
 readme = "README.md"
 classifiers = [
@@ -19,9 +19,9 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -69,7 +69,7 @@ expression = "_version()"
 
 
 [tool.hatch.envs.default]
-python = "3.10"
+python = "3.12"
 dependencies = [
   "pytest",
 ]
@@ -78,7 +78,7 @@ dependencies = [
 test = "pytest {args:tests/ci}"
 
 [[tool.hatch.envs.all.matrix]]
-python = ["3.10", "3.11", "3.12"]
+python = ["3.12", "3.13", "3.14"]
 
 
 [tool.pytest.ini_options]
@@ -120,7 +120,7 @@ exclude_lines = [
 preview = true
 src = ["src/ditto"]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "PERF", "W"]
@@ -163,6 +163,13 @@ python = "3.12.*"
 test = "pytest"
 test-cov = "pytest --cov=ditto --cov-report=html --cov-report=term --cov-report=xml"
 
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.py313.tasks]
+test = "pytest"
+test-cov = "pytest --cov=ditto --cov-report=html --cov-report=term --cov-report=xml"
+
 [tool.pixi.feature.py314.dependencies]
 python = "3.14.*"
 
@@ -183,6 +190,7 @@ pandas = { features = ["pandas"], solve-group = "default" }
 pyarrow = { features = ["pyarrow"], solve-group = "default" }
 lint = { features = ["lint"] }
 py312 = { features = ["py312", "test"] }
+py313 = { features = ["py313", "test"] }
 py314 = { features = ["py314", "test"] }
 build = { features = ["build"] }
 
