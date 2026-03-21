@@ -2,16 +2,16 @@
 [![PyPI version](https://badge.fury.io/py/pytest-ditto.svg)](https://badge.fury.io/py/pytest-ditto)
 [![Continuous Integration](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml/badge.svg)](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml)
 
-Snapshot testing pytest plugin with minimal ceremony and flexible persistence formats.
+Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
 
 ## Introduction
-The `pytest-ditto` plugin is intended to be used snapshot/regression testing. There are
-two key components: the `snapshot` fixture and the snapshot persistence formats.
+The `pytest-ditto` plugin is intended to be used for snapshot/regression testing. There are
+two key components: the `snapshot` fixture and snapshot recorders.
 
 ### The `snapshot` Fixture
 In the following basic example, the function to test is `fn`, the test is using the
-`snapshot` fixture and it is asserting that the result of calling the `fn` with the
-value of `x` does not change. 
+`snapshot` fixture and it is asserting that the result of calling `fn` with the
+value of `x` does not change.
 
 
 ```python
@@ -31,20 +31,31 @@ def test_fn(snapshot) -> None:
 
 The first time the test is run, the `snapshot` fixture takes the data passed to it and
 persists it to a `.ditto` directory in the same location as the test module. Subsequent
-test runs will load the file and use that value in the test to test the output of the
-computed value.
+test runs load the stored file and use that value for comparison.
 
-By default, the snapshot data is converted and persisted using `pickle`; however, there
-are a range of persistence formats that can be used.
+By default, snapshot data is persisted using `pickle`; however, a range of recorders
+can be selected per test using `ditto` marks.
 
 ### @ditto Marks
-If the default persistence format, `pickle`, isn't appropriate different formats can be
-specified per test by using `ditto` marks - customised `pytest` mark decorators.
+If the default recorder (`pickle`) isn't appropriate, a different recorder can be
+specified per test using `ditto` marks — customised `pytest` mark decorators.
 
-The default persistence types are: `pickle`, `yaml` and `json`; however additional
-plugins can be installed as per below:
+The built-in recorders are:
 
-| Types | Plugin | Marks |
+| Mark | Recorder | File extension |
+| --- | --- | --- |
+| `@ditto.pickle` | pickle | `.pkl` |
+| `@ditto.yaml` | yaml | `.yaml` |
+| `@ditto.json` | json | `.json` |
+| `@ditto.record("name")` | any registered recorder | varies |
+
+`@ditto.pickle`, `@ditto.yaml`, and `@ditto.json` are convenience shorthands for
+`@ditto.record("pickle")`, `@ditto.record("yaml")`, and `@ditto.record("json")`
+respectively.
+
+Additional recorders can be installed via plugins:
+
+| Recorders | Plugin | Marks |
 | --- | --- | --- |
 | `pandas` | `pytest-ditto-pandas` | <ul><li>`@ditto.pandas.parquet`</li><li>`@ditto.pandas.json`</li><li>`@ditto.pandas.csv`</li> |
 | `pyarrow` | `pytest-ditto-pyarrow` | <ul><li>`@ditto.pyarrow.parquet`</li><li>`@ditto.pyarrow.feather`</li><li>`@ditto.pyarrow.csv`</li> |
@@ -54,7 +65,7 @@ plugins can be installed as per below:
 
 ### `pd.DataFrame`
 
-Install `pytest-ditto[pandas]` to make `pandas` IO types available.
+Install `pytest-ditto[pandas]` to make `pandas` recorders available.
 
 ```python
 import pandas as pd
@@ -88,7 +99,7 @@ For the above example the snapshot files would be found in the following locatio
 
 ### `pyarrow.Table`
 
-Install `pytest-ditto[pyarrow]` to make `pyarrow` IO types available.
+Install `pytest-ditto[pyarrow]` to make `pyarrow` recorders available.
 
 ```python
 import pyarrow as pa
@@ -124,3 +135,65 @@ def test_fn_with_pyarrow_parquet_snapshot(snapshot, table):
 
 For the above example the snapshot files would be found in the following location:
 - `.ditto/test_fn_with_pyarrow_parquet_snapshot@filtered.pyarrow.parquet`
+
+
+### `unittest.TestCase`
+
+`DittoTestCase` provides the `snapshot` fixture as a `cached_property` for use with
+`unittest.TestCase`:
+
+```python
+import unittest
+from ditto import DittoTestCase
+
+
+def fn(x: int) -> int:
+    return x + 1
+
+
+class TestFn(DittoTestCase):
+    def test_fn(self):
+        result = fn(1)
+        assert result == self.snapshot(result, key="fn")
+```
+
+Snapshot files are placed in a `.ditto` directory adjacent to the test file, using the
+fully-qualified test method name as the group name.
+
+
+## Custom Recorders
+
+A `Recorder` is a frozen dataclass pairing a file extension with `save` and `load`
+functions. Plugin packages register `Recorder` instances via the `ditto_recorders`
+entry point group.
+
+```python
+from pathlib import Path
+from ditto.recorders import Recorder
+
+
+def _save(data: MyType, filepath: Path) -> None:
+    ...  # write data to filepath
+
+
+def _load(filepath: Path) -> MyType:
+    ...  # read and return data from filepath
+
+
+my_recorder: Recorder[MyType] = Recorder(
+    extension="myformat",
+    save=_save,
+    load=_load,
+)
+```
+
+Register it in `pyproject.toml`:
+
+```toml
+[project.entry-points.ditto_recorders]
+my_recorder = "my_package.recorders:my_recorder"
+```
+
+Once registered, the recorder is available by name via `@ditto.record("my_recorder")`.
+Plugin marks (e.g. `@ditto.myplugin.myformat`) can also be registered via the
+`ditto_marks` entry point group.
