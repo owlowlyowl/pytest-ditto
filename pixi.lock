@@ -1478,8 +1478,8 @@ packages:
   timestamp: 1757200686993
 - pypi: ./
   name: pytest-ditto
-  version: 0.2.0
-  sha256: 662f8131f0eaa7aafa1145d8c2e93d7d1bb976bb679eb7f40305a35b2e486f36
+  version: 1.0.0
+  sha256: 8e1dec6b5b1ee91e5b1168b467d4f4c3cb8b580ce83bac48ff2a227a6f56ce8b
   requires_dist:
   - pytest>=3.5.0
   - pyyaml

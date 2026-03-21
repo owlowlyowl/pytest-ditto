@@ -3,7 +3,7 @@ name = "pytest-ditto"
 dynamic = [
     "version",
 ]
-description = "Snapshot testing pytest plugin with minimal ceremony and flexible persistence formats."
+description = "Snapshot testing pytest plugin with minimal ceremony and flexible recorders."
 keywords = ["pytest" , "testing"]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 license = "MIT"
 readme = "README.md"
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: Pytest",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
