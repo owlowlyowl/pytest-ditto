@@ -5,8 +5,8 @@ dynamic = [
 ]
 description = "Snapshot testing pytest plugin with minimal ceremony and flexible persistence formats."
 keywords = ["pytest" , "testing"]
-authors = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
-maintainers = [{ name = "Lachlan Taylor", email = "lachlanbtaylor@proton.me" }]
+authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
+maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 requires-python = ">=3.12"
 license = "MIT"
 readme = "README.md"
@@ -40,10 +40,10 @@ dev = [
 [project.entry-points.pytest11]
 recording = "ditto.plugin"
 
-[project.entry-points.ditto]
-pickle = "ditto.io._pickle:Pickle"
-yaml = "ditto.io._yaml:Yaml"
-json = "ditto.io._json:Json"
+[project.entry-points.ditto_recorders]
+pickle = "ditto.recorders._pickle:pickle"
+yaml   = "ditto.recorders._yaml:yaml"
+json   = "ditto.recorders._json:json"
 
 [project.entry-points.ditto_marks]
 # placeholder for ditto IO plugins to use to register marks.

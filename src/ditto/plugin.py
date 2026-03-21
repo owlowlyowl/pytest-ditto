@@ -3,8 +3,7 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot
-from ditto import io
-from ditto.io._plugins import IO_REGISTRY
+from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
 
 
@@ -14,9 +13,9 @@ __all__ = ("snapshot",)
 _DEFAULT_OUTPUT_DIR_NAME = ".ditto"
 
 
-def _resolve_io_type(marks: list) -> type:
+def _resolve_recorder(marks: list) -> Recorder:
     """
-    Resolve the IO handler class from a list of pytest marks.
+    Resolve the recorder from a list of pytest marks.
 
     Parameters
     ----------
@@ -25,8 +24,8 @@ def _resolve_io_type(marks: list) -> type:
 
     Returns
     -------
-    type
-        The IO handler class corresponding to the mark, or `Pickle` when
+    Recorder
+        The recorder corresponding to the mark, or the pickle recorder when
         no mark is present.
 
     Raises
@@ -34,17 +33,17 @@ def _resolve_io_type(marks: list) -> type:
     AdditionalMarkError
         If more than one `record` mark is present on the test.
     DittoMarkHasNoIOType
-        If the mark carries no arguments or names an IO type that is not
+        If the mark carries no arguments or names a recorder that is not
         registered — making unknown format strings an explicit error rather
-        than a silent fallback to Pickle.
+        than a silent fallback to pickle.
     """
     match len(marks):
         case 0:
-            return io.Pickle
+            return _default_recorder()
         case 1:
-            if not marks[0].args or marks[0].args[0] not in IO_REGISTRY:
+            if not marks[0].args or marks[0].args[0] not in RECORDER_REGISTRY:
                 raise DittoMarkHasNoIOType()
-            return IO_REGISTRY[marks[0].args[0]]
+            return RECORDER_REGISTRY[marks[0].args[0]]
         case _:
             raise AdditionalMarkError()
 
@@ -69,11 +68,11 @@ def _snapshot_dir(test_path: Path) -> Path:
 @pytest.fixture
 def snapshot(request) -> Snapshot:
     marks = list(request.node.iter_markers(name="record"))
-    io_type = _resolve_io_type(marks)
+    recorder = _resolve_recorder(marks)
     path = _snapshot_dir(request.path)
     path.mkdir(exist_ok=True)
-    return Snapshot(path=path, group_name=request.node.name, io=io_type)
+    return Snapshot(path=path, group_name=request.node.name, recorder=recorder)
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "record(io): snapshot values")
+    config.addinivalue_line("markers", "record(recorder): snapshot values")

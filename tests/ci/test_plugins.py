@@ -1,73 +1,62 @@
 import pytest
 
-import ditto
-from ditto.io._plugins import (
-    load_io_plugins,
-    load_mark_plugins,
-    IO_REGISTRY,
-    MARK_REGISTRY,
-)
-from ditto.io._pickle import Pickle
+from ditto import recorders
+
+pickle_recorder = recorders.default()
 
 
-@pytest.mark.parametrize("plugin_name", ("pickle", "yaml", "json"))
-def test_builtin_io_plugin_is_present_in_registry_after_import(
-    plugin_name: str,
+@pytest.mark.parametrize("recorder_name", ("pickle", "yaml", "json"))
+def test_builtin_recorder_is_present_in_registry_after_import(
+    recorder_name: str,
 ) -> None:
-    """Each built-in IO format is discoverable from the module-level IO_REGISTRY."""
-    assert plugin_name in ditto.io.IO_REGISTRY
+    """Each built-in recorder is discoverable from the module-level RECORDER_REGISTRY."""
+    assert recorder_name in recorders.RECORDER_REGISTRY
 
 
-def test_load_io_plugins_discovers_all_builtin_handlers() -> None:
-    """load_io_plugins returns a registry containing all three built-in IO handlers."""
-    registry = load_io_plugins()
+def test_load_recorders_discovers_all_builtin_handlers() -> None:
+    """load_recorders returns a registry containing all three built-in recorders."""
+    registry = recorders.load_recorders()
 
     assert set(registry.keys()) >= {"pickle", "yaml", "json"}
 
 
-def test_mutating_loaded_io_plugins_does_not_affect_shared_registry() -> None:
-    """Modifying a registry returned by load_io_plugins leaves IO_REGISTRY unchanged."""
-    registry = load_io_plugins()
+def test_mutating_loaded_recorders_does_not_affect_shared_registry() -> None:
+    """Modifying a registry returned by load_recorders leaves RECORDER_REGISTRY unchanged."""
+    registry = recorders.load_recorders()
 
-    registry["custom"] = Pickle
+    registry["custom"] = pickle_recorder
 
-    assert "custom" not in IO_REGISTRY
+    assert "custom" not in recorders.RECORDER_REGISTRY
 
 
 def test_mutating_loaded_mark_plugins_does_not_affect_shared_registry() -> None:
-    """
-    Modifying a registry returned by load_mark_plugins leaves MARK_REGISTRY
-    unchanged.
-    """
-    registry = load_mark_plugins()
+    """Modifying a registry returned by load_mark_plugins leaves MARK_REGISTRY unchanged."""
+    registry = recorders.load_mark_plugins()
 
     registry["custom"] = object()
 
-    assert "custom" not in MARK_REGISTRY
+    assert "custom" not in recorders.MARK_REGISTRY
 
 
-def test_get_resolves_handler_from_supplied_registry() -> None:
-    """io.get looks up a handler in a caller-supplied registry."""
-    actual = ditto.io.get("custom", registry={"custom": Pickle})
+def test_get_resolves_recorder_from_supplied_registry() -> None:
+    """recorders.get looks up a recorder in a caller-supplied registry."""
+    actual = recorders.get("custom", registry={"custom": pickle_recorder})
 
-    assert actual is Pickle
+    assert actual is pickle_recorder
 
 
 def test_get_returns_default_when_name_absent_from_registry() -> None:
-    """io.get falls back to the default handler when the name is not in the registry."""
-    actual = ditto.io.get("nonexistent", registry={}, default=Pickle)
+    """recorders.get falls back to the default recorder when the name is not in the registry."""
+    actual = recorders.get("nonexistent", registry={}, default=pickle_recorder)
 
-    assert actual is Pickle
+    assert actual is pickle_recorder
 
 
-def test_register_adds_handler_to_supplied_registry_only() -> None:
-    """
-    io.register writes to the supplied registry and leaves the global registry
-    unchanged.
-    """
+def test_register_adds_recorder_to_supplied_registry_only() -> None:
+    """recorders.register writes to the supplied registry and leaves the global registry unchanged."""
     isolated = {}
 
-    ditto.io.register("custom", Pickle, registry=isolated)
+    recorders.register("custom", pickle_recorder, registry=isolated)
 
-    assert isolated["custom"] is Pickle
-    assert "custom" not in ditto.io.IO_REGISTRY
+    assert isolated["custom"] is pickle_recorder
+    assert "custom" not in recorders.RECORDER_REGISTRY
