@@ -3,6 +3,7 @@ ditto CLI — snapshot management for pytest-ditto.
 
 Subcommands
 -----------
+run         Run pytest, reporting any snapshot activity at the end.
 update      Re-run pytest with --ditto-update to regenerate snapshots.
 prune       Re-run pytest with --ditto-prune to remove stale snapshots.
 list        List all snapshot files under a path.
@@ -17,6 +18,8 @@ import importlib.metadata
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -36,7 +39,6 @@ from ditto._theme import (
 
 console = Console()
 
-# Catppuccin accent colours cycled per recorder name — shared across all commands.
 _RECORDER_PALETTE = (
     ACCENT,    # peach
     UPDATED,   # blue
@@ -47,14 +49,14 @@ _RECORDER_PALETTE = (
     MAUVE,
     FLAMINGO,
 )
-_recorder_colours: dict[str, str] = {}
 
 
-def _recorder_colour(name: str) -> str:
-    """Return a consistent Catppuccin colour for a recorder name, assigning one on first use."""
-    if name not in _recorder_colours:
-        _recorder_colours[name] = _RECORDER_PALETTE[len(_recorder_colours) % len(_RECORDER_PALETTE)]
-    return _recorder_colours[name]
+def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
+    """Map recorder names to palette colours, assigned by sorted order — deterministic and pure."""
+    return {
+        name: _RECORDER_PALETTE[i % len(_RECORDER_PALETTE)]
+        for i, name in enumerate(sorted(recorder_names))
+    }
 
 
 def _find_ditto_files(root: Path) -> list[Path]:
@@ -86,6 +88,88 @@ def _human_size(n: int) -> str:
         n /= 1024
     return f"{n:.1f} TB"
 
+
+# ── Status aggregation ────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class SnapshotStats:
+    total_count: int
+    total_size: int
+    by_recorder: dict[str, tuple[int, int]]  # name → (count, bytes)
+    oldest: tuple[float, Path] | None
+    newest: tuple[float, Path] | None
+
+
+def gather_stats(files: list[Path], ext_map: dict[str, tuple[str, str]]) -> SnapshotStats:
+    """Aggregate snapshot file statistics. Pure — no I/O beyond the stat() calls on already-found files."""
+    total_size = 0
+    by_recorder: dict[str, tuple[int, int]] = {}
+    oldest: tuple[float, Path] | None = None
+    newest: tuple[float, Path] | None = None
+
+    for fp in files:
+        stat = fp.stat()
+        sz = stat.st_size
+        mtime = stat.st_mtime
+        total_size += sz
+
+        ext = fp.suffix
+        recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
+        count, total = by_recorder.get(recorder_name, (0, 0))
+        by_recorder[recorder_name] = (count + 1, total + sz)
+
+        if oldest is None or mtime < oldest[0]:
+            oldest = (mtime, fp)
+        if newest is None or mtime > newest[0]:
+            newest = (mtime, fp)
+
+    return SnapshotStats(
+        total_count=len(files),
+        total_size=total_size,
+        by_recorder=by_recorder,
+        oldest=oldest,
+        newest=newest,
+    )
+
+
+def render_stats(stats: SnapshotStats, console: Console) -> None:
+    """Render a SnapshotStats value as a Rich panel."""
+    colour_map = _build_colour_map(stats.by_recorder.keys())
+
+    lines = Text()
+    lines.append("  Total snapshots  ", style=MUTED)
+    lines.append(f"{stats.total_count}\n", style=f"bold {TEXT}")
+    lines.append("  Total size       ", style=MUTED)
+    lines.append(f"{_human_size(stats.total_size)}\n", style=f"bold {TEXT}")
+    lines.append("\n")
+    lines.append("  By recorder:\n", style=f"bold {HEADER}")
+    count_w = max(len(str(c)) for c, _ in stats.by_recorder.values())
+    size_w = max(len(_human_size(s)) for _, s in stats.by_recorder.values())
+    for name, (count, sz) in sorted(stats.by_recorder.items()):
+        lines.append(f"    {name:<12}", style=colour_map.get(name, MUTED))
+        lines.append(f"  {count:>{count_w}}  ", style=TEXT)
+        lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
+
+    if stats.oldest and stats.newest:
+        lines.append("\n")
+        oldest_date = datetime.fromtimestamp(stats.oldest[0]).strftime("%Y-%m-%d")
+        newest_date = datetime.fromtimestamp(stats.newest[0]).strftime("%Y-%m-%d")
+        lines.append("  Oldest  ", style=MUTED)
+        lines.append(f"{stats.oldest[1].name}  ", style=PATH)
+        lines.append(f"{oldest_date}\n", style=MUTED)
+        lines.append("  Newest  ", style=MUTED)
+        lines.append(f"{stats.newest[1].name}  ", style=PATH)
+        lines.append(f"{newest_date}", style=MUTED)
+
+    console.print(Panel(
+        lines,
+        title=f"[bold {TITLE}]ditto status[/bold {TITLE}]",
+        border_style=TITLE,
+        expand=False,
+    ))
+
+
+# ── CLI commands ──────────────────────────────────────────────────────────────
 
 @click.group()
 def cli():
@@ -178,6 +262,7 @@ def cmd_list(path: Path):
         return
 
     ext_map = _ext_to_recorder()
+    colour_map = _build_colour_map(v[0] for v in ext_map.values())
 
     table = Table(
         title=f"[bold {TITLE}]ditto snapshots[/bold {TITLE}]",
@@ -199,14 +284,13 @@ def cmd_list(path: Path):
         else:
             group, key = name_stem, ""
         recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
-        colour = _recorder_colour(recorder_name)
         stat = fp.stat()
         size = _human_size(stat.st_size)
         modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
         table.add_row(
             group,
             key,
-            Text(recorder_name, style=colour),
+            Text(recorder_name, style=colour_map.get(recorder_name, MUTED)),
             size,
             modified,
         )
@@ -272,60 +356,7 @@ def cmd_status(path: Path):
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         return
 
-    ext_map = _ext_to_recorder()
-
-    total_size = 0
-    by_recorder: dict[str, tuple[int, int]] = {}  # name → (count, bytes)
-    oldest: tuple[float, Path] | None = None
-    newest: tuple[float, Path] | None = None
-
-    for fp in files:
-        stat = fp.stat()
-        sz = stat.st_size
-        mtime = stat.st_mtime
-        total_size += sz
-
-        ext = fp.suffix
-        recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
-        count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + sz)
-
-        if oldest is None or mtime < oldest[0]:
-            oldest = (mtime, fp)
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, fp)
-
-    lines = Text()
-    lines.append("  Total snapshots  ", style=MUTED)
-    lines.append(f"{len(files)}\n", style=f"bold {TEXT}")
-    lines.append("  Total size       ", style=MUTED)
-    lines.append(f"{_human_size(total_size)}\n", style=f"bold {TEXT}")
-    lines.append("\n")
-    lines.append("  By recorder:\n", style=f"bold {HEADER}")
-    count_w = max(len(str(c)) for c, _ in by_recorder.values())
-    size_w = max(len(_human_size(s)) for _, s in by_recorder.values())
-    for name, (count, sz) in sorted(by_recorder.items()):
-        lines.append(f"    {name:<12}", style=_recorder_colour(name))
-        lines.append(f"  {count:>{count_w}}  ", style=TEXT)
-        lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
-
-    if oldest and newest:
-        lines.append("\n")
-        oldest_date = datetime.fromtimestamp(oldest[0]).strftime("%Y-%m-%d")
-        newest_date = datetime.fromtimestamp(newest[0]).strftime("%Y-%m-%d")
-        lines.append("  Oldest  ", style=MUTED)
-        lines.append(f"{oldest[1].name}  ", style=PATH)
-        lines.append(f"{oldest_date}\n", style=MUTED)
-        lines.append("  Newest  ", style=MUTED)
-        lines.append(f"{newest[1].name}  ", style=PATH)
-        lines.append(f"{newest_date}", style=MUTED)
-
-    console.print(Panel(
-        lines,
-        title=f"[bold {TITLE}]ditto status[/bold {TITLE}]",
-        border_style=TITLE,
-        expand=False,
-    ))
+    render_stats(gather_stats(files, _ext_to_recorder()), console)
 
 
 @cli.command(name="recorders")
@@ -351,11 +382,13 @@ def cmd_recorders():
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
         return
 
+    colour_map = _build_colour_map(name for name, _, _ in rows)
+
     lines = Text()
     lines.append("\n")
     lines.append(f"  {'Name':<12}{'Extension':<14}{'Source'}\n", style=f"bold {HEADER}")
     for name, ext, dist in sorted(rows):
-        lines.append(f"  {name:<12}", style=_recorder_colour(name))
+        lines.append(f"  {name:<12}", style=colour_map.get(name, MUTED))
         lines.append(f"{ext:<14}", style=TEXT)
         lines.append(f"{dist}\n", style=MUTED)
 
