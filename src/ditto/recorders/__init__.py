@@ -1,6 +1,11 @@
 from ._protocol import Recorder
 from ._pickle import pickle as _default
-from ._plugins import RECORDER_REGISTRY, MARK_REGISTRY, load_recorders, load_mark_plugins
+from ._plugins import (
+    RECORDER_REGISTRY,
+    MARK_REGISTRY,
+    load_recorders,
+    load_mark_plugins,
+)
 
 
 __all__ = (

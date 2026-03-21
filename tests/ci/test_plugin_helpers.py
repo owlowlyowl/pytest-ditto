@@ -57,7 +57,7 @@ def test_raises_when_mark_carries_no_args() -> None:
 
 
 def test_raises_when_mark_names_unregistered_recorder() -> None:
-    """An unrecognised recorder name raises DittoMarkHasNoIOType rather than falling back silently."""
+    """An unrecognised recorder name raises DittoMarkHasNoIOType, not a fallback."""
     with pytest.raises(DittoMarkHasNoIOType):
         _resolve_recorder([_mark("nonexistent")])
 
