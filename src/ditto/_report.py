@@ -58,6 +58,9 @@ def render_session_report(
     if console is None:
         console = Console(stderr=True)
 
+    console.print()
+    console.print()
+
     lines: list[Text] = []
 
     if created:
