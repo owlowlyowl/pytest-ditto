@@ -67,6 +67,14 @@ def test_save_snapshot_creates_output_directory_if_absent(tmp_dir) -> None:
 # --- load_snapshot ---
 
 
+def test_load_snapshot_raises_when_file_does_not_exist(tmp_dir) -> None:
+    """load_snapshot raises FileNotFoundError when the snapshot file is absent."""
+    snapshot = Snapshot(path=tmp_dir, group_name="group")
+
+    with pytest.raises(FileNotFoundError):
+        load_snapshot(snapshot, "missing-key")
+
+
 def test_load_snapshot_returns_stored_value(tmp_dir) -> None:
     """load_snapshot deserialises and returns the value previously written to disk."""
     key = "A006877"
@@ -108,7 +116,7 @@ def test_returns_data_on_first_call(tmp_dir) -> None:
 
 
 def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
-    """Calling snapshot with an existing file returns the stored value, not the argument."""
+    """snapshot returns the stored value, not the argument, when the file exists."""
     key = "rainbow"
     group_name = "colours"
     stored = [

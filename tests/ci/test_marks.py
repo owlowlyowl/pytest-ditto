@@ -78,3 +78,12 @@ def test_uses_yaml_when_raw_record_mark_specifies_yaml(snapshot) -> None:
 def test_raises_when_multiple_record_marks_are_applied(snapshot) -> None:
     """Applying more than one record mark to a test raises AdditionalMarkError."""
     snapshot(1, key="a")
+
+
+@pytest.mark.xfail(
+    reason="unregistered recorder name", raises=ditto.exceptions.DittoMarkHasNoIOType
+)
+@ditto.record("nonexistent-format")
+def test_raises_when_record_mark_specifies_unknown_recorder(snapshot) -> None:
+    """Specifying an unregistered recorder name raises DittoMarkHasNoIOType."""
+    pass
