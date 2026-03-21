@@ -3,9 +3,7 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot
-from ditto.recorders._pickle import pickle as _default_recorder
-from ditto.recorders._plugins import RECORDER_REGISTRY
-from ditto.recorders._protocol import Recorder
+from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
 
 
@@ -41,7 +39,7 @@ def _resolve_recorder(marks: list) -> Recorder:
     """
     match len(marks):
         case 0:
-            return _default_recorder
+            return _default_recorder()
         case 1:
             if not marks[0].args or marks[0].args[0] not in RECORDER_REGISTRY:
                 raise DittoMarkHasNoIOType()

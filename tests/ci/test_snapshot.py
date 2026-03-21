@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from ditto import Snapshot
-from ditto.recorders._json import json as json_recorder
+from ditto import Snapshot, recorders
 from ditto.snapshot import load_snapshot, save_snapshot
+
+json_recorder = recorders.get("json")
 
 
 # --- Snapshot dataclass ---

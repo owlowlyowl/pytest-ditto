@@ -3,11 +3,13 @@ from unittest.mock import Mock
 
 import pytest
 
+from ditto import recorders
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
-from ditto.recorders._json import json as json_recorder
-from ditto.recorders._pickle import pickle as pickle_recorder
-from ditto.recorders._yaml import yaml as yaml_recorder
 from ditto.plugin import _resolve_recorder, _snapshot_dir
+
+json_recorder = recorders.get("json")
+pickle_recorder = recorders.get("pickle")
+yaml_recorder = recorders.get("yaml")
 
 
 def _mark(*args):

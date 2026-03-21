@@ -1,9 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .recorders._pickle import pickle as _default_recorder
-from .recorders._protocol import Recorder
+from .recorders import Recorder, default as _default_recorder
 
 
 __all__ = ("Snapshot",)
@@ -30,7 +29,7 @@ class Snapshot:
 
     path: Path
     group_name: str
-    recorder: Recorder = _default_recorder
+    recorder: Recorder = field(default_factory=_default_recorder)
 
     def filepath(self, key: str) -> Path:
         """
