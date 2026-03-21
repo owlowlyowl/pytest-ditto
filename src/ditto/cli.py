@@ -92,6 +92,26 @@ def cli():
     """pytest-ditto snapshot management."""
 
 
+@cli.command(name="run", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
+def cmd_run(pytest_args):
+    """Run pytest, reporting any snapshot activity at the end.
+
+    Any extra arguments are passed directly to pytest.
+
+    \b
+    Examples:
+      ditto run
+      ditto run tests/ci/
+      ditto run tests/ci/ -k test_foo
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", *pytest_args],
+        check=False,
+    )
+    sys.exit(result.returncode)
+
+
 @cli.command(name="update", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_update(pytest_args):
