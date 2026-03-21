@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ditto.io._pickle import Pickle
-from ditto.io._protocol import Base
+from .recorders._pickle import pickle as _default_recorder
+from .recorders._protocol import Recorder
 
 
 __all__ = ("Snapshot",)
@@ -12,7 +12,7 @@ __all__ = ("Snapshot",)
 @dataclass(frozen=True)
 class Snapshot:
     """
-    Immutable configuration for a snapshot: where to store it and how to serialise it.
+    Immutable configuration for a snapshot: where to store it and how to record it.
 
     Instances are created by the `snapshot` fixture and hold no I/O state.
     All persistence operations are handled by the module-level free functions
@@ -24,13 +24,13 @@ class Snapshot:
         Directory in which snapshot files are stored.
     group_name : str
         Prefix used in snapshot filenames, typically the test name.
-    io : type[Base]
-        IO handler class responsible for serialisation. Defaults to `Pickle`.
+    recorder : Recorder
+        Recorder instance responsible for serialisation. Defaults to `pickle`.
     """
 
     path: Path
     group_name: str
-    io: type[Base] = Pickle
+    recorder: Recorder = _default_recorder
 
     def filepath(self, key: str) -> Path:
         """
@@ -47,7 +47,7 @@ class Snapshot:
             Full path to the snapshot file.
         """
         stem = f"{self.group_name}@{key}"
-        return self.path / f"{stem}.{self.io.extension}"
+        return self.path / f"{stem}.{self.recorder.extension}"
 
     def __call__(self, data: Any, key: str) -> Any:
         """
@@ -85,7 +85,7 @@ def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
         Unique identifier for this snapshot within the test.
     """
     snapshot.path.mkdir(parents=True, exist_ok=True)
-    snapshot.io.save(data, snapshot.filepath(key))
+    snapshot.recorder.save(data, snapshot.filepath(key))
 
 
 def load_snapshot(snapshot: Snapshot, key: str) -> Any:
@@ -104,7 +104,7 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
     Any
         The value previously persisted by `save_snapshot`.
     """
-    return snapshot.io.load(snapshot.filepath(key))
+    return snapshot.recorder.load(snapshot.filepath(key))
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:

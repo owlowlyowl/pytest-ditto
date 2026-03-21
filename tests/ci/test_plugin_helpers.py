@@ -4,10 +4,10 @@ from unittest.mock import Mock
 import pytest
 
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
-from ditto.io._json import Json
-from ditto.io._pickle import Pickle
-from ditto.io._yaml import Yaml
-from ditto.plugin import _resolve_io_type, _snapshot_dir
+from ditto.recorders._json import json as json_recorder
+from ditto.recorders._pickle import pickle as pickle_recorder
+from ditto.recorders._yaml import yaml as yaml_recorder
+from ditto.plugin import _resolve_recorder, _snapshot_dir
 
 
 def _mark(*args):
@@ -17,56 +17,53 @@ def _mark(*args):
     return m
 
 
-# --- _resolve_io_type ---
+# --- _resolve_recorder ---
 
 
 def test_resolves_to_pickle_when_no_marks_present() -> None:
-    """No record marks defaults to the Pickle IO handler."""
-    actual = _resolve_io_type([])
+    """No record marks defaults to the pickle recorder."""
+    actual = _resolve_recorder([])
 
-    assert actual is Pickle
+    assert actual is pickle_recorder
 
 
 def test_resolves_to_pickle_when_pickle_mark_is_present() -> None:
-    """A record mark naming 'pickle' resolves to the Pickle handler."""
-    actual = _resolve_io_type([_mark("pickle")])
+    """A record mark naming 'pickle' resolves to the pickle recorder."""
+    actual = _resolve_recorder([_mark("pickle")])
 
-    assert actual is Pickle
+    assert actual is pickle_recorder
 
 
 def test_resolves_to_yaml_when_yaml_mark_is_present() -> None:
-    """A record mark naming 'yaml' resolves to the Yaml handler."""
-    actual = _resolve_io_type([_mark("yaml")])
+    """A record mark naming 'yaml' resolves to the yaml recorder."""
+    actual = _resolve_recorder([_mark("yaml")])
 
-    assert actual is Yaml
+    assert actual is yaml_recorder
 
 
 def test_resolves_to_json_when_json_mark_is_present() -> None:
-    """A record mark naming 'json' resolves to the Json handler."""
-    actual = _resolve_io_type([_mark("json")])
+    """A record mark naming 'json' resolves to the json recorder."""
+    actual = _resolve_recorder([_mark("json")])
 
-    assert actual is Json
+    assert actual is json_recorder
 
 
 def test_raises_when_mark_carries_no_args() -> None:
     """A bare record mark with no arguments raises DittoMarkHasNoIOType."""
     with pytest.raises(DittoMarkHasNoIOType):
-        _resolve_io_type([_mark()])
+        _resolve_recorder([_mark()])
 
 
-def test_raises_when_mark_names_unregistered_io_type() -> None:
-    """
-    An unrecognised IO type name raises DittoMarkHasNoIOType rather than falling
-    back silently.
-    """
+def test_raises_when_mark_names_unregistered_recorder() -> None:
+    """An unrecognised recorder name raises DittoMarkHasNoIOType rather than falling back silently."""
     with pytest.raises(DittoMarkHasNoIOType):
-        _resolve_io_type([_mark("nonexistent")])
+        _resolve_recorder([_mark("nonexistent")])
 
 
 def test_raises_when_multiple_marks_are_present() -> None:
     """More than one record mark raises AdditionalMarkError."""
     with pytest.raises(AdditionalMarkError):
-        _resolve_io_type([_mark("pickle"), _mark("json")])
+        _resolve_recorder([_mark("pickle"), _mark("json")])
 
 
 # --- _snapshot_dir ---

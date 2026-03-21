@@ -1,8 +1,6 @@
 from ditto._version import __version__ as version
 from ditto.snapshot import Snapshot
 from ditto._unittest import DittoTestCase
-from ditto.io._plugins import MARK_REGISTRY
-
 # Base mark and convenience marks — accessible as @ditto.record, @ditto.yaml, etc.
 from ._marks import record
 from ._marks import yaml, json, pickle
@@ -43,6 +41,13 @@ def __getattr__(name: str):
     AttributeError
         If `name` is not a registered plugin mark.
     """
+    # Imported here rather than at module level so MARK_REGISTRY is never exposed
+    # as a public attribute of the `ditto` namespace. The import cost is paid only
+    # when an unknown attribute is accessed, and importlib caches module imports so
+    # the registry is only loaded from entry points once regardless of how many
+    # times __getattr__ is called.
+    from .recorders._plugins import MARK_REGISTRY
+
     if name in MARK_REGISTRY:
         return MARK_REGISTRY[name]
     raise AttributeError(f"module 'ditto' has no attribute {name!r}")

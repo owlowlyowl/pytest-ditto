@@ -1,20 +1,23 @@
 import pytest
 
-from ditto import io
+from ditto import recorders
 
 
 @pytest.mark.parametrize(
-    ("data", "io_class"),
+    ("data", "recorder"),
     [
-        pytest.param(data, io.get(io_type), id=io_type)
-        for data, io_type in [
+        pytest.param(data, recorders.get(recorder_name), id=recorder_name)
+        for data, recorder_name in [
             (1, "pickle"),
             (2, "json"),
             (3, "yaml"),
         ]
     ],
 )
-def test_io_save(tmp_dir, data, io_class: io.Base) -> None:
-    filepath = tmp_dir / f"tmp.{io_class.extension}"
-    io_class.save(data, filepath)
+def test_recorder_saves_file_to_disk(tmp_dir, data, recorder: recorders.Recorder) -> None:
+    """Each built-in recorder writes a file to the given path."""
+    filepath = tmp_dir / f"tmp.{recorder.extension}"
+
+    recorder.save(data, filepath)
+
     assert filepath.exists()

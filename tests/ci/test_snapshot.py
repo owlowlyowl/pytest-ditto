@@ -5,15 +5,15 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot
-from ditto.io._json import Json
+from ditto.recorders._json import json as json_recorder
 from ditto.snapshot import load_snapshot, save_snapshot
 
 
 # --- Snapshot dataclass ---
 
 
-def test_filepath_combines_group_name_key_and_io_extension() -> None:
-    """The snapshot filepath encodes the group name, key, and IO format extension."""
+def test_filepath_combines_group_name_key_and_recorder_extension() -> None:
+    """The snapshot filepath encodes the group name, key, and recorder extension."""
     key = "yek"
     group_name = "puorg"
     snapshot = Snapshot(path=Path(__file__).parent, group_name=group_name)
@@ -23,9 +23,9 @@ def test_filepath_combines_group_name_key_and_io_extension() -> None:
     assert actual == Path(__file__).parent / f"{group_name}@{key}.pkl"
 
 
-def test_filepath_reflects_io_handler_extension() -> None:
-    """Filepath extension matches the extension of the configured IO handler."""
-    snapshot = Snapshot(path=Path("/tests"), group_name="test", io=Json)
+def test_filepath_reflects_recorder_extension() -> None:
+    """Filepath extension matches the extension of the configured recorder."""
+    snapshot = Snapshot(path=Path("/tests"), group_name="test", recorder=json_recorder)
 
     actual = snapshot.filepath("key")
 
@@ -74,7 +74,7 @@ def test_load_snapshot_returns_stored_value(tmp_dir) -> None:
 
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(value, f)
-    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
+    snapshot = Snapshot(path=tmp_dir, group_name=group_name, recorder=json_recorder)
 
     actual = load_snapshot(snapshot, key)
 
@@ -121,7 +121,7 @@ def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
 
     with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
         json.dump(stored, f)
-    snapshot = Snapshot(path=tmp_dir, group_name=group_name, io=Json)
+    snapshot = Snapshot(path=tmp_dir, group_name=group_name, recorder=json_recorder)
 
     actual = snapshot(["something-different"], key)
 
