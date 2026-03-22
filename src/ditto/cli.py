@@ -10,11 +10,15 @@ list        List all snapshot files under a path.
 clean       Delete all .ditto/ directories under a path.
 status      Show aggregate statistics for snapshots under a path.
 recorders   List all registered recorder plugins.
+doctor      Run health checks on the ditto installation and plugins.
+lint        Check snapshot files for naming, format, and integrity issues.
+stats       Show per-directory snapshot usage breakdown.
 """
 
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -287,7 +291,7 @@ def cmd_list(path: Path):
     files = _find_ditto_files(path)
     if not files:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
-        return
+        sys.exit(1)
 
     infos = _load_recorder_infos()
     em = _ext_map(infos)
@@ -340,7 +344,7 @@ def cmd_clean(path: Path, yes: bool):
     dirs = _find_ditto_dirs(path)
     if not dirs:
         console.print(f"[{MUTED}]No .ditto/ directories found.[/{MUTED}]")
-        return
+        sys.exit(1)
 
     preview = Text()
     preview.append("Will delete:\n\n", style=f"bold {TEXT}")
@@ -378,7 +382,7 @@ def cmd_status(path: Path):
     files = _find_ditto_files(path)
     if not files:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
-        return
+        sys.exit(1)
 
     render_stats(gather_stats(files, _ext_map(_load_recorder_infos())), console)
 
@@ -416,5 +420,203 @@ def cmd_recorders():
     infos = _load_recorder_infos()
     if not infos:
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
-        return
+        sys.exit(1)
     _render_recorders(infos, console)
+
+
+# ── Doctor / Lint / Stats data types ──────────────────────────────────────────
+
+@dataclass(frozen=True)
+class CheckResult:
+    name: str
+    ok: bool
+    detail: str
+
+
+@dataclass(frozen=True)
+class LintIssue:
+    filename: str
+    issue: str
+
+
+# ── Doctor / Lint / Stats pure core ───────────────────────────────────────────
+
+def _doctor_checks() -> list[CheckResult]:
+    """Return health-check results without any I/O."""
+    results: list[CheckResult] = []
+
+    results.append(CheckResult(
+        name="pytest importable",
+        ok=importlib.util.find_spec("pytest") is not None,
+        detail="",
+    ))
+
+    registered = any(
+        ep.name == "ditto"
+        for ep in importlib.metadata.entry_points(group="pytest11")
+    )
+    results.append(CheckResult(name="ditto plugin registered", ok=registered, detail=""))
+
+    for ep in importlib.metadata.entry_points(group="ditto_recorders"):
+        try:
+            ep.load()
+            results.append(CheckResult(name=f"recorder: {ep.name}", ok=True, detail=""))
+        except Exception as exc:
+            results.append(CheckResult(name=f"recorder: {ep.name}", ok=False, detail=str(exc)))
+
+    for ep in importlib.metadata.entry_points(group="ditto_marks"):
+        try:
+            ep.load()
+            results.append(CheckResult(name=f"mark: {ep.name}", ok=True, detail=""))
+        except Exception as exc:
+            results.append(CheckResult(name=f"mark: {ep.name}", ok=False, detail=str(exc)))
+
+    return results
+
+
+def _find_lint_issues(files: list[Path], em: dict[str, RecorderInfo]) -> list[LintIssue]:
+    """Return lint issues for a list of snapshot files without any I/O."""
+    issues: list[LintIssue] = []
+    for fp in files:
+        _, key, ext = _parse_snapshot_name(fp.name)
+        if key == "":
+            issues.append(LintIssue(filename=fp.name, issue="Malformed name (missing @)"))
+        elif ext not in em:
+            issues.append(LintIssue(filename=fp.name, issue=f"Unknown extension: {ext!r}"))
+        if fp.stat().st_size == 0:
+            issues.append(LintIssue(filename=fp.name, issue="Empty file"))
+    return issues
+
+
+def _gather_dir_stats(
+    dirs: list[Path], em: dict[str, RecorderInfo]
+) -> list[tuple[Path, SnapshotStats]]:
+    """Return per-directory stats for non-empty .ditto/ dirs without any I/O beyond stat()."""
+    result = []
+    for d in dirs:
+        files = sorted(f for f in d.iterdir() if f.is_file())
+        if files:
+            result.append((d, gather_stats(files, em)))
+    return result
+
+
+# ── Doctor / Lint / Stats rendering ───────────────────────────────────────────
+
+def _render_doctor(checks: list[CheckResult], console: Console) -> None:
+    table = Table(
+        title=f"[bold {TITLE}]ditto doctor[/bold {TITLE}]",
+        border_style=MUTED,
+        header_style=f"bold {HEADER}",
+        show_header=True,
+    )
+    table.add_column("Check", style=TEXT)
+    table.add_column("Status", justify="center")
+    table.add_column("Detail", style=MUTED)
+
+    for check in checks:
+        status = Text("✓", style=f"bold {CREATED}") if check.ok else Text("✗", style=f"bold {PRUNED}")
+        table.add_row(check.name, status, check.detail)
+
+    console.print(table)
+
+
+def _render_lint_issues(issues: list[LintIssue], console: Console) -> None:
+    table = Table(
+        title=f"[bold {TITLE}]ditto lint[/bold {TITLE}]",
+        border_style=MUTED,
+        header_style=f"bold {HEADER}",
+        show_header=True,
+    )
+    table.add_column("File", style=PATH)
+    table.add_column("Issue", style=f"bold {PRUNED}")
+
+    for issue in issues:
+        table.add_row(issue.filename, issue.issue)
+
+    console.print(table)
+
+
+def _render_stats_table(
+    dir_stats: list[tuple[Path, SnapshotStats]], console: Console
+) -> None:
+    all_names = {name for _, s in dir_stats for name in s.by_recorder}
+    colour_map = _build_colour_map(all_names)
+
+    table = Table(
+        title=f"[bold {TITLE}]ditto stats[/bold {TITLE}]",
+        border_style=MUTED,
+        header_style=f"bold {HEADER}",
+        show_header=True,
+        show_footer=True,
+    )
+    table.add_column("Directory", style=PATH, footer_style=f"bold {HEADER}", footer="TOTAL")
+    table.add_column("Snapshots", justify="right", style=TEXT, footer_style=f"bold {TEXT}")
+    table.add_column("Size", justify="right", style=MUTED, footer_style=f"bold {MUTED}")
+    table.add_column("Recorders", footer_style=MUTED)
+
+    total_count = sum(s.total_count for _, s in dir_stats)
+    total_size = sum(s.total_size for _, s in dir_stats)
+
+    for d, s in dir_stats:
+        recorder_text = Text()
+        for i, (name, (cnt, _sz)) in enumerate(sorted(s.by_recorder.items())):
+            if i:
+                recorder_text.append("  ")
+            recorder_text.append(f"{name}×{cnt}", style=colour_map.get(name, MUTED))
+        table.add_row(str(d), str(s.total_count), _human_size(s.total_size), recorder_text)
+
+    table.columns[1].footer = str(total_count)
+    table.columns[2].footer = _human_size(total_size)
+
+    console.print(table)
+
+
+# ── New CLI commands ───────────────────────────────────────────────────────────
+
+@cli.command(name="doctor")
+def cmd_doctor():
+    """Run health checks: plugin loading, pytest availability.
+
+    \b
+    Examples:
+      ditto doctor
+    """
+    checks = _doctor_checks()
+    _render_doctor(checks, console)
+    if not all(c.ok for c in checks):
+        sys.exit(1)
+
+
+@cli.command(name="lint")
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def cmd_lint(path: Path):
+    """Check snapshot files for naming issues, unknown formats, and empty files.
+
+    \b
+    Examples:
+      ditto lint
+      ditto lint tests/ci/
+    """
+    issues = _find_lint_issues(_find_ditto_files(path), _ext_map(_load_recorder_infos()))
+    if not issues:
+        console.print(f"[{MUTED}]All snapshots are valid.[/{MUTED}]")
+        return
+    _render_lint_issues(issues, console)
+    sys.exit(1)
+
+
+@cli.command(name="stats")
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+def cmd_stats(path: Path):
+    """Show per-directory snapshot usage breakdown.
+
+    \b
+    Examples:
+      ditto stats
+      ditto stats tests/ci/
+    """
+    dir_stats = _gather_dir_stats(_find_ditto_dirs(path), _ext_map(_load_recorder_infos()))
+    if not dir_stats:
+        console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        sys.exit(1)
+    _render_stats_table(dir_stats, console)
