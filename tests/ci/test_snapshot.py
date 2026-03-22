@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot, recorders
+from ditto.exceptions import DuplicateSnapshotKeyError
 from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
@@ -135,3 +136,32 @@ def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
     actual = snapshot(["something-different"], key)
 
     assert actual == stored
+
+
+# --- duplicate key detection ---
+
+
+def test_raises_when_key_is_reused_within_same_snapshot(tmp_dir) -> None:
+    """Calling snapshot twice with the same key raises DuplicateSnapshotKeyError."""
+    snapshot = Snapshot(path=tmp_dir, group_name="group")
+    snapshot(42, "result")
+
+    with pytest.raises(DuplicateSnapshotKeyError):
+        snapshot(99, "result")
+
+
+def test_duplicate_key_error_names_the_offending_key(tmp_dir) -> None:
+    """DuplicateSnapshotKeyError message identifies which key was reused."""
+    snapshot = Snapshot(path=tmp_dir, group_name="group")
+    snapshot(42, "result")
+
+    with pytest.raises(DuplicateSnapshotKeyError, match="'result'"):
+        snapshot(99, "result")
+
+
+def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
+    """snapshot accepts multiple calls within a test as long as each key is unique."""
+    snapshot = Snapshot(path=tmp_dir, group_name="group")
+
+    snapshot(1, "first")
+    snapshot(2, "second")
