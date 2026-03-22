@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
 
 
@@ -20,11 +21,13 @@ class _SessionTracker:
     accessed: set[Path] = field(default_factory=set)
     created: list[Path] = field(default_factory=list)
     updated: list[Path] = field(default_factory=list)
+    used_keys: set[Path] = field(default_factory=set)
 
     def reset(self) -> None:
         self.accessed.clear()
         self.created.clear()
         self.updated.clear()
+        self.used_keys.clear()
 
 
 session_tracker = _SessionTracker()
@@ -153,6 +156,9 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         `data` on first call (or when updating); the previously stored value otherwise.
     """
     fp = snapshot.filepath(key)
+    if fp in session_tracker.used_keys:
+        raise DuplicateSnapshotKeyError(key)
+    session_tracker.used_keys.add(fp)
     session_tracker.accessed.add(fp)
     if fp.exists() and not snapshot.update:
         return load_snapshot(snapshot, key)
