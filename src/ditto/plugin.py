@@ -3,8 +3,10 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot
+from ._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
+from ditto.snapshot import session_tracker
 
 
 __all__ = ("snapshot",)
@@ -65,13 +67,63 @@ def _snapshot_dir(test_path: Path) -> Path:
     return test_path.parent / _DEFAULT_OUTPUT_DIR_NAME
 
 
+def pytest_addoption(parser):
+    group = parser.getgroup("ditto")
+    group.addoption(
+        "--ditto-update",
+        action="store_true",
+        default=False,
+        help="Overwrite all existing snapshots with current test values.",
+    )
+    group.addoption(
+        "--ditto-prune",
+        action="store_true",
+        default=False,
+        help="After the session, delete snapshot files not accessed during this run.",
+    )
+
+
 @pytest.fixture
 def snapshot(request) -> Snapshot:
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
     path = _snapshot_dir(request.path)
     path.mkdir(exist_ok=True)
-    return Snapshot(path=path, group_name=request.node.name, recorder=recorder)
+    update = request.config.getoption("--ditto-update", default=False)
+    return Snapshot(path=path, group_name=request.node.name, recorder=recorder, update=update)
+
+
+def pytest_sessionstart(session):
+    session_tracker.reset()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    config = session.config
+    do_prune = config.getoption("--ditto-prune", default=False)
+
+    pruned: list[Path] = []
+    unused: list[Path] = []
+
+    if do_prune or session_tracker.accessed:
+        rootdir = Path(config.rootdir)
+        all_ditto_files = set(rootdir.rglob(".ditto/*"))
+        # Only consider actual files (not directories inside .ditto/)
+        all_ditto_files = {p for p in all_ditto_files if p.is_file()}
+        not_accessed = all_ditto_files - session_tracker.accessed
+
+        if do_prune:
+            for fp in sorted(not_accessed):
+                fp.unlink()
+                pruned.append(fp)
+        else:
+            unused = sorted(not_accessed)
+
+    render_session_report(
+        created=session_tracker.created,
+        updated=session_tracker.updated,
+        pruned=pruned,
+        unused=unused,
+    )
 
 
 def pytest_configure(config):

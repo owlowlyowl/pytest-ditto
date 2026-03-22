@@ -5,7 +5,29 @@ from typing import Any
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("Snapshot",)
+__all__ = ("Snapshot", "session_tracker")
+
+
+@dataclass
+class _SessionTracker:
+    """
+    In-memory record of snapshot activity for the current pytest session.
+
+    Reset at `pytest_sessionstart` and read at `pytest_sessionfinish`.
+    Never written to disk.
+    """
+
+    accessed: set[Path] = field(default_factory=set)
+    created: list[Path] = field(default_factory=list)
+    updated: list[Path] = field(default_factory=list)
+
+    def reset(self) -> None:
+        self.accessed.clear()
+        self.created.clear()
+        self.updated.clear()
+
+
+session_tracker = _SessionTracker()
 
 
 @dataclass(frozen=True)
@@ -25,11 +47,15 @@ class Snapshot:
         Prefix used in snapshot filenames, typically the test name.
     recorder : Recorder
         Recorder instance responsible for serialisation. Defaults to `pickle`.
+    update : bool
+        When True, overwrite existing snapshot files with new values.
+        Set by the `--ditto-update` pytest flag. Defaults to False.
     """
 
     path: Path
     group_name: str
     recorder: Recorder = field(default_factory=_default_recorder)
+    update: bool = False
 
     def filepath(self, key: str) -> Path:
         """
@@ -110,6 +136,8 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     """
     Return the snapshot value for `key`, saving it first if it does not yet exist.
 
+    When `snapshot.update` is True, always overwrites the existing file.
+
     Parameters
     ----------
     snapshot : Snapshot
@@ -122,9 +150,13 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     Returns
     -------
     Any
-        `data` on first call; the previously stored value on subsequent calls.
+        `data` on first call (or when updating); the previously stored value otherwise.
     """
-    if snapshot.filepath(key).exists():
+    fp = snapshot.filepath(key)
+    session_tracker.accessed.add(fp)
+    if fp.exists() and not snapshot.update:
         return load_snapshot(snapshot, key)
+    existed = fp.exists()
     save_snapshot(snapshot, data, key)
+    (session_tracker.updated if existed else session_tracker.created).append(fp)
     return data
