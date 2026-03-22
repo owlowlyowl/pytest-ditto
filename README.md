@@ -224,7 +224,7 @@ ditto update tests/ci/
 ditto update tests/ci/ -k test_foo
 ```
 
-![ditto update](docs/img/ditto-update.png)
+<img width="2248" src="docs/img/ditto-update.png" alt="ditto update">
 
 ### `ditto prune`
 
@@ -247,7 +247,7 @@ ditto list
 ditto list tests/ci/
 ```
 
-![ditto list](docs/img/ditto-list.png)
+<img width="1952" src="docs/img/ditto-list.png" alt="ditto list">
 
 ### `ditto status`
 
@@ -259,7 +259,7 @@ ditto status
 ditto status tests/ci/
 ```
 
-![ditto status](docs/img/ditto-status.png)
+<img width="1612" src="docs/img/ditto-status.png" alt="ditto status">
 
 ### `ditto clean`
 
@@ -272,7 +272,7 @@ ditto clean --yes
 ditto clean tests/ci/ --yes
 ```
 
-![ditto clean](docs/img/ditto-clean.png)
+<img width="850" src="docs/img/ditto-clean.png" alt="ditto clean">
 
 ### `ditto recorders`
 
@@ -283,4 +283,4 @@ source package they come from.
 ditto recorders
 ```
 
-![ditto recorders](docs/img/ditto-recorders.png)
+<img width="880" src="docs/img/ditto-recorders.png" alt="ditto recorders">
