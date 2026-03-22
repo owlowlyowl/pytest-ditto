@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from ditto import Snapshot
-from ditto._report import render_session_report
+from ._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
 from ditto.snapshot import session_tracker

@@ -13,7 +13,7 @@ class _SessionTracker:
     """
     In-memory record of snapshot activity for the current pytest session.
 
-    Reset at ``pytest_sessionstart`` and read at ``pytest_sessionfinish``.
+    Reset at `pytest_sessionstart` and read at `pytest_sessionfinish`.
     Never written to disk.
     """
 
@@ -49,7 +49,7 @@ class Snapshot:
         Recorder instance responsible for serialisation. Defaults to `pickle`.
     update : bool
         When True, overwrite existing snapshot files with new values.
-        Set by the ``--ditto-update`` pytest flag. Defaults to False.
+        Set by the `--ditto-update` pytest flag. Defaults to False.
     """
 
     path: Path
@@ -136,7 +136,7 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     """
     Return the snapshot value for `key`, saving it first if it does not yet exist.
 
-    When ``snapshot.update`` is True, always overwrites the existing file.
+    When `snapshot.update` is True, always overwrites the existing file.
 
     Parameters
     ----------

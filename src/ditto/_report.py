@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from ditto._theme import (
+from ._theme import (
     CREATED, UPDATED, UNUSED, PRUNED,
     TITLE, MUTED,
 )
@@ -44,9 +44,9 @@ def render_session_report(
     created : list[Path]
         Snapshot files written for the first time this session.
     updated : list[Path]
-        Existing snapshot files overwritten via ``--ditto-update``.
+        Existing snapshot files overwritten via `--ditto-update`.
     pruned : list[Path]
-        Snapshot files deleted via ``--ditto-prune``.
+        Snapshot files deleted via `--ditto-prune`.
     unused : list[Path]
         Snapshot files on disk that were not accessed this session.
     console : Console, optional

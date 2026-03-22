@@ -29,7 +29,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ditto._theme import (
+from ._theme import (
     CREATED, UPDATED, UNUSED, PRUNED,
     TITLE, HEADER, MUTED, ACCENT, PATH,
     TEXT, SUBTEXT1,
