@@ -88,7 +88,6 @@ def snapshot(request) -> Snapshot:
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
     path = _snapshot_dir(request.path)
-    path.mkdir(exist_ok=True)
     update = request.config.getoption("--ditto-update", default=False)
     return Snapshot(path=path, group_name=request.node.name, recorder=recorder, update=update)
 
