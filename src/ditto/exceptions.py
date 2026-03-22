@@ -2,6 +2,7 @@ __all__ = (
     "DittoException",
     "AdditionalMarkError",
     "DittoMarkHasNoIOType",
+    "DuplicateSnapshotKeyError",
 )
 
 
@@ -22,3 +23,11 @@ class DittoMarkHasNoIOType(DittoException):
             "The IO type is assumed to be the first argument of the `mark.args`."
         )
         super().__init__(_msg)
+
+
+class DuplicateSnapshotKeyError(DittoException):
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            f"Snapshot key '{key}' has already been used in this test. "
+            "Each snapshot call within a test must use a unique key."
+        )

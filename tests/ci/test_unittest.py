@@ -1,3 +1,5 @@
+import pickle
+
 import ditto
 from pathlib import Path
 
@@ -32,12 +34,13 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
         assert actual == {"a": 1}
         assert snapshot_file.exists()
 
-    def test_loads_stored_value_on_second_call(self):
-        """On second call with an existing snapshot, the stored value is returned."""
+    def test_loads_stored_value_when_snapshot_file_already_exists(self):
+        """snapshot returns the stored value when the snapshot file already exists."""
         snapshot_file = self.snapshot.path / f"{self.snapshot.group_name}@v2.pkl"
+        snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_file.write_bytes(pickle.dumps({"b": 2}))
         self.addCleanup(snapshot_file.unlink, missing_ok=True)
 
-        self.snapshot({"b": 2}, key="v2")
         actual = self.snapshot({"b": 99}, key="v2")
 
         assert actual == {"b": 2}
