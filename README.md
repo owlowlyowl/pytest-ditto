@@ -197,3 +197,90 @@ my_recorder = "my_package.recorders:my_recorder"
 Once registered, the recorder is available by name via `@ditto.record("my_recorder")`.
 Plugin marks (e.g. `@ditto.myplugin.myformat`) can also be registered via the
 `ditto_marks` entry point group.
+
+## CLI
+
+The `ditto` command provides snapshot management tools independent of a test run.
+
+### `ditto run`
+
+Runs pytest and reports snapshot activity via the ditto session report. Any extra
+arguments are forwarded directly to pytest.
+
+```
+ditto run
+ditto run tests/ci/
+ditto run tests/ci/ -k test_foo
+```
+
+### `ditto update`
+
+Regenerates snapshots by running pytest with `--ditto-update`. All snapshot files
+touched by the run will be overwritten with current values.
+
+```
+ditto update
+ditto update tests/ci/
+ditto update tests/ci/ -k test_foo
+```
+
+<img width="100%" src="docs/img/ditto-update.png" alt="ditto update">
+
+### `ditto prune`
+
+Removes stale snapshots by running pytest with `--ditto-prune`. Snapshot files not
+accessed during the run are deleted. Note: using `-k` for a partial run may falsely
+classify snapshots for un-run tests as unused.
+
+```
+ditto prune
+ditto prune tests/ci/
+```
+
+### `ditto list`
+
+Lists all snapshot files found under PATH (default: `.`) in a table showing test name,
+key, recorder, file size, and last-modified date.
+
+```
+ditto list
+ditto list tests/ci/
+```
+
+<img width="87%" src="docs/img/ditto-list.png" alt="ditto list">
+
+### `ditto status`
+
+Shows aggregate statistics: total count, total size, breakdown by recorder type, and
+oldest/newest snapshot dates.
+
+```
+ditto status
+ditto status tests/ci/
+```
+
+<img width="72%" src="docs/img/ditto-status.png" alt="ditto status">
+
+### `ditto clean`
+
+Deletes all `.ditto/` directories under PATH. Shows a preview and asks for confirmation
+unless `--yes` is passed.
+
+```
+ditto clean
+ditto clean --yes
+ditto clean tests/ci/ --yes
+```
+
+<img width="38%" src="docs/img/ditto-clean.png" alt="ditto clean">
+
+### `ditto recorders`
+
+Lists all registered recorder plugins, showing their name, file extension, and the
+source package they come from.
+
+```
+ditto recorders
+```
+
+<img width="39%" src="docs/img/ditto-recorders.png" alt="ditto recorders">
