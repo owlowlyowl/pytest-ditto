@@ -189,7 +189,8 @@ uv = ">=0.5"
 build = "uv build --sdist && uv build --wheel"
 
 [tool.pixi.feature.pandas.pypi-dependencies]
-pytest-ditto-pandas = { path = "../pytest-ditto-pandas", editable = true }
+pytest-ditto-pandas = "==0.1.0"
+# pytest-ditto-pandas = { path = "../pytest-ditto-pandas", editable = true }
 
 [tool.pixi.feature.pandas.tasks]
 test = "pytest"
@@ -200,7 +201,8 @@ test = "pytest"
 libstdcxx-ng = ">=14"
 
 [tool.pixi.feature.pyarrow.pypi-dependencies]
-pytest-ditto-pyarrow = { path = "../pytest-ditto-pyarrow", editable = true }
+pytest-ditto-pyarrow = "==0.1.0"
+# pytest-ditto-pyarrow = { path = "../pytest-ditto-pyarrow", editable = true }
 
 [tool.pixi.feature.pyarrow.tasks]
 test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
