@@ -59,6 +59,21 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
     }
 
 
+def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
+    """Parse a snapshot filename into (group, key, ext).
+
+    Snapshot files follow the pattern ``{group}@{key}.{ext}``.
+    The group may contain dots (e.g. unittest TestCase names).
+    The ext may contain dots (e.g. ``pandas.csv``).
+    Returns ext with a leading dot (e.g. ``.pandas.csv``), or ``""`` if absent.
+    """
+    group, _, rest = filename.partition("@")
+    if not rest:
+        return filename, "", ""
+    key, dot, ext_suffix = rest.partition(".")
+    return group, key, f"{dot}{ext_suffix}"
+
+
 def _find_ditto_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto/*") if p.is_file())
 
@@ -113,7 +128,7 @@ def gather_stats(files: list[Path], ext_map: dict[str, tuple[str, str]]) -> Snap
         mtime = stat.st_mtime
         total_size += sz
 
-        ext = fp.suffix
+        _, _, ext = _parse_snapshot_name(fp.name)
         recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
         count, total = by_recorder.get(recorder_name, (0, 0))
         by_recorder[recorder_name] = (count + 1, total + sz)
@@ -143,10 +158,11 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
     lines.append(f"{_human_size(stats.total_size)}\n", style=f"bold {TEXT}")
     lines.append("\n")
     lines.append("  By recorder:\n", style=f"bold {HEADER}")
+    name_w = max(len(name) for name in stats.by_recorder.keys())
     count_w = max(len(str(c)) for c, _ in stats.by_recorder.values())
     size_w = max(len(_human_size(s)) for _, s in stats.by_recorder.values())
     for name, (count, sz) in sorted(stats.by_recorder.items()):
-        lines.append(f"    {name:<12}", style=colour_map.get(name, MUTED))
+        lines.append(f"    {name:<{name_w}}", style=colour_map.get(name, MUTED))
         lines.append(f"  {count:>{count_w}}  ", style=TEXT)
         lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
 
@@ -277,12 +293,7 @@ def cmd_list(path: Path):
     table.add_column("Modified", style=MUTED)
 
     for fp in files:
-        ext = fp.suffix
-        name_stem = fp.stem
-        if "@" in name_stem:
-            group, _, key = name_stem.partition("@")
-        else:
-            group, key = name_stem, ""
+        group, key, ext = _parse_snapshot_name(fp.name)
         recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
         stat = fp.stat()
         size = _human_size(stat.st_size)
@@ -384,12 +395,15 @@ def cmd_recorders():
 
     colour_map = _build_colour_map(name for name, _, _ in rows)
 
+    name_w = max(len("Name"), max(len(name) for name, _, _ in rows))
+    ext_w = max(len("Extension"), max(len(ext) for _, ext, _ in rows))
+
     lines = Text()
     lines.append("\n")
-    lines.append(f"  {'Name':<12}{'Extension':<14}{'Source'}\n", style=f"bold {HEADER}")
+    lines.append(f"  {'Name':<{name_w}}  {'Extension':<{ext_w}}  {'Source'}\n", style=f"bold {HEADER}")
     for name, ext, dist in sorted(rows):
-        lines.append(f"  {name:<12}", style=colour_map.get(name, MUTED))
-        lines.append(f"{ext:<14}", style=TEXT)
+        lines.append(f"  {name:<{name_w}}  ", style=colour_map.get(name, MUTED))
+        lines.append(f"{ext:<{ext_w}}  ", style=TEXT)
         lines.append(f"{dist}\n", style=MUTED)
 
     console.print(Panel(

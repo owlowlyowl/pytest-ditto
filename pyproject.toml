@@ -188,11 +188,28 @@ uv = ">=0.5"
 [tool.pixi.feature.build.tasks]
 build = "uv build --sdist && uv build --wheel"
 
+[tool.pixi.feature.pandas.pypi-dependencies]
+pytest-ditto-pandas = { path = "../pytest-ditto-pandas", editable = true }
+
+[tool.pixi.feature.pandas.tasks]
+test = "pytest"
+
+[tool.pixi.feature.pyarrow.dependencies]
+# pyarrow's C++ dependencies require a newer libstdc++ than the system provides on
+# Ubuntu 22.04 / glibc 2.35 — pin libstdcxx-ng >= 14 and preload it at runtime.
+libstdcxx-ng = ">=14"
+
+[tool.pixi.feature.pyarrow.pypi-dependencies]
+pytest-ditto-pyarrow = { path = "../pytest-ditto-pyarrow", editable = true }
+
+[tool.pixi.feature.pyarrow.tasks]
+test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
-pandas = { features = ["pandas"], solve-group = "default" }
-pyarrow = { features = ["pyarrow"], solve-group = "default" }
+pandas = { features = ["pandas", "py312", "test"] }
+pyarrow = { features = ["pyarrow", "py312", "test"] }
 lint = { features = ["lint"] }
 py312 = { features = ["py312", "test"] }
 py313 = { features = ["py313", "test"] }
