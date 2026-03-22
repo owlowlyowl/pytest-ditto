@@ -59,6 +59,21 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
     }
 
 
+def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
+    """Parse a snapshot filename into (group, key, ext).
+
+    Snapshot files follow the pattern ``{group}@{key}.{ext}``.
+    The group may contain dots (e.g. unittest TestCase names).
+    The ext may contain dots (e.g. ``pandas.csv``).
+    Returns ext with a leading dot (e.g. ``.pandas.csv``), or ``""`` if absent.
+    """
+    group, _, rest = filename.partition("@")
+    if not rest:
+        return filename, "", ""
+    key, dot, ext_suffix = rest.partition(".")
+    return group, key, f"{dot}{ext_suffix}"
+
+
 def _find_ditto_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto/*") if p.is_file())
 
@@ -67,18 +82,30 @@ def _find_ditto_dirs(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto") if p.is_dir())
 
 
-def _ext_to_recorder() -> dict[str, tuple[str, str]]:
-    """Return mapping of extension → (recorder_name, dist_name)."""
-    result: dict[str, tuple[str, str]] = {}
+@dataclass(frozen=True)
+class RecorderInfo:
+    name: str       # e.g. "pandas_parquet"
+    extension: str  # e.g. ".pandas.parquet"
+    package: str    # e.g. "pytest-ditto-pandas"
+
+
+def _load_recorder_infos() -> list[RecorderInfo]:
+    """Load all registered recorder entry points."""
+    infos = []
     for ep in importlib.metadata.entry_points(group="ditto_recorders"):
         try:
             recorder = ep.load()
             ext = f".{recorder.extension}"
             dist = ep.dist.name if ep.dist else "unknown"
-            result[ext] = (ep.name, dist)
         except Exception:
-            pass
-    return result
+            ext, dist = "?", "unknown"
+        infos.append(RecorderInfo(name=ep.name, extension=ext, package=dist))
+    return infos
+
+
+def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
+    """Pure: derive extension → RecorderInfo lookup from a list of infos."""
+    return {info.extension: info for info in infos}
 
 
 def _human_size(n: int) -> str:
@@ -100,8 +127,8 @@ class SnapshotStats:
     newest: tuple[float, Path] | None
 
 
-def gather_stats(files: list[Path], ext_map: dict[str, tuple[str, str]]) -> SnapshotStats:
-    """Aggregate snapshot file statistics. Pure — no I/O beyond the stat() calls on already-found files."""
+def gather_stats(files: list[Path], ext_map: dict[str, RecorderInfo]) -> SnapshotStats:
+    """Aggregate snapshot file statistics, calling stat() on each file."""
     total_size = 0
     by_recorder: dict[str, tuple[int, int]] = {}
     oldest: tuple[float, Path] | None = None
@@ -113,8 +140,8 @@ def gather_stats(files: list[Path], ext_map: dict[str, tuple[str, str]]) -> Snap
         mtime = stat.st_mtime
         total_size += sz
 
-        ext = fp.suffix
-        recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
+        _, _, ext = _parse_snapshot_name(fp.name)
+        recorder_name = ext_map[ext].name if ext in ext_map else ext.lstrip(".") if ext else ""
         count, total = by_recorder.get(recorder_name, (0, 0))
         by_recorder[recorder_name] = (count + 1, total + sz)
 
@@ -143,10 +170,11 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
     lines.append(f"{_human_size(stats.total_size)}\n", style=f"bold {TEXT}")
     lines.append("\n")
     lines.append("  By recorder:\n", style=f"bold {HEADER}")
+    name_w = max(len(name) for name in stats.by_recorder.keys())
     count_w = max(len(str(c)) for c, _ in stats.by_recorder.values())
     size_w = max(len(_human_size(s)) for _, s in stats.by_recorder.values())
     for name, (count, sz) in sorted(stats.by_recorder.items()):
-        lines.append(f"    {name:<12}", style=colour_map.get(name, MUTED))
+        lines.append(f"    {name:<{name_w}}", style=colour_map.get(name, MUTED))
         lines.append(f"  {count:>{count_w}}  ", style=TEXT)
         lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
 
@@ -261,8 +289,9 @@ def cmd_list(path: Path):
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         return
 
-    ext_map = _ext_to_recorder()
-    colour_map = _build_colour_map(v[0] for v in ext_map.values())
+    infos = _load_recorder_infos()
+    em = _ext_map(infos)
+    colour_map = _build_colour_map(info.name for info in infos)
 
     table = Table(
         title=f"[bold {TITLE}]ditto snapshots[/bold {TITLE}]",
@@ -277,13 +306,8 @@ def cmd_list(path: Path):
     table.add_column("Modified", style=MUTED)
 
     for fp in files:
-        ext = fp.suffix
-        name_stem = fp.stem
-        if "@" in name_stem:
-            group, _, key = name_stem.partition("@")
-        else:
-            group, key = name_stem, ""
-        recorder_name = ext_map.get(ext, (ext.lstrip("."), ""))[0] if ext else ""
+        group, key, ext = _parse_snapshot_name(fp.name)
+        recorder_name = em[ext].name if ext in em else ext.lstrip(".") if ext else ""
         stat = fp.stat()
         size = _human_size(stat.st_size)
         modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
@@ -356,7 +380,29 @@ def cmd_status(path: Path):
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         return
 
-    render_stats(gather_stats(files, _ext_to_recorder()), console)
+    render_stats(gather_stats(files, _ext_map(_load_recorder_infos())), console)
+
+
+def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
+    """Build and print the registered recorders panel."""
+    colour_map = _build_colour_map(info.name for info in infos)
+    name_w = max(len("Name"), max(len(i.name) for i in infos))
+    ext_w  = max(len("Extension"), max(len(i.extension) for i in infos))
+
+    lines = Text()
+    lines.append("\n")
+    lines.append(f"  {'Name':<{name_w}}  {'Extension':<{ext_w}}  {'Source'}\n", style=f"bold {HEADER}")
+    for info in sorted(infos, key=lambda i: i.name):
+        lines.append(f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED))
+        lines.append(f"{info.extension:<{ext_w}}  ", style=TEXT)
+        lines.append(f"{info.package}\n", style=MUTED)
+
+    console.print(Panel(
+        lines,
+        title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
+        border_style=TITLE,
+        expand=False,
+    ))
 
 
 @cli.command(name="recorders")
@@ -367,34 +413,8 @@ def cmd_recorders():
     Examples:
       ditto recorders
     """
-    rows: list[tuple[str, str, str]] = []
-    for ep in importlib.metadata.entry_points(group="ditto_recorders"):
-        try:
-            recorder = ep.load()
-            ext = f".{recorder.extension}"
-            dist = ep.dist.name if ep.dist else "unknown"
-        except Exception:
-            ext = "?"
-            dist = "unknown"
-        rows.append((ep.name, ext, dist))
-
-    if not rows:
+    infos = _load_recorder_infos()
+    if not infos:
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
         return
-
-    colour_map = _build_colour_map(name for name, _, _ in rows)
-
-    lines = Text()
-    lines.append("\n")
-    lines.append(f"  {'Name':<12}{'Extension':<14}{'Source'}\n", style=f"bold {HEADER}")
-    for name, ext, dist in sorted(rows):
-        lines.append(f"  {name:<12}", style=colour_map.get(name, MUTED))
-        lines.append(f"{ext:<14}", style=TEXT)
-        lines.append(f"{dist}\n", style=MUTED)
-
-    console.print(Panel(
-        lines,
-        title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
-        border_style=TITLE,
-        expand=False,
-    ))
+    _render_recorders(infos, console)

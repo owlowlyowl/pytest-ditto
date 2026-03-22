@@ -1,4 +1,5 @@
 import importlib.metadata
+import warnings
 
 from ._protocol import Recorder
 
@@ -13,15 +14,23 @@ def load_recorders() -> dict[str, Recorder]:
     Loads recorders from the `ditto_recorders` entry point group. Each entry
     point value must be a `Recorder` instance.
 
+    Broken entry points are skipped with a warning rather than crashing.
+
     Returns
     -------
     dict[str, Recorder]
         Mapping of entry point name to recorder instance.
     """
-    return {
-        ep.name: ep.load()
-        for ep in importlib.metadata.entry_points(group="ditto_recorders")
-    }
+    result: dict[str, Recorder] = {}
+    for ep in importlib.metadata.entry_points(group="ditto_recorders"):
+        try:
+            result[ep.name] = ep.load()
+        except Exception as exc:
+            warnings.warn(
+                f"ditto: failed to load recorder {ep.name!r}: {exc}",
+                stacklevel=2,
+            )
+    return result
 
 
 def load_mark_plugins() -> dict[str, object]:
@@ -31,15 +40,23 @@ def load_mark_plugins() -> dict[str, object]:
     Loads marks from the `ditto_marks` entry point group. Each entry point
     value must be a callable that returns a marks object.
 
+    Broken entry points are skipped with a warning rather than crashing.
+
     Returns
     -------
     dict[str, object]
         Mapping of entry point name to mark object.
     """
-    return {
-        ep.name: ep.load()()
-        for ep in importlib.metadata.entry_points(group="ditto_marks")
-    }
+    result: dict[str, object] = {}
+    for ep in importlib.metadata.entry_points(group="ditto_marks"):
+        try:
+            result[ep.name] = ep.load()()
+        except Exception as exc:
+            warnings.warn(
+                f"ditto: failed to load mark plugin {ep.name!r}: {exc}",
+                stacklevel=2,
+            )
+    return result
 
 
 RECORDER_REGISTRY: dict[str, Recorder] = load_recorders()
