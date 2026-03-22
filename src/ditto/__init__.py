@@ -1,7 +1,6 @@
 from ditto._version import __version__ as version
 from ditto.snapshot import Snapshot
 from ditto._unittest import DittoTestCase
-from .exceptions import DuplicateSnapshotKeyError
 
 # Base mark and convenience marks — accessible as @ditto.record, @ditto.yaml, etc.
 from ._marks import record
@@ -12,7 +11,6 @@ __all__ = (
     "version",
     "Snapshot",
     "DittoTestCase",
-    "DuplicateSnapshotKeyError",
     "record",
     "yaml",
     "json",
