@@ -22,7 +22,7 @@ import importlib.util
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -127,12 +127,12 @@ def _human_size(n: int) -> str:
 class SnapshotStats:
     total_count: int
     total_size: int
-    by_recorder: dict[str, tuple[int, int]]  # name → (count, bytes)
+    by_recorder: Mapping[str, tuple[int, int]]  # name → (count, bytes)
     oldest: tuple[float, Path] | None
     newest: tuple[float, Path] | None
 
 
-def gather_stats(files: list[Path], ext_map: dict[str, RecorderInfo]) -> SnapshotStats:
+def gather_stats(files: list[Path], ext_map: Mapping[str, RecorderInfo]) -> SnapshotStats:
     """Aggregate snapshot file statistics, calling stat() on each file."""
     total_size = 0
     by_recorder: dict[str, tuple[int, int]] = {}
@@ -475,7 +475,7 @@ def _doctor_checks() -> list[CheckResult]:
     return results
 
 
-def _find_lint_issues(files: list[Path], em: dict[str, RecorderInfo]) -> list[LintIssue]:
+def _find_lint_issues(files: list[Path], em: Mapping[str, RecorderInfo]) -> list[LintIssue]:
     """Return lint issues for a list of snapshot files without any I/O."""
     issues: list[LintIssue] = []
     for fp in files:
@@ -490,7 +490,7 @@ def _find_lint_issues(files: list[Path], em: dict[str, RecorderInfo]) -> list[Li
 
 
 def _gather_dir_stats(
-    dirs: list[Path], em: dict[str, RecorderInfo]
+    dirs: list[Path], em: Mapping[str, RecorderInfo]
 ) -> list[tuple[Path, SnapshotStats]]:
     """Return per-directory stats for non-empty .ditto/ dirs without any I/O beyond stat()."""
     result = []

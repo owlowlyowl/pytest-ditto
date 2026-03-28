@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from ._protocol import Recorder
 from ._pickle import pickle as _default
 from ._plugins import (
@@ -39,8 +41,8 @@ def register(name: str, recorder: Recorder, registry: dict = RECORDER_REGISTRY) 
 
 def get(
     name: str,
-    registry: dict = RECORDER_REGISTRY,
-    default: Recorder = _default,
+    registry: Mapping[str, Recorder] = RECORDER_REGISTRY,
+    fallback: Recorder = _default,
 ) -> Recorder:
     """
     Look up a recorder by name, falling back to a default.
@@ -49,18 +51,18 @@ def get(
     ----------
     name : str
         Key to look up in the registry.
-    registry : dict, optional
+    registry : Mapping[str, Recorder], optional
         Registry to query. Defaults to the shared `RECORDER_REGISTRY`.
         Pass an isolated dict in tests to avoid depending on shared state.
-    default : Recorder, optional
+    fallback : Recorder, optional
         Recorder to return when `name` is not found. Defaults to `pickle`.
 
     Returns
     -------
     Recorder
-        The registered recorder, or `default` if not found.
+        The registered recorder, or `fallback` if not found.
     """
-    return registry.get(name, default)
+    return registry.get(name, fallback)
 
 
 def default() -> Recorder:

@@ -51,7 +51,7 @@ def test_get_resolves_recorder_from_supplied_registry() -> None:
 
 def test_get_returns_default_when_name_absent_from_registry() -> None:
     """recorders.get falls back to the default when the name is absent."""
-    actual = recorders.get("nonexistent", registry={}, default=pickle_recorder)
+    actual = recorders.get("nonexistent", registry={}, fallback=pickle_recorder)
 
     assert actual is pickle_recorder
 

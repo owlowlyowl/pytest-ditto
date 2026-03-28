@@ -67,7 +67,7 @@ def _snapshot_dir(test_path: Path) -> Path:
     return test_path.parent / _DEFAULT_OUTPUT_DIR_NAME
 
 
-def pytest_addoption(parser):
+def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("ditto")
     group.addoption(
         "--ditto-update",
@@ -92,11 +92,11 @@ def snapshot(request) -> Snapshot:
     return Snapshot(path=path, group_name=request.node.name, recorder=recorder, update=update)
 
 
-def pytest_sessionstart(session):
+def pytest_sessionstart(session: pytest.Session) -> None:
     session_tracker.reset()
 
 
-def pytest_sessionfinish(session, exitstatus):
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     do_prune = config.getoption("--ditto-prune", default=False)
 
@@ -125,5 +125,5 @@ def pytest_sessionfinish(session, exitstatus):
     )
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "record(recorder): snapshot values")
