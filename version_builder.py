@@ -30,7 +30,7 @@ def _version():
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(process.stdout) from exc
 
-    version, build_num, sha = process.stdout.strip().split("-")
+    version, build_num, sha = process.stdout.strip().rsplit("-", 2)
     if build_num == "0":
         version_str = version
     else:
