@@ -16,6 +16,7 @@ __pycache__
 # IDE
 .idea/
 .vscode/
+.claude/
 
 # Build artifacts
 dist/
