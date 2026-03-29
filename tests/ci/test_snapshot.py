@@ -6,7 +6,7 @@ import pytest
 
 from ditto import Snapshot, recorders
 from ditto.exceptions import DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, save_snapshot
+from ditto.snapshot import load_snapshot, resolve_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
 
@@ -14,7 +14,7 @@ json_recorder = recorders.get("json")
 # --- Snapshot dataclass ---
 
 
-def test_filepath_combines_group_name_key_and_recorder_extension() -> None:
+def test_filepath_encodes_group_name_key_and_extension() -> None:
     """The snapshot filepath encodes the group name, key, and recorder extension."""
     key = "yek"
     group_name = "puorg"
@@ -45,7 +45,7 @@ def test_snapshot_is_immutable() -> None:
 # --- save_snapshot ---
 
 
-def test_save_snapshot_creates_file_on_disk(tmp_dir) -> None:
+def test_writes_snapshot_to_disk(tmp_dir) -> None:
     """save_snapshot writes the snapshot file to the configured path."""
     key = "langford-skolem-pair"
     snapshot = Snapshot(path=tmp_dir, group_name="group")
@@ -55,7 +55,7 @@ def test_save_snapshot_creates_file_on_disk(tmp_dir) -> None:
     assert snapshot.filepath(key).exists()
 
 
-def test_save_snapshot_creates_output_directory_if_absent(tmp_dir) -> None:
+def test_creates_output_directory_when_path_does_not_exist(tmp_dir) -> None:
     """save_snapshot creates the snapshot directory when it does not already exist."""
     path = tmp_dir / "nested" / "output"
     snapshot = Snapshot(path=path, group_name="group")
@@ -68,7 +68,7 @@ def test_save_snapshot_creates_output_directory_if_absent(tmp_dir) -> None:
 # --- load_snapshot ---
 
 
-def test_load_snapshot_raises_when_file_does_not_exist(tmp_dir) -> None:
+def test_raises_when_snapshot_file_is_absent(tmp_dir) -> None:
     """load_snapshot raises FileNotFoundError when the snapshot file is absent."""
     snapshot = Snapshot(path=tmp_dir, group_name="group")
 
@@ -76,7 +76,7 @@ def test_load_snapshot_raises_when_file_does_not_exist(tmp_dir) -> None:
         load_snapshot(snapshot, "missing-key")
 
 
-def test_load_snapshot_returns_stored_value(tmp_dir) -> None:
+def test_returns_deserialised_stored_value(tmp_dir) -> None:
     """load_snapshot deserialises and returns the value previously written to disk."""
     key = "A006877"
     group_name = "OEIS"
@@ -138,6 +138,31 @@ def test_returns_stored_value_when_file_already_exists(tmp_dir) -> None:
     assert actual == stored
 
 
+# --- update mode ---
+
+
+def test_returns_new_value_when_update_is_true(tmp_dir) -> None:
+    """When update=True, snapshot returns the new value rather than the stored one."""
+    key = "result"
+    snapshot = Snapshot(path=tmp_dir, group_name="group", update=True)
+    save_snapshot(snapshot, "original", key)
+
+    actual = snapshot("updated", key)
+
+    assert actual == "updated"
+
+
+def test_overwrites_stored_file_when_update_is_true(tmp_dir) -> None:
+    """When update=True, snapshot replaces the value on disk."""
+    key = "result"
+    snapshot = Snapshot(path=tmp_dir, group_name="group", update=True)
+    save_snapshot(snapshot, "original", key)
+
+    snapshot("updated", key)
+
+    assert load_snapshot(snapshot, key) == "updated"
+
+
 # --- duplicate key detection ---
 
 
@@ -163,5 +188,8 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
     """snapshot accepts multiple calls within a test as long as each key is unique."""
     snapshot = Snapshot(path=tmp_dir, group_name="group")
 
-    snapshot(1, "first")
-    snapshot(2, "second")
+    first = snapshot(1, "first")
+    second = snapshot(2, "second")
+
+    assert first == 1
+    assert second == 2

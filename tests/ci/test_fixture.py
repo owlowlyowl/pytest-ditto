@@ -8,7 +8,7 @@ from ditto import Snapshot
 TEST_DATA_DIR = Path(__file__).parent / ".ditto"
 
 
-def test_fixture_returns_snapshot_instance(snapshot) -> None:
+def test_injects_snapshot_instance_into_test(snapshot) -> None:
     """The snapshot fixture injects a Snapshot instance into the test."""
     assert isinstance(snapshot, Snapshot)
 
@@ -47,13 +47,16 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
     assert actual == "read-value"
 
 
-def test_snapshot_used_twice_different_keys(snapshot) -> None:
-    """snapshot can be called multiple times within a test using different keys."""
-    snapshot(77, key="a")
-    snapshot("(>'.')>", key="b")
+def test_returns_each_value_when_called_with_different_keys(snapshot) -> None:
+    """snapshot returns each stored value when called with different keys in one test."""
+    actual_a = snapshot(77, key="a")
+    actual_b = snapshot("(>'.')>", key="b")
+
+    assert actual_a == 77
+    assert actual_b == "(>'.')>"
 
 
-def test_returns_value_when_key_is_an_integer(snapshot) -> None:
+def test_accepts_integer_as_key(snapshot) -> None:
     """snapshot accepts an integer key and stores and returns the value correctly."""
     actual = snapshot(77, key=1029384756)
 

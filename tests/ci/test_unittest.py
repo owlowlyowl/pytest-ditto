@@ -24,14 +24,22 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
 
         assert self.snapshot.group_name == expected
 
-    def test_saves_value_and_returns_it_on_first_call(self):
-        """On first call, snapshot saves data to disk and returns the original value."""
+    def test_returns_value_on_first_call(self):
+        """On first call, snapshot returns the value that was passed to it."""
         snapshot_file = self.snapshot.path / f"{self.snapshot.group_name}@v.pkl"
         self.addCleanup(snapshot_file.unlink, missing_ok=True)
 
         actual = self.snapshot({"a": 1}, key="v")
 
         assert actual == {"a": 1}
+
+    def test_creates_snapshot_file_on_first_call(self):
+        """On first call, snapshot writes the value to disk."""
+        snapshot_file = self.snapshot.path / f"{self.snapshot.group_name}@w.pkl"
+        self.addCleanup(snapshot_file.unlink, missing_ok=True)
+
+        self.snapshot({"a": 1}, key="w")
+
         assert snapshot_file.exists()
 
     def test_loads_stored_value_when_snapshot_file_already_exists(self):
@@ -47,12 +55,13 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
 
 
 class TestAwesome(ditto.DittoTestCase):
-    def test_dict(self):
+    def test_roundtrips_dict_produced_by_pure_function(self):
         """Snapshot round-trips a dict value produced by a pure function."""
 
         def fn(x: dict[str, int]) -> dict[str, int]:
             return {k: v + 1 for k, v in x.items()}
 
         result = fn({"unittest": 0})
+        actual = self.snapshot(result, key="wowow")
 
-        assert result == self.snapshot(result, key="wowow")
+        assert actual == result
