@@ -104,7 +104,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     unused: list[Path] = []
 
     if do_prune or session_tracker.accessed:
-        rootdir = Path(config.rootdir)
+        rootdir = config.rootpath
         all_ditto_files = set(rootdir.rglob(".ditto/*"))
         # Only consider actual files (not directories inside .ditto/)
         all_ditto_files = {p for p in all_ditto_files if p.is_file()}

@@ -154,8 +154,12 @@ pytest-ditto = { path = ".", editable = true }
 pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
 
+[tool.pixi.feature.lint.pypi-dependencies]
+ty = ">=0.0.0a1"
+
 [tool.pixi.feature.lint.tasks]
 lint = "pre-commit run --all"
+ty = "ty check src/"
 
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.3,<9"
