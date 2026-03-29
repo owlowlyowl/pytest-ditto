@@ -29,3 +29,12 @@ repos:
         types_or: [python, pyi]
         require_serial: true
         verbose: true
+      - id: ty
+        name: ty
+        entry: pixi run -e lint ty
+        language: system
+        files: ^src/
+        types_or: [python, pyi]
+        require_serial: true
+        pass_filenames: false
+        verbose: true
