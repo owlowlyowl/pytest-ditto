@@ -9,7 +9,7 @@ from ditto import recorders
 
 # ── Strategies ────────────────────────────────────────────────────────────────
 
-# Primitives safe for both JSON and YAML serialisers.
+# Primitives supported by JSON, YAML SafeDumper, and pickle.
 _primitives = st.one_of(
     st.none(),
     st.booleans(),
@@ -18,9 +18,10 @@ _primitives = st.one_of(
     st.text(),
 )
 
-# Recursive JSON-compatible values: JSON supports the primitives above plus
-# lists and string-keyed dicts. No bytes, no tuples, no sets.
-_json_values = st.recursive(
+# Recursive values compatible with both the JSON and YAML recorders.
+# JSON and YAML SafeDumper/SafeLoader share the same supported type set:
+# the primitives above plus lists and string-keyed dicts.
+_text_serialisable_values = st.recursive(
     _primitives,
     lambda children: st.one_of(
         st.lists(children, max_size=5),
@@ -29,18 +30,8 @@ _json_values = st.recursive(
     max_leaves=20,
 )
 
-# Recursive YAML-compatible values: SafeDumper/SafeLoader supports the same
-# primitive set as JSON, plus lists and string-keyed dicts.
-_yaml_values = st.recursive(
-    _primitives,
-    lambda children: st.one_of(
-        st.lists(children, max_size=5),
-        st.dictionaries(st.text(), children, max_size=5),
-    ),
-    max_leaves=20,
-)
-
-# Pickle can handle everything above plus raw bytes.
+# Pickle can handle everything above plus raw bytes — the key type bytes cannot
+# represent. Including st.binary() here ensures type-preservation is tested too.
 _pickle_values = st.recursive(
     st.one_of(_primitives, st.binary()),
     lambda children: st.one_of(
@@ -62,7 +53,7 @@ _no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_
 
 
 @_no_fixture_reset
-@given(_json_values)
+@given(_text_serialisable_values)
 def test_json_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
     """The JSON recorder round-trips any JSON-compatible value through save and load without loss."""
     filepath = tmp_path / "snapshot.json"
@@ -77,7 +68,7 @@ def test_json_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
 
 
 @_no_fixture_reset
-@given(_yaml_values)
+@given(_text_serialisable_values)
 def test_yaml_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
     """The YAML recorder round-trips any YAML-compatible value through save and load without loss."""
     filepath = tmp_path / "snapshot.yaml"
@@ -94,23 +85,11 @@ def test_yaml_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
 @_no_fixture_reset
 @given(_pickle_values)
 def test_pickle_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
-    """The pickle recorder round-trips any picklable value through save and load without loss."""
+    """The pickle recorder round-trips any picklable value without loss, including raw bytes."""
     filepath = tmp_path / "snapshot.pkl"
 
     _pickle_recorder.save(data, filepath)
     actual = _pickle_recorder.load(filepath)
 
     assert actual == data
-
-
-@_no_fixture_reset
-@given(st.binary())
-def test_pickle_recorder_roundtrip_preserves_raw_bytes(tmp_path, data: bytes) -> None:
-    """The pickle recorder preserves raw bytes — a type that JSON and YAML cannot represent."""
-    filepath = tmp_path / "snapshot.pkl"
-
-    _pickle_recorder.save(data, filepath)
-    actual = _pickle_recorder.load(filepath)
-
-    assert actual == data
-    assert type(actual) is bytes
+    assert type(actual) is type(data)
