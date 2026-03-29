@@ -164,6 +164,7 @@ ty = "ty check src/"
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.3,<9"
 pytest-cov = ">=6.0,<7"
+hypothesis = ">=6.0"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"

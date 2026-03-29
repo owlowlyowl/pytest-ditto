@@ -9,6 +9,7 @@ __pycache__
 .pytest_cache
 .pytest
 .coverage
+.hypothesis
 
 # Linting
 .ruff_cache
