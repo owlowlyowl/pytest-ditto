@@ -20,14 +20,14 @@ from ditto.cli import (
 # ── _parse_snapshot_name ──────────────────────────────────────────────────────
 
 class TestParseSnapshotName:
-    def test_normal_case(self):
+    def test_splits_group_key_and_extension(self):
         """Standard {group}@{key}.{ext} filename is split correctly."""
         group, key, ext = _parse_snapshot_name("test_foo@result.pickle")
         assert group == "test_foo"
         assert key == "result"
         assert ext == ".pickle"
 
-    def test_multi_dot_extension(self):
+    def test_preserves_multi_dot_extension(self):
         """Extension with multiple dots (e.g. pandas.parquet) is preserved."""
         group, key, ext = _parse_snapshot_name("test_foo@result.pandas.parquet")
         assert group == "test_foo"
@@ -41,14 +41,14 @@ class TestParseSnapshotName:
         assert key == ""
         assert ext == ""
 
-    def test_no_extension_after_at(self):
+    def test_returns_empty_extension_when_no_dot_follows_at(self):
         """A file like 'group@key' (no dot) yields an empty ext."""
         group, key, ext = _parse_snapshot_name("test_foo@key_only")
         assert group == "test_foo"
         assert key == "key_only"
         assert ext == ""
 
-    def test_group_with_dots(self):
+    def test_preserves_dots_in_group_portion(self):
         """Group portion (before @) may itself contain dots (unittest class names)."""
         group, key, ext = _parse_snapshot_name("MyTestCase.test_method@snap.yaml")
         assert group == "MyTestCase.test_method"
@@ -59,25 +59,25 @@ class TestParseSnapshotName:
 # ── _human_size ───────────────────────────────────────────────────────────────
 
 class TestHumanSize:
-    def test_bytes(self):
+    def test_formats_with_bytes_suffix_when_under_one_kb(self):
         assert _human_size(0) == "0 B"
         assert _human_size(512) == "512 B"
         assert _human_size(1023) == "1023 B"
 
-    def test_kilobytes_boundary(self):
+    def test_formats_with_kb_suffix_at_kilobyte_boundary(self):
         assert _human_size(1024) == "1.0 KB"
         assert _human_size(2048) == "2.0 KB"
 
-    def test_megabytes(self):
+    def test_formats_with_mb_suffix_at_megabyte_boundary(self):
         assert _human_size(1024 * 1024) == "1.0 MB"
 
-    def test_gigabytes(self):
+    def test_formats_with_gb_suffix_at_gigabyte_boundary(self):
         assert _human_size(1024 ** 3) == "1.0 GB"
 
-    def test_terabytes(self):
+    def test_formats_with_tb_suffix_at_terabyte_boundary(self):
         assert _human_size(1024 ** 4) == "1.0 TB"
 
-    def test_fractional_kb(self):
+    def test_formats_fractional_kilobytes(self):
         # 1536 bytes = 1.5 KB
         assert _human_size(1536) == "1.5 KB"
 
@@ -100,7 +100,7 @@ class TestBuildColourMap:
         # Same colour assignment regardless of input order
         assert result1 == result2
 
-    def test_sorted_order_determines_colour(self):
+    def test_assigns_palette_colours_in_alphabetical_order(self):
         """First sorted name gets palette[0], second gets palette[1]."""
         from ditto.cli import _RECORDER_PALETTE
         result = _build_colour_map(["zz", "aa"])
@@ -145,7 +145,7 @@ def _mock_file(name: str, size: int, mtime: float) -> Path:
 
 
 class TestGatherStats:
-    def test_single_known_extension_file(self):
+    def test_attributes_file_to_recorder_when_extension_is_known(self):
         """A file with a mapped extension is attributed to its recorder."""
         f = _mock_file("test_foo@snap.pickle", size=100, mtime=1000.0)
         em = {".pickle": RecorderInfo("pickle", ".pickle", "pytest-ditto")}
@@ -173,7 +173,7 @@ class TestGatherStats:
 
         assert "" in stats.by_recorder
 
-    def test_oldest_and_newest_tracking(self):
+    def test_tracks_oldest_and_newest_files_by_mtime(self):
         """oldest and newest are set to the files with the min/max mtime."""
         old_f = _mock_file("test_a@x.pickle", size=10, mtime=100.0)
         new_f = _mock_file("test_b@y.pickle", size=20, mtime=999.0)

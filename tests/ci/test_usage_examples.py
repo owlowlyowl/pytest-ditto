@@ -4,12 +4,19 @@ import ditto
 
 
 @ditto.yaml
-def test_yaml_dict_snapshot(snapshot):
+def test_roundtrips_dict_through_yaml_format(snapshot) -> None:
+    """snapshot round-trips dict values produced by a pure function."""
     def fn(x: dict[str, int]) -> dict[str, int]:
         return {k: v + 1 for k, v in x.items()}
 
-    assert fn({"a": 1}) == snapshot(fn({"a": 1}), key="a")
-    assert fn({"x": 2}) == snapshot(fn({"x": 2}), key="x")
+    result_a = fn({"a": 1})
+    result_x = fn({"x": 2})
+
+    actual_a = snapshot(result_a, key="a")
+    actual_x = snapshot(result_x, key="x")
+
+    assert actual_a == result_a
+    assert actual_x == result_x
 
 
 @ditto.pickle
@@ -20,28 +27,24 @@ def test_yaml_dict_snapshot(snapshot):
         pytest.param(3, 4, id="Second"),
     ],
 )
-def test_pickle_int_snapshot_with_parametrize(snapshot, a, b):
-    """
-    Each param set should be saved with filenames as per below:
-    - test_pickle_int_snapshot_with_parametrize[First]@a.pkl
-    - test_pickle_int_snapshot_with_parametrize[First]@b.pkl
-    - test_pickle_int_snapshot_with_parametrize[Second]@a.pkl
-    - test_pickle_int_snapshot_with_parametrize[Second]@b.pkl
-    """
+def test_roundtrips_parametrised_ints_through_pickle(snapshot, a, b) -> None:
+    """Each parametrised set stores and retrieves values independently."""
+    actual_a = snapshot(a, key="a")
+    actual_b = snapshot(b, key="b")
 
-    def fn(x: int) -> int:
-        return x
-
-    assert fn(a) == snapshot(fn(a), key="a")
-    assert fn(b) == snapshot(fn(b), key="b")
+    assert actual_a == a
+    assert actual_b == b
 
 
 @ditto.json
-def test_json_single_string_snapshot(snapshot):
-
+def test_roundtrips_string_through_json_format(snapshot) -> None:
+    """snapshot round-trips a transformed string through JSON format."""
     input_str = "abc"
 
     def fn(x: str) -> str:
         return f"{x}def"
 
-    assert fn(input_str) == snapshot(fn(input_str), key="abc")
+    result = fn(input_str)
+    actual = snapshot(result, key="abc")
+
+    assert actual == result

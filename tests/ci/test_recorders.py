@@ -28,12 +28,13 @@ def test_recorder_saves_file_to_disk(
 @pytest.mark.parametrize(
     ("data", "recorder"),
     [
-        pytest.param(data, recorders.get(recorder_name), id=recorder_name)
-        for data, recorder_name in [
-            ({"key": "value", "num": 42}, "pickle"),
-            ({"key": "value", "num": 42}, "json"),
-            ({"key": "value", "num": 42}, "yaml"),
+        pytest.param(data, recorders.get(recorder_name), id=f"{recorder_name}-{label}")
+        for label, data in [
+            ("dict", {"key": "value", "num": 42}),
+            ("list", [1, "two", 3.0]),
+            ("none", None),
         ]
+        for recorder_name in ("pickle", "json", "yaml")
     ],
 )
 def test_recorder_roundtrip_preserves_value(
