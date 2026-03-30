@@ -10,12 +10,15 @@ from ditto import recorders
 from ditto.exceptions import DuplicateSnapshotKeyError
 from ditto.snapshot import Snapshot, session_tracker
 
-# Keys safe for use as filesystem names on Linux: no path separators or null bytes.
+# Keys safe for use as filesystem names on Linux: no path separators, null bytes,
+# or surrogate characters (surrogates cannot be encoded as UTF-8 filenames).
+# Providing an explicit alphabet overrides st.text()'s default surrogate exclusion,
+# so the Cs category must be blacklisted explicitly.
 # Length is capped so the full filename stays well under the 255-byte OS limit.
 _safe_key = st.text(
     min_size=1,
     max_size=50,
-    alphabet=st.characters(blacklist_characters="/\\\x00"),
+    alphabet=st.characters(blacklist_characters="/\\\x00", blacklist_categories=("Cs",)),
 )
 
 _recorder_names = ["pickle", "json", "yaml"]

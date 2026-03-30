@@ -1,11 +1,6 @@
-from pathlib import Path
-
 import pytest
 
 from ditto import Snapshot
-
-
-TEST_DATA_DIR = Path(__file__).parent / ".ditto"
 
 
 def test_injects_snapshot_instance_into_test(snapshot) -> None:
@@ -22,17 +17,17 @@ def test_raises_when_key_is_not_provided(snapshot) -> None:
     )
 
 
-def test_returns_value_on_first_call(snapshot) -> None:
+def test_returns_value_on_first_call(pytester) -> None:
     """snapshot returns the value passed to it when no snapshot file exists yet."""
-    key = "write"
-    path_snapshot = TEST_DATA_DIR / f"test_returns_value_on_first_call@{key}.pkl"
-    assert not path_snapshot.exists()
+    pytester.makepyfile("""
+        def test_inner(snapshot):
+            actual = snapshot("write-value", key="write")
+            assert actual == "write-value"
+    """)
 
-    try:
-        actual = snapshot("write-value", key=key)
-        assert actual == "write-value"
-    finally:
-        path_snapshot.unlink()
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
 
 
 def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
@@ -47,17 +42,29 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
     assert actual == "read-value"
 
 
-def test_returns_each_value_when_called_with_different_keys(snapshot) -> None:
+def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
     """snapshot returns each stored value when called with different keys in one test."""
-    actual_a = snapshot(77, key="a")
-    actual_b = snapshot("(>'.')>", key="b")
+    pytester.makepyfile("""
+        def test_inner(snapshot):
+            actual_a = snapshot(77, key="a")
+            actual_b = snapshot("(>'.')>", key="b")
+            assert actual_a == 77
+            assert actual_b == "(>'.')>"
+    """)
 
-    assert actual_a == 77
-    assert actual_b == "(>'.')>"
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
 
 
-def test_accepts_integer_as_key(snapshot) -> None:
+def test_accepts_integer_as_key(pytester) -> None:
     """snapshot accepts an integer key and stores and returns the value correctly."""
-    actual = snapshot(77, key=1029384756)
+    pytester.makepyfile("""
+        def test_inner(snapshot):
+            actual = snapshot(77, key=1029384756)
+            assert actual == 77
+    """)
 
-    assert actual == 77
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
