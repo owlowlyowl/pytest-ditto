@@ -18,14 +18,18 @@ from ditto.snapshot import Snapshot, session_tracker
 _safe_key = st.text(
     min_size=1,
     max_size=50,
-    alphabet=st.characters(blacklist_characters="/\\\x00", blacklist_categories=("Cs",)),
+    alphabet=st.characters(
+        blacklist_characters="/\\\x00", blacklist_categories=("Cs",)
+    ),
 )
 
 _recorder_names = ["pickle", "json", "yaml"]
 
 # tmp_path is reused across examples — safe because filepath() is pure and the
 # snapshot tests reset session_tracker before each example. Suppress the check.
-_no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+_no_fixture_reset = settings(
+    suppress_health_check=[HealthCheck.function_scoped_fixture]
+)
 
 # ── Snapshot.filepath ─────────────────────────────────────────────────────────
 
@@ -75,9 +79,7 @@ def test_duplicate_key_always_raises_on_second_call(tmp_path, key: str) -> None:
 
 @_no_fixture_reset
 @given(keys=st.lists(_safe_key, min_size=1, max_size=10, unique=True))
-def test_unique_keys_never_trigger_duplicate_error(
-    tmp_path, keys: list[str]
-) -> None:
+def test_unique_keys_never_trigger_duplicate_error(tmp_path, keys: list[str]) -> None:
     """Using a distinct key for each snapshot call never raises, regardless of how many calls are made."""
     session_tracker.reset()
     snapshot = Snapshot(path=tmp_path, group_name="test")

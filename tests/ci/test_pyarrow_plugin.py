@@ -9,13 +9,11 @@ from ditto import recorders
 
 
 def _make_table() -> pa.Table:
-    return pa.table(
-        {
-            "ints": [1, 2, 3],
-            "floats": [4.5, 5.2, 6.8],
-            "strings": ["a", "b", "c"],
-        }
-    )
+    return pa.table({
+        "ints": [1, 2, 3],
+        "floats": [4.5, 5.2, 6.8],
+        "strings": ["a", "b", "c"],
+    })
 
 
 @pytest.mark.parametrize(

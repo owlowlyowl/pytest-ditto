@@ -8,7 +8,9 @@ import pandas as pd
 from ditto import recorders
 
 
-@pytest.mark.parametrize("recorder_name", ["pandas_parquet", "pandas_json", "pandas_csv"])
+@pytest.mark.parametrize(
+    "recorder_name", ["pandas_parquet", "pandas_json", "pandas_csv"]
+)
 def test_pandas_recorder_is_registered(recorder_name: str) -> None:
     """Each pandas recorder is discoverable via the module-level registry."""
     assert recorder_name in recorders.RECORDER_REGISTRY
@@ -52,8 +54,12 @@ def test_csv_mark(snapshot) -> None:
 @pytest.mark.parametrize(
     ("data", "recorder_name"),
     [
-        pytest.param(pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_parquet", id="parquet"),
-        pytest.param(pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_json", id="json"),
+        pytest.param(
+            pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_parquet", id="parquet"
+        ),
+        pytest.param(
+            pd.DataFrame({"a": [1, 2], "b": [3, 4]}), "pandas_json", id="json"
+        ),
     ],
 )
 def test_pandas_recorder_roundtrip_preserves_value(

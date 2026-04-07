@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml",
     "rich",
     "click",
+    "fsspec",
 ]
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]

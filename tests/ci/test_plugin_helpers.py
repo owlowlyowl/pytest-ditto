@@ -1,11 +1,10 @@
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 from ditto import recorders
 from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
-from ditto.plugin import _resolve_recorder, _snapshot_dir
+from ditto.plugin import _resolve_recorder
 
 json_recorder = recorders.get("json")
 pickle_recorder = recorders.get("pickle")
@@ -66,15 +65,3 @@ def test_raises_when_multiple_marks_are_present() -> None:
     """More than one record mark raises AdditionalMarkError."""
     with pytest.raises(AdditionalMarkError):
         _resolve_recorder([_mark("pickle"), _mark("json")])
-
-
-# --- _snapshot_dir ---
-
-
-def test_snapshot_dir_is_ditto_subdir_of_test_file() -> None:
-    """Returns the .ditto directory that sits alongside the given test file."""
-    test_path = Path("/project/tests/test_foo.py")
-
-    actual = _snapshot_dir(test_path)
-
-    assert actual == Path("/project/tests/.ditto")

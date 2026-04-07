@@ -6,7 +6,7 @@ import pytest
 
 from ditto import Snapshot, recorders
 from ditto.exceptions import DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, resolve_snapshot, save_snapshot
+from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
 

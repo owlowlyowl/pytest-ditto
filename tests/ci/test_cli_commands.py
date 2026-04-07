@@ -24,6 +24,7 @@ from ditto.cli import (
 
 # ── test helpers ──────────────────────────────────────────────────────────────
 
+
 def _ep(name: str, *, load_raises: Exception | None = None) -> MagicMock:
     """Build a minimal entry-point mock."""
     ep = MagicMock()
@@ -56,14 +57,19 @@ def _make_ditto_dir(root: Path, subdir: str, files: dict[str, bytes]) -> Path:
 
 @pytest.fixture()
 def pickle_ext_map():
-    return _ext_map([RecorderInfo(name="pickle", extension=".pkl", package="pytest-ditto")])
+    return _ext_map([
+        RecorderInfo(name="pickle", extension=".pkl", package="pytest-ditto")
+    ])
 
 
 # ── _doctor_checks: pytest availability ───────────────────────────────────────
 
+
 def test_pytest_check_passes_when_pytest_is_importable() -> None:
     """The pytest check is marked passing when importlib can locate pytest."""
-    with patch("ditto.cli.importlib.metadata.entry_points", side_effect=_entry_points()):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points", side_effect=_entry_points()
+    ):
         checks = _doctor_checks()
 
     result = next(c for c in checks if c.name == "pytest importable")
@@ -84,10 +90,13 @@ def test_pytest_check_fails_when_pytest_is_not_importable() -> None:
 
 # ── _doctor_checks: plugin registration ───────────────────────────────────────
 
+
 def test_plugin_check_passes_when_ditto_is_in_pytest11() -> None:
     """The plugin check passes when 'ditto' appears in the pytest11 entry points."""
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(pytest11=[_ep("ditto")])):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(pytest11=[_ep("ditto")]),
+    ):
         checks = _doctor_checks()
 
     result = next(c for c in checks if c.name == "ditto plugin registered")
@@ -96,8 +105,10 @@ def test_plugin_check_passes_when_ditto_is_in_pytest11() -> None:
 
 def test_plugin_check_fails_when_ditto_is_absent_from_pytest11() -> None:
     """The plugin check fails when no 'ditto' entry point is registered under pytest11."""
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(pytest11=[])):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(pytest11=[]),
+    ):
         checks = _doctor_checks()
 
     result = next(c for c in checks if c.name == "ditto plugin registered")
@@ -106,11 +117,14 @@ def test_plugin_check_fails_when_ditto_is_absent_from_pytest11() -> None:
 
 # ── _doctor_checks: entry point loading ───────────────────────────────────────
 
+
 def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> None:
     """A recorder whose entry point raises on load produces a failing check with the error message."""
     bad = _ep("broken_recorder", load_raises=ImportError("missing dep"))
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(recorders=[bad])):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(recorders=[bad]),
+    ):
         checks = _doctor_checks()
 
     result = next(c for c in checks if c.name == "recorder: broken_recorder")
@@ -121,8 +135,10 @@ def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> 
 def test_returns_failing_check_with_error_detail_when_mark_load_raises() -> None:
     """A mark entry point that raises on load produces a failing check with the error message."""
     bad = _ep("broken_mark", load_raises=RuntimeError("oops"))
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(marks=[bad])):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(marks=[bad]),
+    ):
         checks = _doctor_checks()
 
     result = next(c for c in checks if c.name == "mark: broken_mark")
@@ -133,8 +149,10 @@ def test_returns_failing_check_with_error_detail_when_mark_load_raises() -> None
 def test_returns_one_result_per_recorder_entry_point() -> None:
     """Each registered recorder entry point produces exactly one CheckResult."""
     eps = [_ep("pickle"), _ep("yaml"), _ep("json")]
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(recorders=eps)):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(recorders=eps),
+    ):
         checks = _doctor_checks()
 
     recorder_checks = [c for c in checks if c.name.startswith("recorder:")]
@@ -144,8 +162,10 @@ def test_returns_one_result_per_recorder_entry_point() -> None:
 def test_returns_one_result_per_mark_entry_point() -> None:
     """Each registered mark entry point produces exactly one CheckResult."""
     eps = [_ep("pickle"), _ep("yaml")]
-    with patch("ditto.cli.importlib.metadata.entry_points",
-               side_effect=_entry_points(marks=eps)):
+    with patch(
+        "ditto.cli.importlib.metadata.entry_points",
+        side_effect=_entry_points(marks=eps),
+    ):
         checks = _doctor_checks()
 
     mark_checks = [c for c in checks if c.name.startswith("mark:")]
@@ -153,6 +173,7 @@ def test_returns_one_result_per_mark_entry_point() -> None:
 
 
 # ── _find_lint_issues: clean inputs ───────────────────────────────────────────
+
 
 def test_returns_no_issues_for_empty_file_list(pickle_ext_map) -> None:
     """No files means no issues."""
@@ -171,7 +192,10 @@ def test_returns_no_issues_for_valid_snapshot_file(tmp_path, pickle_ext_map) -> 
 
 # ── _find_lint_issues: issue detection ────────────────────────────────────────
 
-def test_reports_malformed_name_when_filename_has_no_at_sign(tmp_path, pickle_ext_map) -> None:
+
+def test_reports_malformed_name_when_filename_has_no_at_sign(
+    tmp_path, pickle_ext_map
+) -> None:
     """A filename without '@' is flagged as malformed."""
     fp = tmp_path / "no_at_sign.pkl"
     fp.write_bytes(b"data")
@@ -218,6 +242,7 @@ def test_reports_empty_file_independently_of_unknown_extension(tmp_path) -> None
 
 # ── _gather_dir_stats ─────────────────────────────────────────────────────────
 
+
 def test_returns_empty_when_given_no_dirs() -> None:
     """An empty directory list produces no results."""
     assert _gather_dir_stats([], {}) == []
@@ -245,10 +270,14 @@ def test_returns_one_entry_per_non_empty_ditto_dir(tmp_path) -> None:
 
 def test_stats_reflect_file_count_in_directory(tmp_path) -> None:
     """The SnapshotStats for a directory reports the correct number of files."""
-    d = _make_ditto_dir(tmp_path, "tests", {
-        "test_a@snap.pkl": b"aaa",
-        "test_b@snap.pkl": b"bb",
-    })
+    d = _make_ditto_dir(
+        tmp_path,
+        "tests",
+        {
+            "test_a@snap.pkl": b"aaa",
+            "test_b@snap.pkl": b"bb",
+        },
+    )
 
     actual = _gather_dir_stats([d], {})
 
@@ -269,6 +298,7 @@ def test_skips_empty_dir_and_includes_populated_dir(tmp_path) -> None:
 
 
 # ── exit code consistency ─────────────────────────────────────────────────────
+
 
 def test_list_exits_one_when_no_snapshot_files_exist(tmp_path) -> None:
     """ditto list exits 1 when no snapshot files are found under the given path."""

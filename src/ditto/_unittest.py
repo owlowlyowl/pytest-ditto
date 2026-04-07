@@ -4,6 +4,7 @@ from functools import cached_property
 from pathlib import Path
 
 from ditto import Snapshot
+from ditto.backends import LocalMapping
 
 
 __all__ = ("DittoTestCase",)
@@ -19,10 +20,12 @@ class DittoTestCase(unittest.TestCase):
     def snapshot(self) -> Snapshot:
         # inspect.getfile(type(self)) returns the source file of the concrete test
         # class — deterministic regardless of how or where snapshot is accessed.
-        path = Path(inspect.getfile(type(self))).parent / ".ditto"
-        path.mkdir(exist_ok=True)
+        test_file = Path(inspect.getfile(type(self)))
+        ditto_dir = test_file.parent / ".ditto"
 
         return Snapshot(
-            path=path,
+            module=test_file.stem,
             group_name=".".join(self.id().split(".")[-3:]),
+            backend=LocalMapping(ditto_dir),
+            path=ditto_dir,  # kept for deprecated .path access in existing tests
         )

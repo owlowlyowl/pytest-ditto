@@ -47,7 +47,9 @@ _pickle_recorder = recorders.get("pickle")
 
 # tmp_path is reused across examples — safe because each example overwrites the
 # same filepath and examples are independent. Suppress Hypothesis' health check.
-_no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+_no_fixture_reset = settings(
+    suppress_health_check=[HealthCheck.function_scoped_fixture]
+)
 
 # ── JSON ──────────────────────────────────────────────────────────────────────
 

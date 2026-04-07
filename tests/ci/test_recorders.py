@@ -59,9 +59,13 @@ def test_recorder_roundtrip_preserves_value(
 @pytest.mark.parametrize(
     ("content", "recorder", "exc"),
     [
-        pytest.param(b"\x00", recorders.get("pickle"), _pickle.UnpicklingError, id="pickle"),
+        pytest.param(
+            b"\x00", recorders.get("pickle"), _pickle.UnpicklingError, id="pickle"
+        ),
         pytest.param(b"{", recorders.get("json"), _json.JSONDecodeError, id="json"),
-        pytest.param(b"key: {unclosed", recorders.get("yaml"), _yaml.YAMLError, id="yaml"),
+        pytest.param(
+            b"key: {unclosed", recorders.get("yaml"), _yaml.YAMLError, id="yaml"
+        ),
     ],
 )
 def test_raises_when_file_is_corrupt(

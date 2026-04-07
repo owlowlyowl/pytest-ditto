@@ -76,6 +76,7 @@ def test_raises_when_accessing_nonexistent_plugin_mark() -> None:
 
 # ── Broken entry point resilience ─────────────────────────────────────────────
 
+
 def _make_ep(name: str, load_side_effect=None, load_return=None):
     """Build a fake entry point mock."""
     ep = MagicMock()
@@ -108,6 +109,7 @@ def test_load_recorders_skips_broken_entry_point_and_warns() -> None:
 def test_load_mark_plugins_skips_broken_entry_point_and_warns() -> None:
     """A broken mark entry point is skipped; a warning is emitted; good ones still load."""
     import ditto
+
     good_marks = ditto.pickle  # any real marks object
 
     good_factory = MagicMock(return_value=good_marks)
