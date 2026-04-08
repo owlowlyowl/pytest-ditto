@@ -1,4 +1,5 @@
-"""Property-based tests for Snapshot filepath construction and key-tracking invariants."""
+"""Property-based tests for Snapshot filepath construction and key-tracking
+invariants."""
 
 from __future__ import annotations
 
@@ -54,7 +55,8 @@ def test_filepath_extension_always_matches_recorder_extension(
 @_no_fixture_reset
 @given(key=_safe_key)
 def test_filepath_parent_is_always_snapshot_path(tmp_path, key: str) -> None:
-    """The filepath for any simple key is a direct child of snapshot.path — no subdirectories."""
+    """The filepath for any simple key is a direct child of snapshot.path — no
+    subdirectories."""
     snapshot = Snapshot(path=tmp_path, group_name="test")
 
     fp = snapshot.filepath(key)
@@ -68,7 +70,8 @@ def test_filepath_parent_is_always_snapshot_path(tmp_path, key: str) -> None:
 @_no_fixture_reset
 @given(key=_safe_key)
 def test_duplicate_key_always_raises_on_second_call(tmp_path, key: str) -> None:
-    """Calling snapshot twice with the same key always raises DuplicateSnapshotKeyError."""
+    """Calling snapshot twice with the same key always raises
+    DuplicateSnapshotKeyError."""
     session_tracker.reset()
     snapshot = Snapshot(path=tmp_path, group_name="test")
     snapshot(1, key)
@@ -80,7 +83,8 @@ def test_duplicate_key_always_raises_on_second_call(tmp_path, key: str) -> None:
 @_no_fixture_reset
 @given(keys=st.lists(_safe_key, min_size=1, max_size=10, unique=True))
 def test_unique_keys_never_trigger_duplicate_error(tmp_path, keys: list[str]) -> None:
-    """Using a distinct key for each snapshot call never raises, regardless of how many calls are made."""
+    """Using a distinct key for each snapshot call never raises, regardless of how
+    many calls are made."""
     session_tracker.reset()
     snapshot = Snapshot(path=tmp_path, group_name="test")
 

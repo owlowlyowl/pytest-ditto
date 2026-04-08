@@ -193,3 +193,9 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
 
     assert first == 1
     assert second == 2
+
+
+def test_raises_at_construction_when_no_storage_target_is_given() -> None:
+    """Snapshot raises TypeError immediately when neither path= nor backend= is provided."""
+    with pytest.raises(TypeError, match="Snapshot requires a storage target"):
+        Snapshot(group_name="test")

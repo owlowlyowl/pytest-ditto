@@ -5,22 +5,32 @@ from ditto.snapshot import SnapshotKey
 
 def test_filename_uses_short_form() -> None:
     """filename omits the module so on-disk layout matches pre-backend ditto."""
-    sk = SnapshotKey(module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl")
+    sk = SnapshotKey(
+        module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
+    )
 
     assert sk.filename == "test_result@v.pkl"
 
 
 def test_str_uses_namespaced_form() -> None:
-    """str includes the module so remote backends can distinguish same-named tests across files."""
-    sk = SnapshotKey(module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl")
+    """str includes the module so remote backends can distinguish same-named tests
+    across files."""
+    sk = SnapshotKey(
+        module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
+    )
 
     assert str(sk) == "tests/bar/test_api/test_result@v.pkl"
 
 
 def test_keys_with_different_modules_are_unequal() -> None:
-    """Two SnapshotKeys identical except for module are distinct — no cross-file collision."""
-    a = SnapshotKey(module="tests/foo/test_api", group_name="test_result", key="v", extension="pkl")
-    b = SnapshotKey(module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl")
+    """Two SnapshotKeys identical except for module are distinct — no cross-file
+    collision."""
+    a = SnapshotKey(
+        module="tests/foo/test_api", group_name="test_result", key="v", extension="pkl"
+    )
+    b = SnapshotKey(
+        module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
+    )
 
     assert a != b
 

@@ -104,7 +104,8 @@ def test_plugin_check_passes_when_ditto_is_in_pytest11() -> None:
 
 
 def test_plugin_check_fails_when_ditto_is_absent_from_pytest11() -> None:
-    """The plugin check fails when no 'ditto' entry point is registered under pytest11."""
+    """The plugin check fails when no 'ditto' entry point is registered under
+    pytest11."""
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
         side_effect=_entry_points(pytest11=[]),
@@ -119,7 +120,8 @@ def test_plugin_check_fails_when_ditto_is_absent_from_pytest11() -> None:
 
 
 def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> None:
-    """A recorder whose entry point raises on load produces a failing check with the error message."""
+    """A recorder whose entry point raises on load produces a failing check with the
+    error message."""
     bad = _ep("broken_recorder", load_raises=ImportError("missing dep"))
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
@@ -133,7 +135,8 @@ def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> 
 
 
 def test_returns_failing_check_with_error_detail_when_mark_load_raises() -> None:
-    """A mark entry point that raises on load produces a failing check with the error message."""
+    """A mark entry point that raises on load produces a failing check with the
+    error message."""
     bad = _ep("broken_mark", load_raises=RuntimeError("oops"))
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
@@ -315,7 +318,8 @@ def test_status_exits_one_when_no_snapshot_files_exist(tmp_path) -> None:
 
 
 def test_clean_exits_one_when_no_ditto_dirs_exist(tmp_path) -> None:
-    """ditto clean exits 1 when no .ditto/ directories are found under the given path."""
+    """ditto clean exits 1 when no .ditto/ directories are found under the given
+    path."""
     result = CliRunner().invoke(cmd_clean, [str(tmp_path)])
 
     assert result.exit_code == 1

@@ -87,7 +87,8 @@ def test_raises_when_file_is_corrupt(
     [pytest.param("json", id="json"), pytest.param("yaml", id="yaml")],
 )
 def test_tuple_is_loaded_as_list(tmp_dir, recorder_name: str) -> None:
-    """JSON and YAML have no tuple type; tuples saved by these recorders are loaded back as lists."""
+    """JSON and YAML have no tuple type; tuples saved by these recorders are loaded
+    back as lists."""
     recorder = recorders.get(recorder_name)
     filepath = tmp_dir / f"tmp.{recorder.extension}"
 

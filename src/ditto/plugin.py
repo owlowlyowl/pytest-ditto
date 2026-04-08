@@ -4,6 +4,7 @@ import warnings
 from collections.abc import MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -47,7 +48,7 @@ def _maybe_enter(backend: MutableMapping[str, bytes]) -> MutableMapping[str, byt
     if bid not in _entered_backend_ids and isinstance(backend, AbstractContextManager):
         entered = _session_exit_stack.enter_context(backend)
         _entered_backend_ids.add(bid)
-        return entered
+        return cast(MutableMapping[str, bytes], entered)
     return backend
 
 
@@ -84,7 +85,7 @@ def _resolve_recorder(marks: list) -> Recorder:
 
 @pytest.fixture
 def snapshot(request: pytest.FixtureRequest) -> Snapshot:
-    rootdir = Path(request.config.rootdir)
+    rootdir = request.config.rootpath
     module = str(request.path.relative_to(rootdir).with_suffix(""))
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
@@ -100,7 +101,11 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
             backend=backend,
             update=update,
         )
-    except pytest.FixtureLookupError:
+    except pytest.FixtureLookupError as exc:
+        if exc.argname != "ditto_backend":
+            # A dependency of ditto_backend failed to resolve — re-raise so the
+            # user sees the real error rather than silently falling back to local.
+            raise exc from exc
         local_path = request.path.parent / ".ditto"
         return Snapshot(
             module=module,
@@ -108,7 +113,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
             recorder=recorder,
             backend=LocalMapping(local_path),
             update=update,
-            path=local_path,  # kept for deprecated .path access; signals filename key_of
+            path=local_path,  # kept for deprecated .path access; signals _filename_key
         )
 
 
@@ -136,7 +141,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "record(recorder, backend=None): snapshot values with optional backend override",
+        "record(recorder, backend=None): snapshot with optional backend override",
     )
 
 

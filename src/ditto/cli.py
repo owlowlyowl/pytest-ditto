@@ -67,7 +67,7 @@ _RECORDER_PALETTE = (
 
 
 def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
-    """Map recorder names to palette colours, assigned by sorted order — deterministic and pure."""
+    """Map recorder names to palette colours by sorted order — deterministic."""
     return {
         name: _RECORDER_PALETTE[i % len(_RECORDER_PALETTE)]
         for i, name in enumerate(sorted(recorder_names))
@@ -297,7 +297,8 @@ def cmd_prune(pytest_args):
         console.print(
             f"[bold {ACCENT}]Warning:[/bold {ACCENT}] "
             f"[{SUBTEXT1}]using -k with 'ditto prune' runs only a subset of tests. "
-            f"Snapshots for skipped tests will be treated as unused and deleted.[/{SUBTEXT1}]",
+            f"Snapshots for skipped tests will be treated as unused and"
+            f" deleted.[/{SUBTEXT1}]",
             highlight=False,
         )
     result = subprocess.run(
@@ -398,7 +399,8 @@ def cmd_clean(path: Path, yes: bool):
 
     n = len(dirs)
     console.print(
-        f"\n[bold {CREATED}]Removed {n} .ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
+        f"\n[bold {CREATED}]Removed {n} "
+        f".ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
     )
 
 
@@ -548,7 +550,7 @@ def _find_lint_issues(
 def _gather_dir_stats(
     dirs: list[Path], em: Mapping[str, RecorderInfo]
 ) -> list[tuple[Path, SnapshotStats]]:
-    """Return per-directory stats for non-empty .ditto/ dirs without any I/O beyond stat()."""
+    """Return per-directory stats for non-empty .ditto/ dirs, I/O limited to stat()."""
     result = []
     for d in dirs:
         files = sorted(f for f in d.iterdir() if f.is_file())

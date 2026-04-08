@@ -15,10 +15,10 @@ class TransformMapping(MutableMapping):
     """MutableMapping that serialises/deserialises values via save/load callables.
 
     Wraps an underlying MutableMapping[str, bytes] backend. Values written via
-    __setitem__ are passed through _save (Any → bytes) before storage; values
-    read via __getitem__ are passed through _load (bytes → Any) after retrieval.
+    __setitem__ are passed through save (Any → bytes) before storage; values
+    read via __getitem__ are passed through load (bytes → Any) after retrieval.
 
-    Use the | operator to combine a bare mapping wrapper with a recorder transform:
+    Partial instances (mapping-only or save/load-only) are combined via |:
 
         store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
     """
@@ -32,34 +32,53 @@ class TransformMapping(MutableMapping):
     ) -> None:
         self._save = save
         self._load = load
-        self._cache = mapping
+        self._mapping = mapping
 
     def __or__(self, other: "TransformMapping") -> "TransformMapping":
         return TransformMapping(
             save=other._save if other._save is not None else self._save,
             load=other._load if other._load is not None else self._load,
-            mapping=self._cache if self._cache is not None else other._cache,
+            mapping=self._mapping if self._mapping is not None else other._mapping,
         )
 
     def __getitem__(self, key: str) -> Any:
-        raw = self._cache[key]
-        return self._load(raw)
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        if self._load is None:
+            raise TypeError(
+                "TransformMapping has no load callable; use | to attach one."
+            )
+        return self._load(self._mapping[key])
 
     def __setitem__(self, key: str, value: Any) -> None:
-        self._cache[key] = self._save(value)
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        if self._save is None:
+            raise TypeError(
+                "TransformMapping has no save callable; use | to attach one."
+            )
+        self._mapping[key] = self._save(value)
 
     def __delitem__(self, key: str) -> None:
-        del self._cache[key]
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        del self._mapping[key]
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._cache)
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        return iter(self._mapping)
 
     def __len__(self) -> int:
-        return len(self._cache)
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        return len(self._mapping)
 
     def __contains__(self, key: object) -> bool:
-        # Delegate to the underlying cache — never calls __getitem__/load.
-        return key in self._cache
+        if self._mapping is None:
+            raise TypeError("TransformMapping has no backend; use | to attach one.")
+        # Delegate to the underlying mapping — never calls __getitem__/load.
+        return key in self._mapping
 
 
 def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
@@ -67,10 +86,15 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
 
     The Recorder protocol requires a Path argument. The bridge writes/reads a
     temporary file so any Recorder can be used with any bytes-based backend.
+    Combine with a mapping backend via |:
+
+        store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
     """
 
     def _save(data: Any) -> bytes:
-        with tempfile.NamedTemporaryFile(suffix=f".{recorder.extension}", delete=False) as f:
+        with tempfile.NamedTemporaryFile(
+            suffix=f".{recorder.extension}", delete=False
+        ) as f:
             tmp = Path(f.name)
         try:
             recorder.save(data, tmp)
@@ -79,7 +103,9 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
             tmp.unlink(missing_ok=True)
 
     def _load(raw: bytes) -> Any:
-        with tempfile.NamedTemporaryFile(suffix=f".{recorder.extension}", delete=False) as f:
+        with tempfile.NamedTemporaryFile(
+            suffix=f".{recorder.extension}", delete=False
+        ) as f:
             tmp = Path(f.name)
         try:
             tmp.write_bytes(raw)

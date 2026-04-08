@@ -89,7 +89,8 @@ def _make_ep(name: str, load_side_effect=None, load_return=None):
 
 
 def test_load_recorders_skips_broken_entry_point_and_warns() -> None:
-    """A broken recorder entry point is skipped; a warning is emitted; good ones still load."""
+    """A broken recorder entry point is skipped; a warning is emitted; good ones
+    still load."""
     good_recorder = recorders.default()
     good_ep = _make_ep("good", load_return=good_recorder)
     bad_ep = _make_ep("bad", load_side_effect=ImportError("missing lib"))
@@ -107,7 +108,8 @@ def test_load_recorders_skips_broken_entry_point_and_warns() -> None:
 
 
 def test_load_mark_plugins_skips_broken_entry_point_and_warns() -> None:
-    """A broken mark entry point is skipped; a warning is emitted; good ones still load."""
+    """A broken mark entry point is skipped; a warning is emitted; good ones still
+    load."""
     import ditto
 
     good_marks = ditto.pickle  # any real marks object

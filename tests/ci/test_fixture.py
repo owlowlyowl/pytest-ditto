@@ -43,7 +43,8 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
 
 
 def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
-    """snapshot returns each stored value when called with different keys in one test."""
+    """snapshot returns each stored value when called with different keys in one
+    test."""
     pytester.makepyfile("""
         def test_inner(snapshot):
             actual_a = snapshot(77, key="a")
@@ -55,6 +56,28 @@ def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_broken_ditto_backend_dependency_fails_loudly(pytester) -> None:
+    """A ditto_backend fixture whose own dependency is missing fails the test.
+
+    Regression: previously the FixtureLookupError was caught unconditionally,
+    silently falling back to LocalMapping and hiding the broken backend.
+    """
+    pytester.makepyfile("""
+        import pytest
+
+        @pytest.fixture
+        def ditto_backend(nonexistent_dep):
+            return nonexistent_dep
+
+        def test_inner(snapshot):
+            snapshot("value", key="k")
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(errors=1)
 
 
 def test_accepts_integer_as_key(pytester) -> None:

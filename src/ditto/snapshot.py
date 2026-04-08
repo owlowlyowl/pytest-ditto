@@ -168,6 +168,10 @@ class Snapshot:
             from .backends import LocalMapping
 
             object.__setattr__(self, "backend", LocalMapping(self.path))
+        if self.backend is None:
+            raise TypeError(
+                "Snapshot requires a storage target; provide backend= or path=."
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -185,6 +189,11 @@ class Snapshot:
     def _store(self) -> Any:
         from .backends import TransformMapping, _make_recorder_transform
 
+        if self.backend is None:
+            raise TypeError(
+                "Snapshot has no backend configured; "
+                "provide path= or backend= at construction."
+            )
         return TransformMapping(mapping=self.backend) | _make_recorder_transform(
             self.recorder
         )
@@ -200,8 +209,8 @@ class Snapshot:
         filesystem backends (those constructed with ``path=``).
         """
         warnings.warn(
-            "Snapshot.filepath() is deprecated and will be removed in the next release. "
-            "Call snapshot(data, key=key) directly instead.",
+            "Snapshot.filepath() is deprecated and will be removed in the next release."
+            " Call snapshot(data, key=key) directly instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -272,11 +281,17 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     key_of = snapshot._key_of()
     storage_key = key_of(sk)
 
-    used_key = (id(snapshot.backend), storage_key)
+    backend = snapshot.backend
+    if backend is None:
+        raise TypeError(
+            "Snapshot has no backend configured; "
+            "provide path= or backend= at construction."
+        )
+    used_key = (id(backend), storage_key)
     if used_key in session_tracker.used_keys:
         raise DuplicateSnapshotKeyError(key)
     session_tracker.used_keys.add(used_key)
-    session_tracker.register_access(snapshot.backend, key_of, sk)
+    session_tracker.register_access(backend, key_of, sk)
 
     store = snapshot._store()
     exists = storage_key in store

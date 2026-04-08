@@ -2,10 +2,10 @@ import pytest
 
 ditto_pandas = pytest.importorskip("ditto_pandas")
 
-import ditto
-import pandas as pd
+import ditto  # noqa: E402
+import pandas as pd  # noqa: E402
 
-from ditto import recorders
+from ditto import recorders  # noqa: E402
 
 
 @pytest.mark.parametrize(

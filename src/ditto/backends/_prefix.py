@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
+from types import TracebackType
 
 
 __all__ = ("PrefixedMapping",)
@@ -64,6 +65,11 @@ class PrefixedMapping(MutableMapping[str, bytes]):
             self._store.__enter__()
         return self
 
-    def __exit__(self, *exc_info: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         if isinstance(self._store, AbstractContextManager):
-            self._store.__exit__(*exc_info)
+            self._store.__exit__(exc_type, exc_val, exc_tb)

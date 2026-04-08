@@ -163,7 +163,8 @@ class TestGatherStats:
         assert stats.by_recorder["pickle"] == (1, 100)
 
     def test_unknown_extension_falls_back_to_raw_name(self):
-        """An unmapped extension uses the extension (minus leading dot) as recorder name."""
+        """An unmapped extension uses the extension (minus leading dot) as recorder
+        name."""
         f = _mock_file("test_foo@snap.custom", size=50, mtime=500.0)
 
         stats = gather_stats([f], ext_map={})

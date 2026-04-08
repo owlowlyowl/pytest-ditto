@@ -98,6 +98,16 @@ def test_local_mapping_len_counts_stored_keys(tmp_path: Path) -> None:
     assert len(m) == 2
 
 
+def test_local_mapping_iter_returns_empty_when_directory_does_not_exist(
+    tmp_path: Path,
+) -> None:
+    """__iter__ on a non-existent root yields nothing rather than raising."""
+    m = LocalMapping(tmp_path / "nonexistent")
+
+    assert list(m) == []
+    assert len(m) == 0
+
+
 def test_local_mapping_handles_bracket_characters_in_key(tmp_path: Path) -> None:
     """Keys with bracket characters are stored and retrieved literally, not as globs."""
     m = LocalMapping(tmp_path)
@@ -116,8 +126,9 @@ def test_local_mapping_handles_bracket_characters_in_key(tmp_path: Path) -> None
 
 def test_transform_mapping_stores_and_retrieves_via_recorder(tmp_path: Path) -> None:
     """Values written through a recorder transform round-trip correctly."""
-    recorder = _default_recorder()
-    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(recorder)
+    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+        _default_recorder()
+    )
 
     store["key.pkl"] = {"x": 42}
 
@@ -151,20 +162,21 @@ def test_transform_mapping_contains_does_not_deserialise(tmp_path: Path) -> None
 
 
 def test_transform_mapping_pipe_combines_mapping_and_transform(tmp_path: Path) -> None:
-    """The | operator composes a bare mapping wrapper with a recorder transform."""
-    recorder = _default_recorder()
-    bare = TransformMapping(mapping=LocalMapping(tmp_path))
-    transform = _make_recorder_transform(recorder)
+    """| combines a backend wrapper with a recorder transform into a usable store."""
+    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+        _default_recorder()
+    )
 
-    combined = bare | transform
+    store["k.pkl"] = [1, 2, 3]
 
-    combined["k.pkl"] = [1, 2, 3]
-    assert combined["k.pkl"] == [1, 2, 3]
+    assert store["k.pkl"] == [1, 2, 3]
 
 
 def test_transform_mapping_missing_key_raises(tmp_path: Path) -> None:
     """Reading an absent key raises KeyError (propagated from the inner mapping)."""
-    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(_default_recorder())
+    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+        _default_recorder()
+    )
 
     with pytest.raises(KeyError):
         _ = store["missing.pkl"]
@@ -228,7 +240,7 @@ def test_prefixed_mapping_empty_prefix_raises() -> None:
 
 
 def test_prefixed_mapping_propagates_context_manager_enter() -> None:
-    """__enter__ is forwarded to an inner store that implements AbstractContextManager."""
+    """__enter__ is forwarded to an inner store that is an AbstractContextManager."""
 
     class TrackingStore(MutableMapping[str, bytes]):
         entered = False
@@ -244,8 +256,11 @@ def test_prefixed_mapping_propagates_context_manager_enter() -> None:
         def __getitem__(self, k: str) -> bytes: ...
         def __setitem__(self, k: str, v: bytes) -> None: ...
         def __delitem__(self, k: str) -> None: ...
-        def __iter__(self): return iter([])
-        def __len__(self) -> int: return 0
+        def __iter__(self):
+            return iter([])
+
+        def __len__(self) -> int:
+            return 0
 
     inner = TrackingStore()
     m = PrefixedMapping(inner, prefix="p:")

@@ -51,6 +51,8 @@ class LocalMapping(MutableMapping[str, bytes]):
         return self._path(key).is_file()
 
     def __iter__(self) -> Iterator[str]:
+        if not self._root.is_dir():
+            return iter([])
         return (f.name for f in self._root.iterdir() if f.is_file())
 
     def __len__(self) -> int:

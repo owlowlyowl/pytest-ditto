@@ -2,10 +2,10 @@ import pytest
 
 ditto_pyarrow = pytest.importorskip("ditto_pyarrow")
 
-import ditto
-import pyarrow as pa
+import ditto  # noqa: E402
+import pyarrow as pa  # noqa: E402
 
-from ditto import recorders
+from ditto import recorders  # noqa: E402
 
 
 def _make_table() -> pa.Table:
@@ -34,7 +34,8 @@ def test_pyarrow_marks_are_accessible() -> None:
 
 @ditto.pyarrow.parquet
 def test_parquet_mark(snapshot) -> None:
-    """The parquet mark selects the pyarrow_parquet recorder via the snapshot fixture."""
+    """The parquet mark selects the pyarrow_parquet recorder via the snapshot
+    fixture."""
     table = _make_table()
     snapshot(table, key="parquet")
     assert snapshot.filepath("parquet").exists()
@@ -43,7 +44,8 @@ def test_parquet_mark(snapshot) -> None:
 
 @ditto.pyarrow.feather
 def test_feather_mark(snapshot) -> None:
-    """The feather mark selects the pyarrow_feather recorder via the snapshot fixture."""
+    """The feather mark selects the pyarrow_feather recorder via the snapshot
+    fixture."""
     table = _make_table()
     snapshot(table, key="feather")
     assert snapshot.filepath("feather").exists()
