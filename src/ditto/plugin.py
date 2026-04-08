@@ -29,7 +29,7 @@ __all__ = ("snapshot",)
 # ---------------------------------------------------------------------------
 
 _session_exit_stack: ExitStack = ExitStack()
-_entered_backend_ids: set[int] = set()
+_entered_backends: dict[int, MutableMapping[str, bytes]] = {}
 _backend_cache: dict[str, MutableMapping[str, bytes]] = {}
 
 
@@ -45,10 +45,15 @@ def _maybe_enter(backend: MutableMapping[str, bytes]) -> MutableMapping[str, byt
     are not context managers and for backends already entered.
     """
     bid = id(backend)
-    if bid not in _entered_backend_ids and isinstance(backend, AbstractContextManager):
-        entered = _session_exit_stack.enter_context(backend)
-        _entered_backend_ids.add(bid)
-        return cast(MutableMapping[str, bytes], entered)
+    if bid in _entered_backends:
+        return _entered_backends[bid]
+    if isinstance(backend, AbstractContextManager):
+        entered = cast(
+            MutableMapping[str, bytes],
+            _session_exit_stack.enter_context(backend),
+        )
+        _entered_backends[bid] = entered
+        return entered
     return backend
 
 
@@ -141,14 +146,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "record(recorder, backend=None): snapshot with optional backend override",
+        "record(recorder): snapshot with a specific recorder",
     )
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     global _session_exit_stack
     _session_exit_stack = ExitStack()
-    _entered_backend_ids.clear()
+    _entered_backends.clear()
     _backend_cache.clear()
     session_tracker.reset()
 

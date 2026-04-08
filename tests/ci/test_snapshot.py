@@ -195,6 +195,15 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
     assert second == 2
 
 
+def test_filepath_raises_type_error_for_backend_constructed_snapshot() -> None:
+    """filepath() raises TypeError when the snapshot was built with backend=, not path=."""
+    backend: dict[str, bytes] = {}
+    snapshot = Snapshot(group_name="test", module="mod", backend=backend)
+
+    with pytest.raises(TypeError, match="path-based"):
+        snapshot.filepath("key")
+
+
 def test_raises_at_construction_when_no_storage_target_is_given() -> None:
     """Snapshot raises TypeError immediately when neither path= nor backend= is provided."""
     with pytest.raises(TypeError, match="Snapshot requires a storage target"):

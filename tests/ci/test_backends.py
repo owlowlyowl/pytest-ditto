@@ -119,6 +119,39 @@ def test_local_mapping_handles_bracket_characters_in_key(tmp_path: Path) -> None
     assert key in m
 
 
+def test_local_mapping_supports_nested_keys(tmp_path: Path) -> None:
+    """Keys containing slashes create subdirectories and round-trip correctly."""
+    m = LocalMapping(tmp_path)
+    key = "tests/test_api/test_something@result.pkl"
+
+    m[key] = b"nested-data"
+
+    assert m[key] == b"nested-data"
+    assert key in m
+    assert (tmp_path / "tests" / "test_api" / "test_something@result.pkl").is_file()
+
+
+def test_local_mapping_iter_includes_nested_keys(tmp_path: Path) -> None:
+    """__iter__ yields nested keys, not just top-level filenames."""
+    m = LocalMapping(tmp_path)
+    m["flat.pkl"] = b"1"
+    m["sub/nested.pkl"] = b"2"
+    m["sub/deep/leaf.pkl"] = b"3"
+
+    assert set(m) == {"flat.pkl", "sub/nested.pkl", "sub/deep/leaf.pkl"}
+
+
+def test_local_mapping_delete_nested_key(tmp_path: Path) -> None:
+    """Deleting a nested key removes the file."""
+    m = LocalMapping(tmp_path)
+    key = "mod/group@k.pkl"
+    m[key] = b"x"
+
+    del m[key]
+
+    assert key not in m
+
+
 # ---------------------------------------------------------------------------
 # TransformMapping
 # ---------------------------------------------------------------------------

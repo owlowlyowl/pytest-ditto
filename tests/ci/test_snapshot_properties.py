@@ -67,26 +67,24 @@ def test_filepath_parent_is_always_snapshot_path(tmp_path, key: str) -> None:
 # ── Duplicate key detection ───────────────────────────────────────────────────
 
 
-@_no_fixture_reset
 @given(key=_safe_key)
-def test_duplicate_key_always_raises_on_second_call(tmp_path, key: str) -> None:
+def test_duplicate_key_always_raises_on_second_call(key: str) -> None:
     """Calling snapshot twice with the same key always raises
     DuplicateSnapshotKeyError."""
-    session_tracker.reset()
-    snapshot = Snapshot(path=tmp_path, group_name="test")
+    session_tracker.reset_keys()
+    snapshot = Snapshot(group_name="test", backend={})
     snapshot(1, key)
 
     with pytest.raises(DuplicateSnapshotKeyError):
         snapshot(2, key)
 
 
-@_no_fixture_reset
 @given(keys=st.lists(_safe_key, min_size=1, max_size=10, unique=True))
-def test_unique_keys_never_trigger_duplicate_error(tmp_path, keys: list[str]) -> None:
+def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
     """Using a distinct key for each snapshot call never raises, regardless of how
     many calls are made."""
-    session_tracker.reset()
-    snapshot = Snapshot(path=tmp_path, group_name="test")
+    session_tracker.reset_keys()
+    snapshot = Snapshot(group_name="test", backend={})
 
     for i, key in enumerate(keys):
         snapshot(i, key)

@@ -97,6 +97,16 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
+    def reset_keys(self) -> None:
+        """Reset per-test state only: duplicate-key detection and created/updated lists.
+
+        Use this between Hypothesis examples to reset duplicate-key tracking without
+        discarding the backend access log (_records) that pytest_sessionfinish relies on.
+        """
+        self.used_keys.clear()
+        self.created.clear()
+        self.updated.clear()
+
     def reset(self) -> None:
         self._records.clear()
         self.created.clear()
@@ -217,11 +227,8 @@ class Snapshot:
         sk = self._key(key)
         if self.path is not None:
             return self.path / sk.filename
-        root = getattr(self.backend, "root", None)
-        if root is not None:
-            return Path(root) / sk.filename
         raise TypeError(
-            "Snapshot.filepath() is only available for filesystem backends."
+            "Snapshot.filepath() is only available for path-based snapshots."
         )
 
     # ------------------------------------------------------------------

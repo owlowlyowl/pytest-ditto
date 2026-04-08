@@ -35,7 +35,7 @@ class LocalMapping(MutableMapping[str, bytes]):
 
     def __setitem__(self, key: str, value: bytes) -> None:
         p = self._path(key)
-        self._root.mkdir(parents=True, exist_ok=True)
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(value)
 
     def __delitem__(self, key: str) -> None:
@@ -53,7 +53,9 @@ class LocalMapping(MutableMapping[str, bytes]):
     def __iter__(self) -> Iterator[str]:
         if not self._root.is_dir():
             return iter([])
-        return (f.name for f in self._root.iterdir() if f.is_file())
+        return (
+            str(f.relative_to(self._root)) for f in self._root.rglob("*") if f.is_file()
+        )
 
     def __len__(self) -> int:
         return sum(1 for _ in self)
