@@ -92,6 +92,10 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
     """
 
     def _save(data: Any) -> bytes:
+        # TODO: delete=False + close-then-reopen is safe on POSIX but can fail on
+        # Windows, where an open file cannot be reopened by name (sharing violation).
+        # Fix: write to a BytesIO/buffer and pass that to recorder.save(), or use
+        # tempfile.mkstemp() and handle the fd lifetime explicitly.
         with tempfile.NamedTemporaryFile(
             suffix=f".{recorder.extension}", delete=False
         ) as f:
@@ -103,6 +107,7 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
             tmp.unlink(missing_ok=True)
 
     def _load(raw: bytes) -> Any:
+        # TODO: same Windows sharing-violation risk as _save above.
         with tempfile.NamedTemporaryFile(
             suffix=f".{recorder.extension}", delete=False
         ) as f:

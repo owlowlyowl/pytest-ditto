@@ -195,8 +195,8 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
     assert second == 2
 
 
-def test_filepath_raises_type_error_for_backend_constructed_snapshot() -> None:
-    """filepath() raises TypeError when the snapshot was built with backend=, not path=."""
+def test_raises_when_filepath_called_on_backend_only_snapshot() -> None:
+    """filepath() raises TypeError when the snapshot has no path-based storage."""
     backend: dict[str, bytes] = {}
     snapshot = Snapshot(group_name="test", module="mod", backend=backend)
 

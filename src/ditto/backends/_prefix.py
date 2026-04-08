@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
 from types import TracebackType
+from typing import cast
 
 
 __all__ = ("PrefixedMapping",)
@@ -61,9 +62,16 @@ class PrefixedMapping(MutableMapping[str, bytes]):
         return sum(1 for _ in self)
 
     def __enter__(self) -> "PrefixedMapping":
+        # The CM contract allows __enter__ to return a proxy/wrapper rather than
+        # self (e.g. a connection handle after authentication). Returning a new
+        # PrefixedMapping that wraps that entered object keeps this instance
+        # unchanged while ensuring all subsequent I/O uses the correctly-entered
+        # delegate. _maybe_enter in plugin.py captures and reuses this return value.
         if isinstance(self._store, AbstractContextManager):
-            self._store.__enter__()
-        return self
+            entered = cast(MutableMapping[str, bytes], self._store.__enter__())
+        else:
+            entered = self._store
+        return PrefixedMapping(entered, self._prefix)
 
     def __exit__(
         self,

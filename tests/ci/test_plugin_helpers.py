@@ -101,8 +101,8 @@ class _WrappingBackend(AbstractContextManager, MutableMapping[str, bytes]):
         return len(self._data)
 
 
-def test_maybe_enter_returns_entered_object_on_repeated_calls() -> None:
-    """_maybe_enter returns the __enter__ result consistently, not the original."""
+def test_returns_entered_value_on_every_call_when_backend_is_context_manager() -> None:
+    """The value returned by __enter__ is returned on every call, not the original backend."""
     _entered_backends.clear()
     backend = _WrappingBackend()
 

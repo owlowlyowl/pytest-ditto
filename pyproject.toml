@@ -146,7 +146,7 @@ convention = "numpy"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
 pytest-ditto = { path = ".", editable = true }
@@ -166,6 +166,9 @@ ty = "ty check src/"
 pytest = ">=8.3,<9"
 pytest-cov = ">=6.0,<7"
 hypothesis = ">=6.0"
+
+[tool.pixi.feature.test.pypi-dependencies]
+fakeredis = ">=2.0"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
@@ -201,9 +204,10 @@ pytest-ditto-pandas = "==0.1.0"
 [tool.pixi.feature.pandas.tasks]
 test = "pytest"
 
-[tool.pixi.feature.pyarrow.dependencies]
+[tool.pixi.feature.pyarrow.target.linux-64.dependencies]
 # pyarrow's C++ dependencies require a newer libstdc++ than the system provides on
 # Ubuntu 22.04 / glibc 2.35 — pin libstdcxx-ng >= 14 and preload it at runtime.
+# libstdcxx-ng is a Linux-only package; macOS and Windows use the system runtime.
 libstdcxx-ng = ">=14"
 
 [tool.pixi.feature.pyarrow.pypi-dependencies]

@@ -23,23 +23,32 @@ class LocalMapping(MutableMapping[str, bytes]):
         # .root attribute mirrors fsspec FSMap for compatibility
         self.root = str(root)
 
-    def _path(self, key: str) -> Path:
-        return self._root / key
+    def _safe_path(self, key: str) -> Path:
+        # resolve() is required on both sides before is_relative_to(): without it,
+        # a key containing ".." components or the root containing a symlink could
+        # produce a path that appears outside the root in string form but resolves
+        # inside it (or vice versa).
+        p = (self._root / key).resolve()
+        if not p.is_relative_to(self._root.resolve()):
+            raise ValueError(
+                f"key {key!r} would escape the snapshot root {self._root!r}"
+            )
+        return p
 
     def __getitem__(self, key: str) -> bytes:
-        p = self._path(key)
+        p = self._safe_path(key)
         try:
             return p.read_bytes()
         except FileNotFoundError:
             raise KeyError(key)
 
     def __setitem__(self, key: str, value: bytes) -> None:
-        p = self._path(key)
+        p = self._safe_path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(value)
 
     def __delitem__(self, key: str) -> None:
-        p = self._path(key)
+        p = self._safe_path(key)
         try:
             p.unlink()
         except FileNotFoundError:
@@ -48,7 +57,7 @@ class LocalMapping(MutableMapping[str, bytes]):
     def __contains__(self, key: object) -> bool:
         if not isinstance(key, str):
             return False
-        return self._path(key).is_file()
+        return self._safe_path(key).is_file()
 
     def __iter__(self) -> Iterator[str]:
         if not self._root.is_dir():

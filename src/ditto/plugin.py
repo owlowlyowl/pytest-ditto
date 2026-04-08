@@ -4,7 +4,7 @@ import warnings
 from collections.abc import MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -166,13 +166,31 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     pruned: list[str] = []
     unused: list[str] = []
 
+    # FIXME: The .root attribute is a brittle duck-typed contract for detecting
+    # filesystem-backed backends. Any custom backend that happens to expose a
+    # .root attribute (even a non-filesystem one) will be treated as a local
+    # directory and added to the registered_fs_roots set, potentially causing
+    # Pass 2 to skip stale-directory scanning for paths it shouldn't own.
+    # A typed protocol (e.g. SupportsRoot) or an explicit registry would make
+    # this contract visible and enforceable.
+    def _get_root(backend: Any) -> Path | None:
+        root_attr = getattr(backend, "root", None)
+        if root_attr is not None:
+            return Path(root_attr).resolve()
+
+        # Unwrap PrefixedMapping and TransformMapping
+        inner = getattr(backend, "_store", getattr(backend, "_mapping", None))
+        if inner is not None:
+            return _get_root(inner)
+        return None
+
     # Pass 1 — iterate backends registered in session_tracker.
     # Connections are still alive here; ExitStack closes after this hook.
     registered_fs_roots: set[Path] = set()
     for record in session_tracker.records.values():
-        root = getattr(record.backend, "root", None)
+        root = _get_root(record.backend)
         if root is not None:
-            registered_fs_roots.add(Path(root).resolve())
+            registered_fs_roots.add(root)
 
         accessed_keys = {record.key_of(k) for k in record.accessed}
         try:

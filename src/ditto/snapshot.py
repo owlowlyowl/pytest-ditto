@@ -266,12 +266,12 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
     """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    try:
-        return snapshot._store()[storage_key]
-    except KeyError:
+    store = snapshot._store()
+    if storage_key not in store:
         raise FileNotFoundError(
             f"No snapshot file found for key {key!r} (storage key: {storage_key!r})"
         )
+    return store[storage_key]
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:

@@ -119,8 +119,8 @@ def test_local_mapping_handles_bracket_characters_in_key(tmp_path: Path) -> None
     assert key in m
 
 
-def test_local_mapping_supports_nested_keys(tmp_path: Path) -> None:
-    """Keys containing slashes create subdirectories and round-trip correctly."""
+def test_stores_and_retrieves_bytes_at_nested_key_path(tmp_path: Path) -> None:
+    """Bytes stored under a slash-containing key are returned unchanged on read."""
     m = LocalMapping(tmp_path)
     key = "tests/test_api/test_something@result.pkl"
 
@@ -131,20 +131,21 @@ def test_local_mapping_supports_nested_keys(tmp_path: Path) -> None:
     assert (tmp_path / "tests" / "test_api" / "test_something@result.pkl").is_file()
 
 
-def test_local_mapping_iter_includes_nested_keys(tmp_path: Path) -> None:
-    """__iter__ yields nested keys with forward slashes on all platforms."""
+def test_iter_yields_forward_slash_keys_for_all_nested_files(tmp_path: Path) -> None:
+    """__iter__ yields forward-slash-separated relative paths for files at any depth."""
     m = LocalMapping(tmp_path)
     m["flat.pkl"] = b"1"
     m["sub/nested.pkl"] = b"2"
     m["sub/deep/leaf.pkl"] = b"3"
 
     keys = set(m)
+
     assert keys == {"flat.pkl", "sub/nested.pkl", "sub/deep/leaf.pkl"}
-    assert all("\\" not in k for k in keys), "keys must use forward slashes, not backslashes"
+    assert all("\\" not in k for k in keys)
 
 
-def test_local_mapping_delete_nested_key(tmp_path: Path) -> None:
-    """Deleting a nested key removes the file."""
+def test_removes_file_when_nested_key_is_deleted(tmp_path: Path) -> None:
+    """Deleting a nested key removes the backing file from the directory tree."""
     m = LocalMapping(tmp_path)
     key = "mod/group@k.pkl"
     m[key] = b"x"
@@ -152,6 +153,22 @@ def test_local_mapping_delete_nested_key(tmp_path: Path) -> None:
     del m[key]
 
     assert key not in m
+
+
+def test_raises_when_key_contains_path_traversal(tmp_path: Path) -> None:
+    """A key that resolves outside the root raises ValueError."""
+    m = LocalMapping(tmp_path)
+
+    with pytest.raises(ValueError, match="escape"):
+        m["../../outside.pkl"] = b"x"
+
+
+def test_raises_when_key_is_absolute_path(tmp_path: Path) -> None:
+    """An absolute path key raises ValueError regardless of the path it names."""
+    m = LocalMapping(tmp_path)
+
+    with pytest.raises(ValueError, match="escape"):
+        m["/etc/passwd"] = b"x"
 
 
 # ---------------------------------------------------------------------------
@@ -313,3 +330,43 @@ def test_prefixed_mapping_does_not_fail_when_inner_has_no_context_manager() -> N
         m["k"] = b"v"
 
     assert m["k"] == b"v"
+
+
+def test_routes_io_through_entered_proxy_when_inner_enter_returns_different_object() -> None:
+    """Writes and reads after entry go through the object returned by __enter__."""
+
+    class ProxyStore(MutableMapping[str, bytes]):
+        """A store whose __enter__ returns a separate proxy dict, not self."""
+
+        def __init__(self) -> None:
+            self.proxy: dict[str, bytes] = {}
+
+        def __enter__(self) -> dict[str, bytes]:  # type: ignore[override]
+            return self.proxy
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+        def __getitem__(self, k: str) -> bytes:
+            raise KeyError(k)
+
+        def __setitem__(self, k: str, v: bytes) -> None:
+            pass
+
+        def __delitem__(self, k: str) -> None:
+            pass
+
+        def __iter__(self) -> Iterator[str]:
+            return iter([])
+
+        def __len__(self) -> int:
+            return 0
+
+    inner = ProxyStore()
+    m = PrefixedMapping(inner, prefix="p:")
+
+    with m as entered_m:
+        entered_m["key"] = b"val"
+        actual = entered_m["key"]
+
+    assert actual == b"val"
