@@ -54,7 +54,7 @@ class LocalMapping(MutableMapping[str, bytes]):
         if not self._root.is_dir():
             return iter([])
         return (
-            str(f.relative_to(self._root)) for f in self._root.rglob("*") if f.is_file()
+            f.relative_to(self._root).as_posix() for f in self._root.rglob("*") if f.is_file()
         )
 
     def __len__(self) -> int:
