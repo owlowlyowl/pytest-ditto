@@ -3,8 +3,10 @@ import unittest
 from functools import cached_property
 from pathlib import Path
 
+import fsspec
+
 from ditto import Snapshot
-from ditto.backends import LocalMapping
+from ditto.backends import FsspecMapping
 
 
 __all__ = ("DittoTestCase",)
@@ -26,6 +28,6 @@ class DittoTestCase(unittest.TestCase):
         return Snapshot(
             module=test_file.stem,
             group_name=".".join(self.id().split(".")[-3:]),
-            backend=LocalMapping(ditto_dir),
+            backend=FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix()),
             path=ditto_dir,  # kept for deprecated .path access in existing tests
         )

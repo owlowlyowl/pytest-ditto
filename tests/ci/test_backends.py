@@ -1,70 +1,68 @@
-"""Behavioural tests for LocalMapping, TransformMapping, and PrefixedMapping."""
+"""Behavioural tests for FsspecMapping, TransformMapping, and PrefixedMapping."""
 
 from __future__ import annotations
 
 import pickle
-from collections.abc import MutableMapping
-from pathlib import Path
+import uuid
+from collections.abc import Iterator, MutableMapping
 
 import pytest
+from fsspec.implementations.memory import MemoryFileSystem
 
-from ditto.backends import LocalMapping, PrefixedMapping, TransformMapping
+from ditto.backends import FsspecMapping, PrefixedMapping, TransformMapping
 from ditto.backends._transform import _make_recorder_transform
 from ditto.recorders import default as _default_recorder
 
 
+def _mem() -> FsspecMapping:
+    """FsspecMapping backed by an in-memory filesystem with a unique root.
+
+    MemoryFileSystem uses a class-level store, so each call uses a distinct
+    root path to prevent test pollution.
+    """
+    return FsspecMapping(MemoryFileSystem(skip_instance_cache=True), f"/{uuid.uuid4().hex}")
+
+
 # ---------------------------------------------------------------------------
-# LocalMapping
+# FsspecMapping
 # ---------------------------------------------------------------------------
 
 
-def test_local_mapping_stores_and_retrieves_bytes(tmp_path: Path) -> None:
+def test_fsspec_mapping_stores_and_retrieves_bytes() -> None:
     """Bytes written under a key are returned unchanged on read."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
     m["snap.pkl"] = b"hello"
 
     assert m["snap.pkl"] == b"hello"
 
 
-def test_local_mapping_raises_key_error_for_absent_key(tmp_path: Path) -> None:
+def test_fsspec_mapping_raises_key_error_for_absent_key() -> None:
     """Reading a key that was never written raises KeyError."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
     with pytest.raises(KeyError):
         _ = m["missing.pkl"]
 
 
-def test_local_mapping_creates_directory_on_first_write(tmp_path: Path) -> None:
-    """The root directory is created lazily on the first write, not at construction."""
-    root = tmp_path / "new" / ".ditto"
-    m = LocalMapping(root)
-
-    assert not root.exists()
-
-    m["snap.pkl"] = b"data"
-
-    assert root.is_dir()
-
-
-def test_local_mapping_contains_written_key(tmp_path: Path) -> None:
+def test_fsspec_mapping_contains_written_key() -> None:
     """__contains__ returns True for a key that has been written."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
     m["a.pkl"] = b"x"
 
     assert "a.pkl" in m
 
 
-def test_local_mapping_does_not_contain_absent_key(tmp_path: Path) -> None:
+def test_fsspec_mapping_does_not_contain_absent_key() -> None:
     """__contains__ returns False for a key that has never been written."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
     assert "nope.pkl" not in m
 
 
-def test_local_mapping_deletes_key(tmp_path: Path) -> None:
+def test_fsspec_mapping_deletes_key() -> None:
     """Deleting a key removes it from the mapping."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
     m["a.pkl"] = b"x"
 
     del m["a.pkl"]
@@ -72,68 +70,72 @@ def test_local_mapping_deletes_key(tmp_path: Path) -> None:
     assert "a.pkl" not in m
 
 
-def test_local_mapping_delete_absent_key_raises(tmp_path: Path) -> None:
+def test_fsspec_mapping_delete_absent_key_raises() -> None:
     """Deleting a key that does not exist raises KeyError."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
     with pytest.raises(KeyError):
         del m["ghost.pkl"]
 
 
-def test_local_mapping_iter_returns_filenames(tmp_path: Path) -> None:
+def test_fsspec_mapping_iter_returns_filenames() -> None:
     """__iter__ yields the filenames of all stored keys."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
     m["a.pkl"] = b"1"
     m["b.pkl"] = b"2"
 
     assert set(m) == {"a.pkl", "b.pkl"}
 
 
-def test_local_mapping_len_counts_stored_keys(tmp_path: Path) -> None:
-    """__len__ returns the number of stored files."""
-    m = LocalMapping(tmp_path)
+def test_fsspec_mapping_len_counts_stored_keys() -> None:
+    """__len__ returns the number of stored entries."""
+    m = _mem()
     m["a.pkl"] = b"1"
     m["b.pkl"] = b"2"
 
     assert len(m) == 2
 
 
-def test_local_mapping_iter_returns_empty_when_directory_does_not_exist(
-    tmp_path: Path,
-) -> None:
+def test_fsspec_mapping_iter_returns_empty_when_root_does_not_exist() -> None:
     """__iter__ on a non-existent root yields nothing rather than raising."""
-    m = LocalMapping(tmp_path / "nonexistent")
+    m = _mem()  # fresh unique root — nothing written, so root does not exist yet
 
     assert list(m) == []
     assert len(m) == 0
 
 
-def test_local_mapping_handles_bracket_characters_in_key(tmp_path: Path) -> None:
-    """Keys with bracket characters are stored and retrieved literally, not as globs."""
-    m = LocalMapping(tmp_path)
+def test_fsspec_mapping_handles_bracket_characters_in_key() -> None:
+    """Keys with bracket characters are stored and retrieved literally, not as globs.
+
+    This is the core regression this class exists to fix: fsspec.FSMap uses
+    fs.glob() for iteration which expands [bracket] patterns via fnmatch,
+    silently dropping parametrised test snapshot keys like test_result[second].
+    FsspecMapping uses fs.find() instead, which never applies glob expansion.
+    """
+    m = _mem()
     key = "test_result[second]@v.pkl"
 
     m[key] = b"payload"
 
     assert m[key] == b"payload"
     assert key in m
+    assert key in set(m)
 
 
-def test_stores_and_retrieves_bytes_at_nested_key_path(tmp_path: Path) -> None:
+def test_fsspec_mapping_stores_and_retrieves_bytes_at_nested_key_path() -> None:
     """Bytes stored under a slash-containing key are returned unchanged on read."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
     key = "tests/test_api/test_something@result.pkl"
 
     m[key] = b"nested-data"
 
     assert m[key] == b"nested-data"
     assert key in m
-    assert (tmp_path / "tests" / "test_api" / "test_something@result.pkl").is_file()
 
 
-def test_iter_yields_forward_slash_keys_for_all_nested_files(tmp_path: Path) -> None:
+def test_fsspec_mapping_iter_yields_forward_slash_keys_for_nested_files() -> None:
     """__iter__ yields forward-slash-separated relative paths for files at any depth."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
     m["flat.pkl"] = b"1"
     m["sub/nested.pkl"] = b"2"
     m["sub/deep/leaf.pkl"] = b"3"
@@ -144,9 +146,9 @@ def test_iter_yields_forward_slash_keys_for_all_nested_files(tmp_path: Path) -> 
     assert all("\\" not in k for k in keys)
 
 
-def test_removes_file_when_nested_key_is_deleted(tmp_path: Path) -> None:
-    """Deleting a nested key removes the backing file from the directory tree."""
-    m = LocalMapping(tmp_path)
+def test_fsspec_mapping_removes_entry_when_nested_key_is_deleted() -> None:
+    """Deleting a nested key removes the backing entry."""
+    m = _mem()
     key = "mod/group@k.pkl"
     m[key] = b"x"
 
@@ -155,19 +157,19 @@ def test_removes_file_when_nested_key_is_deleted(tmp_path: Path) -> None:
     assert key not in m
 
 
-def test_raises_when_key_contains_path_traversal(tmp_path: Path) -> None:
+def test_fsspec_mapping_raises_when_key_contains_path_traversal() -> None:
     """A key that resolves outside the root raises ValueError."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
     with pytest.raises(ValueError, match="escape"):
         m["../../outside.pkl"] = b"x"
 
 
-def test_raises_when_key_is_absolute_path(tmp_path: Path) -> None:
+def test_fsspec_mapping_raises_when_key_is_absolute_path() -> None:
     """An absolute path key raises ValueError regardless of the path it names."""
-    m = LocalMapping(tmp_path)
+    m = _mem()
 
-    with pytest.raises(ValueError, match="escape"):
+    with pytest.raises(ValueError, match="absolute"):
         m["/etc/passwd"] = b"x"
 
 
@@ -176,9 +178,9 @@ def test_raises_when_key_is_absolute_path(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_transform_mapping_stores_and_retrieves_via_recorder(tmp_path: Path) -> None:
+def test_transform_mapping_stores_and_retrieves_via_recorder() -> None:
     """Values written through a recorder transform round-trip correctly."""
-    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
         _default_recorder()
     )
 
@@ -188,7 +190,7 @@ def test_transform_mapping_stores_and_retrieves_via_recorder(tmp_path: Path) -> 
     assert actual == {"x": 42}
 
 
-def test_transform_mapping_contains_does_not_deserialise(tmp_path: Path) -> None:
+def test_transform_mapping_contains_does_not_deserialise() -> None:
     """__contains__ resolves without calling __getitem__ or the load callable.
 
     This is the critical correctness guarantee: a load callable that parses a
@@ -200,7 +202,7 @@ def test_transform_mapping_contains_does_not_deserialise(tmp_path: Path) -> None
         load_calls.append("load")
         return pickle.loads(raw)  # noqa: S301
 
-    backend = LocalMapping(tmp_path)
+    backend = _mem()
     backend["k.pkl"] = pickle.dumps("value")
     store = TransformMapping(
         mapping=backend,
@@ -213,9 +215,9 @@ def test_transform_mapping_contains_does_not_deserialise(tmp_path: Path) -> None
     assert load_calls == [], "load callable must not be invoked by __contains__"
 
 
-def test_transform_mapping_pipe_combines_mapping_and_transform(tmp_path: Path) -> None:
+def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
     """| combines a backend wrapper with a recorder transform into a usable store."""
-    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
         _default_recorder()
     )
 
@@ -224,9 +226,9 @@ def test_transform_mapping_pipe_combines_mapping_and_transform(tmp_path: Path) -
     assert store["k.pkl"] == [1, 2, 3]
 
 
-def test_transform_mapping_missing_key_raises(tmp_path: Path) -> None:
+def test_transform_mapping_missing_key_raises() -> None:
     """Reading an absent key raises KeyError (propagated from the inner mapping)."""
-    store = TransformMapping(mapping=LocalMapping(tmp_path)) | _make_recorder_transform(
+    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
         _default_recorder()
     )
 
@@ -239,7 +241,7 @@ def test_transform_mapping_missing_key_raises(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prefixed_mapping_stores_with_prefix(tmp_path: Path) -> None:
+def test_prefixed_mapping_stores_with_prefix() -> None:
     """Keys are stored under the prefixed form in the inner mapping."""
     inner: dict[str, bytes] = {}
     m = PrefixedMapping(inner, prefix="ns:")
@@ -250,7 +252,7 @@ def test_prefixed_mapping_stores_with_prefix(tmp_path: Path) -> None:
     assert "key" not in inner
 
 
-def test_prefixed_mapping_retrieves_without_prefix(tmp_path: Path) -> None:
+def test_prefixed_mapping_retrieves_without_prefix() -> None:
     """Values stored under a prefixed key are retrievable via the bare key."""
     inner: dict[str, bytes] = {"ns:key": b"val"}
     m = PrefixedMapping(inner, prefix="ns:")
@@ -258,7 +260,7 @@ def test_prefixed_mapping_retrieves_without_prefix(tmp_path: Path) -> None:
     assert m["key"] == b"val"
 
 
-def test_prefixed_mapping_contains_checks_prefixed_key(tmp_path: Path) -> None:
+def test_prefixed_mapping_contains_checks_prefixed_key() -> None:
     """__contains__ looks up the prefixed form in the inner mapping."""
     inner: dict[str, bytes] = {"ns:key": b"val"}
     m = PrefixedMapping(inner, prefix="ns:")
@@ -267,7 +269,7 @@ def test_prefixed_mapping_contains_checks_prefixed_key(tmp_path: Path) -> None:
     assert "ns:key" not in m
 
 
-def test_prefixed_mapping_iter_strips_prefix(tmp_path: Path) -> None:
+def test_prefixed_mapping_iter_strips_prefix() -> None:
     """__iter__ yields bare keys, stripping the prefix."""
     inner: dict[str, bytes] = {"ns:a": b"1", "ns:b": b"2", "other:c": b"3"}
     m = PrefixedMapping(inner, prefix="ns:")
@@ -275,7 +277,7 @@ def test_prefixed_mapping_iter_strips_prefix(tmp_path: Path) -> None:
     assert set(m) == {"a", "b"}
 
 
-def test_prefixed_mapping_delete_removes_prefixed_key(tmp_path: Path) -> None:
+def test_prefixed_mapping_delete_removes_prefixed_key() -> None:
     """Deleting a key removes the prefixed form from the inner mapping."""
     inner: dict[str, bytes] = {"ns:key": b"val"}
     m = PrefixedMapping(inner, prefix="ns:")

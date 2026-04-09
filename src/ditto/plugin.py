@@ -9,7 +9,9 @@ from typing import Any, cast
 import pytest
 
 from ditto import Snapshot
-from ditto.backends import LocalMapping
+import fsspec
+
+from ditto.backends import FsspecMapping
 from ditto.snapshot import session_tracker
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
@@ -116,7 +118,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
             module=module,
             group_name=request.node.name,
             recorder=recorder,
-            backend=LocalMapping(local_path),
+            backend=FsspecMapping(fsspec.filesystem("file"), local_path.as_posix()),
             update=update,
             path=local_path,  # kept for deprecated .path access; signals _filename_key
         )
@@ -219,7 +221,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 continue
             if ditto_dir.resolve() in registered_fs_roots:
                 continue
-            ghost = LocalMapping(ditto_dir)
+            ghost = FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix())
             for raw_key in sorted(ghost):
                 if do_prune:
                     del ghost[raw_key]

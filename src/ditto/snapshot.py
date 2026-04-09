@@ -175,9 +175,15 @@ class Snapshot:
 
     def __post_init__(self) -> None:
         if self.path is not None and self.backend is None:
-            from .backends import LocalMapping
+            import fsspec
 
-            object.__setattr__(self, "backend", LocalMapping(self.path))
+            from .backends import FsspecMapping
+
+            object.__setattr__(
+                self,
+                "backend",
+                FsspecMapping(fsspec.filesystem("file"), self.path.as_posix()),
+            )
         if self.backend is None:
             raise TypeError(
                 "Snapshot requires a storage target; provide backend= or path=."
