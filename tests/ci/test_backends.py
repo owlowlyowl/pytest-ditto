@@ -104,14 +104,8 @@ def test_fsspec_mapping_iter_returns_empty_when_root_does_not_exist() -> None:
     assert len(m) == 0
 
 
-def test_fsspec_mapping_handles_bracket_characters_in_key() -> None:
-    """Keys with bracket characters are stored and retrieved literally, not as globs.
-
-    This is the core regression this class exists to fix: fsspec.FSMap uses
-    fs.glob() for iteration which expands [bracket] patterns via fnmatch,
-    silently dropping parametrised test snapshot keys like test_result[second].
-    FsspecMapping uses fs.find() instead, which never applies glob expansion.
-    """
+def test_fsspec_mapping_stores_and_retrieves_bracket_key() -> None:
+    """Keys containing bracket characters round-trip correctly."""
     m = _mem()
     key = "test_result[second]@v.pkl"
 
@@ -119,6 +113,20 @@ def test_fsspec_mapping_handles_bracket_characters_in_key() -> None:
 
     assert m[key] == b"payload"
     assert key in m
+
+
+def test_fsspec_mapping_iter_includes_bracket_key() -> None:
+    """Keys containing bracket characters are yielded by __iter__, not silently dropped.
+
+    This is the regression FsspecMapping exists to fix: fsspec.FSMap.__iter__
+    calls fs.glob() which uses fnmatch to expand [bracket] as a character-class
+    pattern, silently dropping parametrised test names like test_result[second].
+    """
+    m = _mem()
+    key = "test_result[second]@v.pkl"
+
+    m[key] = b"payload"
+
     assert key in set(m)
 
 
@@ -320,7 +328,9 @@ def test_prefixed_mapping_propagates_context_manager_enter() -> None:
     m = PrefixedMapping(inner, prefix="p:")
 
     with m:
-        assert inner.entered is True
+        pass
+
+    assert inner.entered is True
     assert inner.exited is True
 
 

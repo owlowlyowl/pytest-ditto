@@ -76,10 +76,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
     def __contains__(self, key: object) -> bool:
         if not isinstance(key, str):
             return False
-        try:
-            return self._fs.isfile(self._full_path(key))
-        except ValueError:
-            return False
+        return self._fs.isfile(self._full_path(key))
 
     def __iter__(self) -> Iterator[str]:
         if not self._fs.exists(self._root):
