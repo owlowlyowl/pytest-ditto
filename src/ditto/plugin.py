@@ -114,11 +114,21 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
             # user sees the real error rather than silently falling back to local.
             raise exc from exc
         local_path = request.path.parent / ".ditto"
+        # All tests in the same directory share one FsspecMapping instance so
+        # they share one _BackendRecord in session_tracker. Without this cache,
+        # each test gets a distinct object and Pass 1 of pytest_sessionfinish
+        # treats every other test's files as "not accessed", deleting them all.
+        cache_key = local_path.resolve().as_posix()
+        if cache_key not in _backend_cache:
+            _backend_cache[cache_key] = FsspecMapping(
+                fsspec.filesystem("file"), local_path.as_posix()
+            )
+        backend = _backend_cache[cache_key]
         return Snapshot(
             module=module,
             group_name=request.node.name,
             recorder=recorder,
-            backend=FsspecMapping(fsspec.filesystem("file"), local_path.as_posix()),
+            backend=backend,
             update=update,
             path=local_path,  # kept for deprecated .path access; signals _filename_key
         )
