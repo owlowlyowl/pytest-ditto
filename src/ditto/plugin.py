@@ -218,8 +218,19 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         not_accessed = all_keys - accessed_keys
         for raw_key in sorted(not_accessed):
             if do_prune:
-                del record.backend[raw_key]
-                pruned.append(raw_key)
+                # Catch all backend errors so a single failed delete (e.g.
+                # PermissionError on a read-only mount, OSError from a dropped
+                # network share) does not abort the loop and leave the session
+                # report unrendered. Warn per failure and continue.
+                try:
+                    del record.backend[raw_key]
+                except Exception as exc:
+                    warnings.warn(
+                        f"Failed to prune snapshot {raw_key!r}: {exc}",
+                        stacklevel=1,
+                    )
+                else:
+                    pruned.append(raw_key)
             else:
                 unused.append(raw_key)
 
@@ -234,8 +245,17 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             ghost = FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix())
             for raw_key in sorted(ghost):
                 if do_prune:
-                    del ghost[raw_key]
-                    pruned.append(raw_key)
+                    # Same rationale as Pass 1: don't let a single delete
+                    # failure abort the loop or swallow the session report.
+                    try:
+                        del ghost[raw_key]
+                    except Exception as exc:
+                        warnings.warn(
+                            f"Failed to prune snapshot {raw_key!r}: {exc}",
+                            stacklevel=1,
+                        )
+                    else:
+                        pruned.append(raw_key)
                 else:
                     unused.append(raw_key)
 
