@@ -244,6 +244,17 @@ def test_transform_mapping_missing_key_raises() -> None:
         _ = store["missing.pkl"]
 
 
+def test_transform_mapping_raises_when_both_sides_have_a_mapping() -> None:
+    """Merging two TransformMappings that both carry a backend raises TypeError.
+
+    The | operator is designed to merge a mapping-bearing instance with a
+    save/load-only instance. When both sides have a mapping, one would be
+    silently dropped, so the error is raised explicitly instead.
+    """
+    with pytest.raises(TypeError, match="both carry a backend mapping"):
+        TransformMapping(mapping=_mem()) | TransformMapping(mapping=_mem())
+
+
 # ---------------------------------------------------------------------------
 # PrefixedMapping
 # ---------------------------------------------------------------------------

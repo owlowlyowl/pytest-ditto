@@ -35,6 +35,11 @@ class TransformMapping(MutableMapping):
         self._mapping = mapping
 
     def __or__(self, other: "TransformMapping") -> "TransformMapping":
+        if self._mapping is not None and other._mapping is not None:
+            raise TypeError(
+                "Cannot merge two TransformMappings that both carry a backend mapping. "
+                "Use | to combine a mapping-bearing instance with a save/load-only instance."
+            )
         return TransformMapping(
             save=other._save if other._save is not None else self._save,
             load=other._load if other._load is not None else self._load,
