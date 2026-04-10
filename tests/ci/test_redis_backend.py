@@ -156,7 +156,12 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
             def __enter__(self):
                 return self
             def __exit__(self, *args):
-                self._client.close()
+                # Do not close the client here. ditto calls __exit__ via the
+                # session ExitStack at the end of each runpytest() call, but
+                # _shared_client must survive into the second run so the data
+                # written in the first run is still readable. The client's
+                # lifetime is managed by the outer test, not by ditto.
+                pass
 
         _shared_client = fakeredis.FakeRedis()
 
