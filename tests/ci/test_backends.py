@@ -181,6 +181,19 @@ def test_fsspec_mapping_raises_when_key_is_absolute_path() -> None:
         m["/etc/passwd"] = b"x"
 
 
+def test_fsspec_mapping_raises_when_key_resolves_to_root() -> None:
+    """A key of '.' resolves to the root directory itself and raises ValueError.
+
+    posixpath.normpath('/root/.') == '/root', so without an explicit check
+    the key would pass the traversal guard and attempt to open the root
+    directory as a file, producing IsADirectoryError instead of ValueError.
+    """
+    m = _mem()
+
+    with pytest.raises(ValueError):
+        m["."] = b"x"
+
+
 # ---------------------------------------------------------------------------
 # TransformMapping
 # ---------------------------------------------------------------------------

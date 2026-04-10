@@ -45,8 +45,9 @@ class FsspecMapping(MutableMapping[str, bytes]):
                 f"key {key!r} must be a relative path, not absolute"
             )
         candidate = posixpath.normpath(f"{self._root}/{key}")
-        root_prefix = self._root + "/"
-        if not (candidate == self._root or candidate.startswith(root_prefix)):
+        # Candidate must be strictly inside the root, not equal to it —
+        # a key that resolves to the root directory itself (e.g. ".") is invalid.
+        if not candidate.startswith(self._root + "/"):
             raise ValueError(
                 f"key {key!r} would escape the snapshot root {self._root!r}"
             )
