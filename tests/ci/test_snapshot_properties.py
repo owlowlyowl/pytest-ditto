@@ -88,3 +88,25 @@ def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
 
     for i, key in enumerate(keys):
         snapshot(i, key)
+
+
+def test_reset_keys_does_not_clear_session_level_created_list() -> None:
+    """reset_keys() must not clear `created` or `updated` — those are session-level
+    accumulators read by render_session_report at the end of the session.
+
+    Regression: reset_keys() previously cleared both lists, so any snapshots
+    created by ordinary tests before a Hypothesis test ran were wiped from the
+    report when the first Hypothesis example called reset_keys().
+    """
+    from ditto.snapshot import SnapshotKey
+
+    session_tracker.reset()
+    sk = SnapshotKey(module="m", group_name="g", key="k", extension="pkl")
+    session_tracker.created.append(sk)
+    session_tracker.updated.append(sk)
+
+    session_tracker.reset_keys()
+
+    assert session_tracker.created == [sk]
+    assert session_tracker.updated == [sk]
+    session_tracker.reset()

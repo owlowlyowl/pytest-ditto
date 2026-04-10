@@ -98,14 +98,14 @@ class _SessionTracker:
         self._records[backend_id].accessed.add(key)
 
     def reset_keys(self) -> None:
-        """Reset per-test state only: duplicate-key detection and created/updated lists.
+        """Reset per-example duplicate-key detection only.
 
-        Use this between Hypothesis examples to reset duplicate-key tracking without
-        discarding the backend access log (_records) that pytest_sessionfinish relies on.
+        Safe to call between Hypothesis examples. Does not touch the
+        session-level `created` and `updated` lists, which accumulate
+        across the entire session and are read by `render_session_report`
+        at the end. Those are only cleared in `reset()`.
         """
         self.used_keys.clear()
-        self.created.clear()
-        self.updated.clear()
 
     def reset(self) -> None:
         self._records.clear()
