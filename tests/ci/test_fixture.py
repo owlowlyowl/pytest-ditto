@@ -110,6 +110,43 @@ def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     result.stdout.no_fnmatch_line("*pruned*")
 
 
+def test_module_field_uses_forward_slashes(pytester) -> None:
+    """The module field in SnapshotKey always uses forward slashes, even on Windows.
+
+    str() on a Path uses the OS path separator, producing backslashes on Windows.
+    The fixture must use .as_posix() so that the storage key written to the
+    backend and the key returned by __iter__ agree on all platforms.
+
+    The test file is placed in a subdirectory so the module field contains a
+    path separator, making the assertion meaningful.
+    """
+    pytester.makeconftest("""
+        import pytest
+
+        _backend = {}
+
+        @pytest.fixture
+        def ditto_backend():
+            return _backend
+
+        @pytest.fixture
+        def stored_keys():
+            return _backend
+    """)
+    subdir = pytester.mkdir("sub")
+    subdir.joinpath("test_inner.py").write_text(
+        "def test_inner(snapshot, stored_keys):\n"
+        "    snapshot('v', key='k')\n"
+        "    key = next(iter(stored_keys))\n"
+        "    assert '\\\\' not in key, f'backslash in storage key: {key!r}'\n"
+        "    assert '/' in key, f'expected forward slash in storage key: {key!r}'\n"
+    )
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+
+
 def test_accepts_integer_as_key(pytester) -> None:
     """snapshot accepts an integer key and stores and returns the value correctly."""
     pytester.makepyfile("""

@@ -93,7 +93,7 @@ def _resolve_recorder(marks: list) -> Recorder:
 @pytest.fixture
 def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     rootdir = request.config.rootpath
-    module = str(request.path.relative_to(rootdir).with_suffix(""))
+    module = request.path.relative_to(rootdir).with_suffix("").as_posix()
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
     update = request.config.getoption("--ditto-update", default=False)
