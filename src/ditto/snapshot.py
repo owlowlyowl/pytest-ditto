@@ -188,6 +188,12 @@ class Snapshot:
             raise TypeError(
                 "Snapshot requires a storage target; provide backend= or path=."
             )
+        if self.path is None and not self.module:
+            raise TypeError(
+                "Snapshot requires module= when using backend= directly. "
+                "Pass the rootdir-relative test file stem, e.g. "
+                "module='tests/my_module/test_foo'."
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers

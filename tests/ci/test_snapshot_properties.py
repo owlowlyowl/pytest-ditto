@@ -72,7 +72,7 @@ def test_duplicate_key_always_raises_on_second_call(key: str) -> None:
     """Calling snapshot twice with the same key always raises
     DuplicateSnapshotKeyError."""
     session_tracker.reset_keys()
-    snapshot = Snapshot(group_name="test", backend={})
+    snapshot = Snapshot(group_name="test", module="m", backend={})
     snapshot(1, key)
 
     with pytest.raises(DuplicateSnapshotKeyError):
@@ -84,7 +84,7 @@ def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
     """Using a distinct key for each snapshot call never raises, regardless of how
     many calls are made."""
     session_tracker.reset_keys()
-    snapshot = Snapshot(group_name="test", backend={})
+    snapshot = Snapshot(group_name="test", module="m", backend={})
 
     for i, key in enumerate(keys):
         snapshot(i, key)

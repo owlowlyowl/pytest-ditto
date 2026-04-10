@@ -208,3 +208,14 @@ def test_raises_at_construction_when_no_storage_target_is_given() -> None:
     """Snapshot raises TypeError immediately when neither path= nor backend= is provided."""
     with pytest.raises(TypeError, match="Snapshot requires a storage target"):
         Snapshot(group_name="test")
+
+
+def test_raises_at_construction_when_backend_used_without_module() -> None:
+    """Snapshot raises TypeError when backend= is given without module=.
+
+    Without module=, _key_of() uses str(sk) which produces a leading-slash key
+    ("/group@key.ext"), causing a cryptic ValueError deep inside FsspecMapping.
+    The guard in __post_init__ catches this at construction time instead.
+    """
+    with pytest.raises(TypeError, match="module="):
+        Snapshot(group_name="test", backend={})
