@@ -41,9 +41,9 @@ _backend_cache: dict[str, MutableMapping[str, bytes]] = {}
 
 
 def _maybe_enter(backend: MutableMapping[str, bytes]) -> MutableMapping[str, bytes]:
-    """Enter a context-manager backend into the session ExitStack exactly once.
+    """Enter a context-manager backend into the session `ExitStack` exactly once.
 
-    Returns the value of __enter__ (typically self). No-op for backends that
+    Returns the value of `__enter__` (typically `self`). No-op for backends that
     are not context managers and for backends already entered.
     """
     bid = id(backend)
@@ -220,7 +220,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             # implementations such as FsspecMapping's fs.find() call.
             warnings.warn(
                 f"Backend {record.backend!r} raised {type(exc).__name__} during "
-                f"enumeration: {exc}; skipping unused-snapshot detection for this backend.",
+                f"enumeration: {exc}; skipping unused-snapshot "
+                "detection for this backend.",
                 stacklevel=1,
             )
             continue

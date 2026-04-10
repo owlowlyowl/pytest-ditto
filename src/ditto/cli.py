@@ -77,10 +77,10 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
 def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
     """Parse a snapshot filename into (group, key, ext).
 
-    Snapshot files follow the pattern ``{group}@{key}.{ext}``.
+    Snapshot files follow the pattern `{group}@{key}.{ext}`.
     The group may contain dots (e.g. unittest TestCase names).
-    The ext may contain dots (e.g. ``pandas.csv``).
-    Returns ext with a leading dot (e.g. ``.pandas.csv``), or ``""`` if absent.
+    The ext may contain dots (e.g. `pandas.csv`).
+    Returns ext with a leading dot (e.g. `.pandas.csv`), or `""` if absent.
     """
     group, _, rest = filename.partition("@")
     if not rest:

@@ -12,15 +12,19 @@ __all__ = ("TransformMapping", "_make_recorder_transform")
 
 
 class TransformMapping(MutableMapping):
-    """MutableMapping that serialises/deserialises values via save/load callables.
+    """MutableMapping that serialises/deserialises values via `save`/`load` callables.
 
-    Wraps an underlying MutableMapping[str, bytes] backend. Values written via
-    __setitem__ are passed through save (Any → bytes) before storage; values
-    read via __getitem__ are passed through load (bytes → Any) after retrieval.
+    Wraps an underlying `MutableMapping[str, bytes]` backend. Values written via
+    `__setitem__` are passed through `save` (Any → bytes) before storage; values
+    read via `__getitem__` are passed through `load` (bytes → Any) after retrieval.
 
-    Partial instances (mapping-only or save/load-only) are combined via |:
+    Examples
+    --------
+    Partial instances (mapping-only or save/load-only) are combined via `|`:
 
-        store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    ```python
+    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    ```
     """
 
     def __init__(
@@ -38,7 +42,8 @@ class TransformMapping(MutableMapping):
         if self._mapping is not None and other._mapping is not None:
             raise TypeError(
                 "Cannot merge two TransformMappings that both carry a backend mapping. "
-                "Use | to combine a mapping-bearing instance with a save/load-only instance."
+                "Use | to combine a mapping-bearing instance with a "
+                "save/load-only instance."
             )
         return TransformMapping(
             save=other._save if other._save is not None else self._save,
@@ -90,10 +95,14 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
     """Return a TransformMapping whose save/load go through a temp-file bridge.
 
     The Recorder protocol requires a Path argument. The bridge writes/reads a
-    temporary file so any Recorder can be used with any bytes-based backend.
-    Combine with a mapping backend via |:
+    temporary file so any `Recorder` can be used with any bytes-based backend.
 
-        store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    Examples
+    --------
+    Combine with a mapping backend via `|`:
+    ```python
+    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    ```
     """
 
     def _save(data: Any) -> bytes:

@@ -53,9 +53,9 @@ def render_session_report(
     created : list[SnapshotKey]
         Snapshots written for the first time this session.
     updated : list[SnapshotKey]
-        Existing snapshots overwritten via ``--ditto-update``.
+        Existing snapshots overwritten via `--ditto-update`.
     pruned : list[str]
-        Raw backend keys deleted via ``--ditto-prune``.
+        Raw backend keys deleted via `--ditto-prune`.
     unused : list[str]
         Raw backend keys on disk not accessed this session.
     console : Console, optional
