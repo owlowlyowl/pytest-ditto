@@ -214,6 +214,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 stacklevel=1,
             )
             continue
+        except Exception as exc:
+            # Covers I/O errors from remote backends (FileNotFoundError,
+            # PermissionError, ConnectionError, etc.) raised by __iter__
+            # implementations such as FsspecMapping's fs.find() call.
+            warnings.warn(
+                f"Backend {record.backend!r} raised {type(exc).__name__} during "
+                f"enumeration: {exc}; skipping unused-snapshot detection for this backend.",
+                stacklevel=1,
+            )
+            continue
 
         not_accessed = all_keys - accessed_keys
         for raw_key in sorted(not_accessed):
@@ -243,7 +253,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             if ditto_dir.resolve() in registered_fs_roots:
                 continue
             ghost = FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix())
-            for raw_key in sorted(ghost):
+            try:
+                ghost_keys = sorted(ghost)
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to enumerate ghost directory {ditto_dir!r}: {exc}; "
+                    "skipping unused-snapshot detection for this directory.",
+                    stacklevel=1,
+                )
+                continue
+            for raw_key in ghost_keys:
                 if do_prune:
                     # Same rationale as Pass 1: don't let a single delete
                     # failure abort the loop or swallow the session report.

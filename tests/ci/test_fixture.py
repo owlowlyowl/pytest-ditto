@@ -147,6 +147,63 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+_ITER_RAISING_CONFTEST = """
+    import pytest
+    from collections.abc import MutableMapping, Iterator
+
+    class {cls}(MutableMapping):
+        def __init__(self): self._d = {{}}
+        def __getitem__(self, k): return self._d[k]
+        def __setitem__(self, k, v): self._d[k] = v
+        def __delitem__(self, k): del self._d[k]
+        def __len__(self): return len(self._d)
+        def __iter__(self) -> Iterator:
+            raise {exc}("{msg}")
+
+    @pytest.fixture
+    def ditto_backend():
+        return {cls}()
+"""
+
+
+def test_session_completes_when_backend_iter_raises_not_implemented(pytester) -> None:
+    """A backend that raises NotImplementedError from __iter__ emits a warning and
+    does not crash pytest_sessionfinish."""
+    pytester.makeconftest(
+        _ITER_RAISING_CONFTEST.format(
+            cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
+        )
+    )
+    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+
+    result = pytester.runpytest("-W", "always")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*does not support enumeration*"])
+
+
+def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
+    """A backend that raises a non-NotImplementedError (e.g. ConnectionError) from
+    __iter__ emits a warning and does not crash pytest_sessionfinish.
+
+    Regression: the original except clause only caught NotImplementedError.
+    ConnectionError, PermissionError, and other I/O errors from remote backends
+    (e.g. FsspecMapping's fs.find() call) propagated uncaught, preventing the
+    session report from rendering.
+    """
+    pytester.makeconftest(
+        _ITER_RAISING_CONFTEST.format(
+            cls="BrokenIterBackend", exc="ConnectionError", msg="network gone"
+        )
+    )
+    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+
+    result = pytester.runpytest("-W", "always")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*raised ConnectionError*"])
+
+
 def test_accepts_integer_as_key(pytester) -> None:
     """snapshot accepts an integer key and stores and returns the value correctly."""
     pytester.makepyfile("""
