@@ -1,4 +1,5 @@
-"""Property-based tests for Snapshot filepath construction and key-tracking invariants."""
+"""Property-based tests for Snapshot filepath construction and key-tracking
+invariants."""
 
 from __future__ import annotations
 
@@ -18,14 +19,18 @@ from ditto.snapshot import Snapshot, session_tracker
 _safe_key = st.text(
     min_size=1,
     max_size=50,
-    alphabet=st.characters(blacklist_characters="/\\\x00", blacklist_categories=("Cs",)),
+    alphabet=st.characters(
+        blacklist_characters="/\\\x00", blacklist_categories=("Cs",)
+    ),
 )
 
 _recorder_names = ["pickle", "json", "yaml"]
 
 # tmp_path is reused across examples — safe because filepath() is pure and the
 # snapshot tests reset session_tracker before each example. Suppress the check.
-_no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+_no_fixture_reset = settings(
+    suppress_health_check=[HealthCheck.function_scoped_fixture]
+)
 
 # ── Snapshot.filepath ─────────────────────────────────────────────────────────
 
@@ -50,7 +55,8 @@ def test_filepath_extension_always_matches_recorder_extension(
 @_no_fixture_reset
 @given(key=_safe_key)
 def test_filepath_parent_is_always_snapshot_path(tmp_path, key: str) -> None:
-    """The filepath for any simple key is a direct child of snapshot.path — no subdirectories."""
+    """The filepath for any simple key is a direct child of snapshot.path — no
+    subdirectories."""
     snapshot = Snapshot(path=tmp_path, group_name="test")
 
     fp = snapshot.filepath(key)
@@ -61,26 +67,46 @@ def test_filepath_parent_is_always_snapshot_path(tmp_path, key: str) -> None:
 # ── Duplicate key detection ───────────────────────────────────────────────────
 
 
-@_no_fixture_reset
 @given(key=_safe_key)
-def test_duplicate_key_always_raises_on_second_call(tmp_path, key: str) -> None:
-    """Calling snapshot twice with the same key always raises DuplicateSnapshotKeyError."""
-    session_tracker.reset()
-    snapshot = Snapshot(path=tmp_path, group_name="test")
+def test_duplicate_key_always_raises_on_second_call(key: str) -> None:
+    """Calling snapshot twice with the same key always raises
+    DuplicateSnapshotKeyError."""
+    session_tracker.reset_keys()
+    snapshot = Snapshot(group_name="test", module="m", backend={})
     snapshot(1, key)
 
     with pytest.raises(DuplicateSnapshotKeyError):
         snapshot(2, key)
 
 
-@_no_fixture_reset
 @given(keys=st.lists(_safe_key, min_size=1, max_size=10, unique=True))
-def test_unique_keys_never_trigger_duplicate_error(
-    tmp_path, keys: list[str]
-) -> None:
-    """Using a distinct key for each snapshot call never raises, regardless of how many calls are made."""
-    session_tracker.reset()
-    snapshot = Snapshot(path=tmp_path, group_name="test")
+def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
+    """Using a distinct key for each snapshot call never raises, regardless of how
+    many calls are made."""
+    session_tracker.reset_keys()
+    snapshot = Snapshot(group_name="test", module="m", backend={})
 
     for i, key in enumerate(keys):
         snapshot(i, key)
+
+
+def test_reset_keys_does_not_clear_session_level_created_list() -> None:
+    """reset_keys() must not clear `created` or `updated` — those are session-level
+    accumulators read by render_session_report at the end of the session.
+
+    Regression: reset_keys() previously cleared both lists, so any snapshots
+    created by ordinary tests before a Hypothesis test ran were wiped from the
+    report when the first Hypothesis example called reset_keys().
+    """
+    from ditto.snapshot import SnapshotKey
+
+    session_tracker.reset()
+    sk = SnapshotKey(module="m", group_name="g", key="k", extension="pkl")
+    session_tracker.created.append(sk)
+    session_tracker.updated.append(sk)
+
+    session_tracker.reset_keys()
+
+    assert session_tracker.created == [sk]
+    assert session_tracker.updated == [sk]
+    session_tracker.reset()

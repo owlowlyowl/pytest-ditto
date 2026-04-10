@@ -47,7 +47,9 @@ _pickle_recorder = recorders.get("pickle")
 
 # tmp_path is reused across examples — safe because each example overwrites the
 # same filepath and examples are independent. Suppress Hypothesis' health check.
-_no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+_no_fixture_reset = settings(
+    suppress_health_check=[HealthCheck.function_scoped_fixture]
+)
 
 # ── JSON ──────────────────────────────────────────────────────────────────────
 
@@ -55,7 +57,8 @@ _no_fixture_reset = settings(suppress_health_check=[HealthCheck.function_scoped_
 @_no_fixture_reset
 @given(_text_serialisable_values)
 def test_json_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
-    """The JSON recorder round-trips any JSON-compatible value through save and load without loss."""
+    """The JSON recorder round-trips any JSON-compatible value through save and load
+    without loss."""
     filepath = tmp_path / "snapshot.json"
 
     _json_recorder.save(data, filepath)
@@ -70,7 +73,8 @@ def test_json_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
 @_no_fixture_reset
 @given(_text_serialisable_values)
 def test_yaml_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
-    """The YAML recorder round-trips any YAML-compatible value through save and load without loss."""
+    """The YAML recorder round-trips any YAML-compatible value through save and load
+    without loss."""
     filepath = tmp_path / "snapshot.yaml"
 
     _yaml_recorder.save(data, filepath)
@@ -85,7 +89,8 @@ def test_yaml_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
 @_no_fixture_reset
 @given(_pickle_values)
 def test_pickle_recorder_roundtrip_preserves_value(tmp_path, data) -> None:
-    """The pickle recorder round-trips any picklable value without loss, including raw bytes."""
+    """The pickle recorder round-trips any picklable value without loss, including
+    raw bytes."""
     filepath = tmp_path / "snapshot.pkl"
 
     _pickle_recorder.save(data, filepath)

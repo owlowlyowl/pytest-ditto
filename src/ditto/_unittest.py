@@ -3,7 +3,10 @@ import unittest
 from functools import cached_property
 from pathlib import Path
 
+import fsspec
+
 from ditto import Snapshot
+from ditto.backends import FsspecMapping
 
 
 __all__ = ("DittoTestCase",)
@@ -19,10 +22,12 @@ class DittoTestCase(unittest.TestCase):
     def snapshot(self) -> Snapshot:
         # inspect.getfile(type(self)) returns the source file of the concrete test
         # class — deterministic regardless of how or where snapshot is accessed.
-        path = Path(inspect.getfile(type(self))).parent / ".ditto"
-        path.mkdir(exist_ok=True)
+        test_file = Path(inspect.getfile(type(self)))
+        ditto_dir = test_file.parent / ".ditto"
 
         return Snapshot(
-            path=path,
+            module=test_file.stem,
             group_name=".".join(self.id().split(".")[-3:]),
+            backend=FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix()),
+            path=ditto_dir,  # kept for deprecated .path access in existing tests
         )

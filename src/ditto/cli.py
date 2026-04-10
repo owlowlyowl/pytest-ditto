@@ -34,20 +34,31 @@ from rich.table import Table
 from rich.text import Text
 
 from ._theme import (
-    CREATED, UPDATED, UNUSED, PRUNED,
-    TITLE, HEADER, MUTED, ACCENT, PATH,
-    TEXT, SUBTEXT1,
-    TEAL, SKY, MAUVE, FLAMINGO,
+    CREATED,
+    UPDATED,
+    UNUSED,
+    PRUNED,
+    TITLE,
+    HEADER,
+    MUTED,
+    ACCENT,
+    PATH,
+    TEXT,
+    SUBTEXT1,
+    TEAL,
+    SKY,
+    MAUVE,
+    FLAMINGO,
 )
 
 
 console = Console()
 
 _RECORDER_PALETTE = (
-    ACCENT,    # peach
-    UPDATED,   # blue
-    CREATED,   # green
-    UNUSED,    # yellow
+    ACCENT,  # peach
+    UPDATED,  # blue
+    CREATED,  # green
+    UNUSED,  # yellow
     TEAL,
     SKY,
     MAUVE,
@@ -56,7 +67,7 @@ _RECORDER_PALETTE = (
 
 
 def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
-    """Map recorder names to palette colours, assigned by sorted order — deterministic and pure."""
+    """Map recorder names to palette colours by sorted order — deterministic."""
     return {
         name: _RECORDER_PALETTE[i % len(_RECORDER_PALETTE)]
         for i, name in enumerate(sorted(recorder_names))
@@ -66,10 +77,10 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
 def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
     """Parse a snapshot filename into (group, key, ext).
 
-    Snapshot files follow the pattern ``{group}@{key}.{ext}``.
+    Snapshot files follow the pattern `{group}@{key}.{ext}`.
     The group may contain dots (e.g. unittest TestCase names).
-    The ext may contain dots (e.g. ``pandas.csv``).
-    Returns ext with a leading dot (e.g. ``.pandas.csv``), or ``""`` if absent.
+    The ext may contain dots (e.g. `pandas.csv`).
+    Returns ext with a leading dot (e.g. `.pandas.csv`), or `""` if absent.
     """
     group, _, rest = filename.partition("@")
     if not rest:
@@ -88,9 +99,9 @@ def _find_ditto_dirs(root: Path) -> list[Path]:
 
 @dataclass(frozen=True)
 class RecorderInfo:
-    name: str       # e.g. "pandas_parquet"
+    name: str  # e.g. "pandas_parquet"
     extension: str  # e.g. ".pandas.parquet"
-    package: str    # e.g. "pytest-ditto-pandas"
+    package: str  # e.g. "pytest-ditto-pandas"
 
 
 def _load_recorder_infos() -> list[RecorderInfo]:
@@ -123,6 +134,7 @@ def _human_size(n: int) -> str:
 
 # ── Status aggregation ────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class SnapshotStats:
     total_count: int
@@ -132,7 +144,9 @@ class SnapshotStats:
     newest: tuple[float, Path] | None
 
 
-def gather_stats(files: list[Path], ext_map: Mapping[str, RecorderInfo]) -> SnapshotStats:
+def gather_stats(
+    files: list[Path], ext_map: Mapping[str, RecorderInfo]
+) -> SnapshotStats:
     """Aggregate snapshot file statistics, calling stat() on each file."""
     total_size = 0
     by_recorder: dict[str, tuple[int, int]] = {}
@@ -146,7 +160,9 @@ def gather_stats(files: list[Path], ext_map: Mapping[str, RecorderInfo]) -> Snap
         total_size += sz
 
         _, _, ext = _parse_snapshot_name(fp.name)
-        recorder_name = ext_map[ext].name if ext in ext_map else ext.lstrip(".") if ext else ""
+        recorder_name = (
+            ext_map[ext].name if ext in ext_map else ext.lstrip(".") if ext else ""
+        )
         count, total = by_recorder.get(recorder_name, (0, 0))
         by_recorder[recorder_name] = (count + 1, total + sz)
 
@@ -194,22 +210,28 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
         lines.append(f"{stats.newest[1].name}  ", style=PATH)
         lines.append(f"{newest_date}", style=MUTED)
 
-    console.print(Panel(
-        lines,
-        title=f"[bold {TITLE}]ditto status[/bold {TITLE}]",
-        border_style=TITLE,
-        expand=False,
-    ))
+    console.print(
+        Panel(
+            lines,
+            title=f"[bold {TITLE}]ditto status[/bold {TITLE}]",
+            border_style=TITLE,
+            expand=False,
+        )
+    )
 
 
 # ── CLI commands ──────────────────────────────────────────────────────────────
+
 
 @click.group()
 def cli():
     """pytest-ditto snapshot management."""
 
 
-@cli.command(name="run", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@cli.command(
+    name="run",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_run(pytest_args):
     """Run pytest, reporting any snapshot activity at the end.
@@ -229,7 +251,10 @@ def cmd_run(pytest_args):
     sys.exit(result.returncode)
 
 
-@cli.command(name="update", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@cli.command(
+    name="update",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_update(pytest_args):
     """Re-run pytest with --ditto-update to regenerate snapshots.
@@ -249,7 +274,10 @@ def cmd_update(pytest_args):
     sys.exit(result.returncode)
 
 
-@cli.command(name="prune", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@cli.command(
+    name="prune",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_prune(pytest_args):
     """Re-run pytest with --ditto-prune to remove stale snapshots.
@@ -269,7 +297,8 @@ def cmd_prune(pytest_args):
         console.print(
             f"[bold {ACCENT}]Warning:[/bold {ACCENT}] "
             f"[{SUBTEXT1}]using -k with 'ditto prune' runs only a subset of tests. "
-            f"Snapshots for skipped tests will be treated as unused and deleted.[/{SUBTEXT1}]",
+            f"Snapshots for skipped tests will be treated as unused and"
+            f" deleted.[/{SUBTEXT1}]",
             highlight=False,
         )
     result = subprocess.run(
@@ -280,7 +309,9 @@ def cmd_prune(pytest_args):
 
 
 @cli.command(name="list")
-@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
 def cmd_list(path: Path):
     """List all snapshot files under PATH (default: current directory).
 
@@ -328,7 +359,9 @@ def cmd_list(path: Path):
 
 
 @cli.command(name="clean")
-@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
 @click.option("--yes", is_flag=True, default=False, help="Skip confirmation prompt.")
 def cmd_clean(path: Path, yes: bool):
     """Delete all .ditto/ directories under PATH.
@@ -366,12 +399,15 @@ def cmd_clean(path: Path, yes: bool):
 
     n = len(dirs)
     console.print(
-        f"\n[bold {CREATED}]Removed {n} .ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
+        f"\n[bold {CREATED}]Removed {n} "
+        f".ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
     )
 
 
 @cli.command(name="status")
-@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
 def cmd_status(path: Path):
     """Show aggregate statistics for snapshots under PATH.
 
@@ -392,22 +428,29 @@ def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
     """Build and print the registered recorders panel."""
     colour_map = _build_colour_map(info.name for info in infos)
     name_w = max(len("Name"), max(len(i.name) for i in infos))
-    ext_w  = max(len("Extension"), max(len(i.extension) for i in infos))
+    ext_w = max(len("Extension"), max(len(i.extension) for i in infos))
 
     lines = Text()
     lines.append("\n")
-    lines.append(f"  {'Name':<{name_w}}  {'Extension':<{ext_w}}  {'Source'}\n", style=f"bold {HEADER}")
+    lines.append(
+        f"  {'Name':<{name_w}}  {'Extension':<{ext_w}}  {'Source'}\n",
+        style=f"bold {HEADER}",
+    )
     for info in sorted(infos, key=lambda i: i.name):
-        lines.append(f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED))
+        lines.append(
+            f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED)
+        )
         lines.append(f"{info.extension:<{ext_w}}  ", style=TEXT)
         lines.append(f"{info.package}\n", style=MUTED)
 
-    console.print(Panel(
-        lines,
-        title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
-        border_style=TITLE,
-        expand=False,
-    ))
+    console.print(
+        Panel(
+            lines,
+            title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
+            border_style=TITLE,
+            expand=False,
+        )
+    )
 
 
 @cli.command(name="recorders")
@@ -427,6 +470,7 @@ def cmd_recorders():
 
 # ── Doctor / Lint / Stats data types ──────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class CheckResult:
     name: str
@@ -442,48 +486,62 @@ class LintIssue:
 
 # ── Doctor / Lint / Stats pure core ───────────────────────────────────────────
 
+
 def _doctor_checks() -> list[CheckResult]:
     """Return health-check results without any I/O."""
     results: list[CheckResult] = []
 
-    results.append(CheckResult(
-        name="pytest importable",
-        ok=importlib.util.find_spec("pytest") is not None,
-        detail="",
-    ))
+    results.append(
+        CheckResult(
+            name="pytest importable",
+            ok=importlib.util.find_spec("pytest") is not None,
+            detail="",
+        )
+    )
 
     registered = any(
-        ep.name == "ditto"
-        for ep in importlib.metadata.entry_points(group="pytest11")
+        ep.name == "ditto" for ep in importlib.metadata.entry_points(group="pytest11")
     )
-    results.append(CheckResult(name="ditto plugin registered", ok=registered, detail=""))
+    results.append(
+        CheckResult(name="ditto plugin registered", ok=registered, detail="")
+    )
 
     for ep in importlib.metadata.entry_points(group="ditto_recorders"):
         try:
             ep.load()
             results.append(CheckResult(name=f"recorder: {ep.name}", ok=True, detail=""))
         except Exception as exc:
-            results.append(CheckResult(name=f"recorder: {ep.name}", ok=False, detail=str(exc)))
+            results.append(
+                CheckResult(name=f"recorder: {ep.name}", ok=False, detail=str(exc))
+            )
 
     for ep in importlib.metadata.entry_points(group="ditto_marks"):
         try:
             ep.load()
             results.append(CheckResult(name=f"mark: {ep.name}", ok=True, detail=""))
         except Exception as exc:
-            results.append(CheckResult(name=f"mark: {ep.name}", ok=False, detail=str(exc)))
+            results.append(
+                CheckResult(name=f"mark: {ep.name}", ok=False, detail=str(exc))
+            )
 
     return results
 
 
-def _find_lint_issues(files: list[Path], em: Mapping[str, RecorderInfo]) -> list[LintIssue]:
+def _find_lint_issues(
+    files: list[Path], em: Mapping[str, RecorderInfo]
+) -> list[LintIssue]:
     """Return lint issues for a list of snapshot files without any I/O."""
     issues: list[LintIssue] = []
     for fp in files:
         _, key, ext = _parse_snapshot_name(fp.name)
         if key == "":
-            issues.append(LintIssue(filename=fp.name, issue="Malformed name (missing @)"))
+            issues.append(
+                LintIssue(filename=fp.name, issue="Malformed name (missing @)")
+            )
         elif ext not in em:
-            issues.append(LintIssue(filename=fp.name, issue=f"Unknown extension: {ext!r}"))
+            issues.append(
+                LintIssue(filename=fp.name, issue=f"Unknown extension: {ext!r}")
+            )
         if fp.stat().st_size == 0:
             issues.append(LintIssue(filename=fp.name, issue="Empty file"))
     return issues
@@ -492,7 +550,7 @@ def _find_lint_issues(files: list[Path], em: Mapping[str, RecorderInfo]) -> list
 def _gather_dir_stats(
     dirs: list[Path], em: Mapping[str, RecorderInfo]
 ) -> list[tuple[Path, SnapshotStats]]:
-    """Return per-directory stats for non-empty .ditto/ dirs without any I/O beyond stat()."""
+    """Return per-directory stats for non-empty .ditto/ dirs, I/O limited to stat()."""
     result = []
     for d in dirs:
         files = sorted(f for f in d.iterdir() if f.is_file())
@@ -502,6 +560,7 @@ def _gather_dir_stats(
 
 
 # ── Doctor / Lint / Stats rendering ───────────────────────────────────────────
+
 
 def _render_doctor(checks: list[CheckResult], console: Console) -> None:
     table = Table(
@@ -515,7 +574,11 @@ def _render_doctor(checks: list[CheckResult], console: Console) -> None:
     table.add_column("Detail", style=MUTED)
 
     for check in checks:
-        status = Text("✓", style=f"bold {CREATED}") if check.ok else Text("✗", style=f"bold {PRUNED}")
+        status = (
+            Text("✓", style=f"bold {CREATED}")
+            if check.ok
+            else Text("✗", style=f"bold {PRUNED}")
+        )
         table.add_row(check.name, status, check.detail)
 
     console.print(table)
@@ -550,8 +613,12 @@ def _render_stats_table(
         show_header=True,
         show_footer=True,
     )
-    table.add_column("Directory", style=PATH, footer_style=f"bold {HEADER}", footer="TOTAL")
-    table.add_column("Snapshots", justify="right", style=TEXT, footer_style=f"bold {TEXT}")
+    table.add_column(
+        "Directory", style=PATH, footer_style=f"bold {HEADER}", footer="TOTAL"
+    )
+    table.add_column(
+        "Snapshots", justify="right", style=TEXT, footer_style=f"bold {TEXT}"
+    )
     table.add_column("Size", justify="right", style=MUTED, footer_style=f"bold {MUTED}")
     table.add_column("Recorders", footer_style=MUTED)
 
@@ -564,7 +631,9 @@ def _render_stats_table(
             if i:
                 recorder_text.append("  ")
             recorder_text.append(f"{name}×{cnt}", style=colour_map.get(name, MUTED))
-        table.add_row(str(d), str(s.total_count), _human_size(s.total_size), recorder_text)
+        table.add_row(
+            str(d), str(s.total_count), _human_size(s.total_size), recorder_text
+        )
 
     table.columns[1].footer = str(total_count)
     table.columns[2].footer = _human_size(total_size)
@@ -573,6 +642,7 @@ def _render_stats_table(
 
 
 # ── New CLI commands ───────────────────────────────────────────────────────────
+
 
 @cli.command(name="doctor")
 def cmd_doctor():
@@ -589,7 +659,9 @@ def cmd_doctor():
 
 
 @cli.command(name="lint")
-@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
 def cmd_lint(path: Path):
     """Check snapshot files for naming issues, unknown formats, and empty files.
 
@@ -598,7 +670,9 @@ def cmd_lint(path: Path):
       ditto lint
       ditto lint tests/ci/
     """
-    issues = _find_lint_issues(_find_ditto_files(path), _ext_map(_load_recorder_infos()))
+    issues = _find_lint_issues(
+        _find_ditto_files(path), _ext_map(_load_recorder_infos())
+    )
     if not issues:
         console.print(f"[{MUTED}]All snapshots are valid.[/{MUTED}]")
         return
@@ -607,7 +681,9 @@ def cmd_lint(path: Path):
 
 
 @cli.command(name="stats")
-@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument(
+    "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
 def cmd_stats(path: Path):
     """Show per-directory snapshot usage breakdown.
 
@@ -616,7 +692,9 @@ def cmd_stats(path: Path):
       ditto stats
       ditto stats tests/ci/
     """
-    dir_stats = _gather_dir_stats(_find_ditto_dirs(path), _ext_map(_load_recorder_infos()))
+    dir_stats = _gather_dir_stats(
+        _find_ditto_dirs(path), _ext_map(_load_recorder_infos())
+    )
     if not dir_stats:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)

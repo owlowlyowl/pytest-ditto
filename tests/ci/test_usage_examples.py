@@ -6,6 +6,7 @@ import ditto
 @ditto.yaml
 def test_roundtrips_dict_through_yaml_format(snapshot) -> None:
     """snapshot round-trips dict values produced by a pure function."""
+
     def fn(x: dict[str, int]) -> dict[str, int]:
         return {k: v + 1 for k, v in x.items()}
 

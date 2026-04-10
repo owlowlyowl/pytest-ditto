@@ -6,7 +6,7 @@ import pytest
 
 from ditto import Snapshot, recorders
 from ditto.exceptions import DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, resolve_snapshot, save_snapshot
+from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
 
@@ -193,3 +193,29 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
 
     assert first == 1
     assert second == 2
+
+
+def test_raises_when_filepath_called_on_backend_only_snapshot() -> None:
+    """filepath() raises TypeError when the snapshot has no path-based storage."""
+    backend: dict[str, bytes] = {}
+    snapshot = Snapshot(group_name="test", module="mod", backend=backend)
+
+    with pytest.raises(TypeError, match="path-based"):
+        snapshot.filepath("key")
+
+
+def test_raises_at_construction_when_no_storage_target_is_given() -> None:
+    """Snapshot raises TypeError immediately when neither path= nor backend= is provided."""
+    with pytest.raises(TypeError, match="Snapshot requires a storage target"):
+        Snapshot(group_name="test")
+
+
+def test_raises_at_construction_when_backend_used_without_module() -> None:
+    """Snapshot raises TypeError when backend= is given without module=.
+
+    Without module=, _key_of() uses str(sk) which produces a leading-slash key
+    ("/group@key.ext"), causing a cryptic ValueError deep inside FsspecMapping.
+    The guard in __post_init__ catches this at construction time instead.
+    """
+    with pytest.raises(TypeError, match="module="):
+        Snapshot(group_name="test", backend={})

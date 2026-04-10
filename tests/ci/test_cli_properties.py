@@ -16,13 +16,15 @@ _SIZE_FORMAT = re.compile(r"^\d+ B$|^\d+\.\d+ (KB|MB|GB|TB)$")
 
 @given(st.integers(min_value=0, max_value=10**18))
 def test_human_size_always_produces_a_valid_size_string(n: int) -> None:
-    """_human_size always returns '<integer> B' or '<decimal> <unit>' for any non-negative size."""
+    """_human_size always returns '<integer> B' or '<decimal> <unit>' for any
+    non-negative size."""
     assert _SIZE_FORMAT.match(_human_size(n))
 
 
 @given(st.integers(min_value=0, max_value=1023))
 def test_human_size_preserves_exact_byte_value_below_one_kb(n: int) -> None:
-    """Values under 1 KB are returned as the exact integer followed by 'B' with no decimal."""
+    """Values under 1 KB are returned as the exact integer followed by 'B' with no
+    decimal."""
     actual = _human_size(n)
 
     expected = f"{n} B"
@@ -55,7 +57,8 @@ def test_human_size_uses_tb_unit_at_and_above_one_tb(n: int) -> None:
 
 @given(st.integers(min_value=1024, max_value=10**18))
 def test_human_size_scaled_value_has_exactly_one_decimal_place(n: int) -> None:
-    """The numeric part of any KB/MB/GB/TB result always has exactly one decimal place."""
+    """The numeric part of any KB/MB/GB/TB result always has exactly one decimal
+    place."""
     result = _human_size(n)
 
     numeric_str = result.split()[0]
@@ -78,7 +81,8 @@ def test_human_size_scaled_value_has_exactly_one_decimal_place(n: int) -> None:
 def test_parse_snapshot_name_roundtrip_for_valid_filenames(
     group: str, key: str, ext_body: str
 ) -> None:
-    """A well-formed {group}@{key}.{ext} filename parses back to its exact components."""
+    """A well-formed {group}@{key}.{ext} filename parses back to its exact
+    components."""
     ext = f".{ext_body}" if ext_body else ""
     filename = f"{group}@{key}{ext}"
 
@@ -93,7 +97,8 @@ def test_parse_snapshot_name_roundtrip_for_valid_filenames(
 def test_parse_snapshot_name_without_at_sign_returns_empty_key_and_ext(
     filename: str,
 ) -> None:
-    """A filename containing no '@' returns the whole string as group; key and ext are empty."""
+    """A filename containing no '@' returns the whole string as group; key and ext
+    are empty."""
     parsed_group, parsed_key, parsed_ext = _parse_snapshot_name(filename)
 
     assert parsed_group == filename
@@ -105,7 +110,8 @@ def test_parse_snapshot_name_without_at_sign_returns_empty_key_and_ext(
 def test_parse_snapshot_name_ext_is_always_empty_or_starts_with_dot(
     filename: str,
 ) -> None:
-    """The parsed extension is either an empty string or a dot-prefixed string — never a bare word."""
+    """The parsed extension is either an empty string or a dot-prefixed string —
+    never a bare word."""
     _, _, ext = _parse_snapshot_name(filename)
 
     assert ext == "" or ext.startswith(".")

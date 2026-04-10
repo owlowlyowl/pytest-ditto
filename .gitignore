@@ -26,3 +26,8 @@ archive/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Dev
+.designs/
+.issues/
+.impl/

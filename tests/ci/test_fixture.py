@@ -43,7 +43,8 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
 
 
 def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
-    """snapshot returns each stored value when called with different keys in one test."""
+    """snapshot returns each stored value when called with different keys in one
+    test."""
     pytester.makepyfile("""
         def test_inner(snapshot):
             actual_a = snapshot(77, key="a")
@@ -55,6 +56,152 @@ def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_broken_ditto_backend_dependency_fails_loudly(pytester) -> None:
+    """A ditto_backend fixture whose own dependency is missing fails the test.
+
+    Regression: previously the FixtureLookupError was caught unconditionally,
+    silently falling back to LocalMapping and hiding the broken backend.
+    """
+    pytester.makepyfile("""
+        import pytest
+
+        @pytest.fixture
+        def ditto_backend(nonexistent_dep):
+            return nonexistent_dep
+
+        def test_inner(snapshot):
+            snapshot("value", key="k")
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(errors=1)
+
+
+def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
+    """--ditto-prune must not delete snapshots written by other tests in the same directory.
+
+    Regression: the fallback fixture created a fresh FsspecMapping per test, giving
+    each test its own _BackendRecord. Pass 1 of pytest_sessionfinish enumerated the
+    entire shared .ditto/ directory for each record and subtracted only that one
+    test's accessed keys, marking every sibling's snapshot as "not accessed" and
+    deleting it. The fix caches the FsspecMapping by resolved root path so all
+    tests in the same directory share one backend instance and one record.
+    """
+    pytester.makepyfile(
+        test_alpha="""
+            def test_alpha(snapshot):
+                assert snapshot("alpha", key="value") == "alpha"
+        """,
+        test_beta="""
+            def test_beta(snapshot):
+                assert snapshot("beta", key="value") == "beta"
+        """,
+    )
+
+    # First run: create both snapshots.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    # Second run with --ditto-prune: both tests still pass and nothing is pruned.
+    result = pytester.runpytest("--ditto-prune")
+    result.assert_outcomes(passed=2)
+    result.stdout.no_fnmatch_line("*pruned*")
+
+
+def test_module_field_uses_forward_slashes(pytester) -> None:
+    """The module field in SnapshotKey always uses forward slashes, even on Windows.
+
+    str() on a Path uses the OS path separator, producing backslashes on Windows.
+    The fixture must use .as_posix() so that the storage key written to the
+    backend and the key returned by __iter__ agree on all platforms.
+
+    The test file is placed in a subdirectory so the module field contains a
+    path separator, making the assertion meaningful.
+    """
+    pytester.makeconftest("""
+        import pytest
+
+        _backend = {}
+
+        @pytest.fixture
+        def ditto_backend():
+            return _backend
+
+        @pytest.fixture
+        def stored_keys():
+            return _backend
+    """)
+    subdir = pytester.mkdir("sub")
+    subdir.joinpath("test_inner.py").write_text(
+        "def test_inner(snapshot, stored_keys):\n"
+        "    snapshot('v', key='k')\n"
+        "    key = next(iter(stored_keys))\n"
+        "    assert '\\\\' not in key, f'backslash in storage key: {key!r}'\n"
+        "    assert '/' in key, f'expected forward slash in storage key: {key!r}'\n"
+    )
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+
+
+_ITER_RAISING_CONFTEST = """
+    import pytest
+    from collections.abc import MutableMapping, Iterator
+
+    class {cls}(MutableMapping):
+        def __init__(self): self._d = {{}}
+        def __getitem__(self, k): return self._d[k]
+        def __setitem__(self, k, v): self._d[k] = v
+        def __delitem__(self, k): del self._d[k]
+        def __len__(self): return len(self._d)
+        def __iter__(self) -> Iterator:
+            raise {exc}("{msg}")
+
+    @pytest.fixture
+    def ditto_backend():
+        return {cls}()
+"""
+
+
+def test_session_completes_when_backend_iter_raises_not_implemented(pytester) -> None:
+    """A backend that raises NotImplementedError from __iter__ emits a warning and
+    does not crash pytest_sessionfinish."""
+    pytester.makeconftest(
+        _ITER_RAISING_CONFTEST.format(
+            cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
+        )
+    )
+    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+
+    result = pytester.runpytest("-W", "always")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*does not support enumeration*"])
+
+
+def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
+    """A backend that raises a non-NotImplementedError (e.g. ConnectionError) from
+    __iter__ emits a warning and does not crash pytest_sessionfinish.
+
+    Regression: the original except clause only caught NotImplementedError.
+    ConnectionError, PermissionError, and other I/O errors from remote backends
+    (e.g. FsspecMapping's fs.find() call) propagated uncaught, preventing the
+    session report from rendering.
+    """
+    pytester.makeconftest(
+        _ITER_RAISING_CONFTEST.format(
+            cls="BrokenIterBackend", exc="ConnectionError", msg="network gone"
+        )
+    )
+    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+
+    result = pytester.runpytest("-W", "always")
+
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*raised ConnectionError*"])
 
 
 def test_accepts_integer_as_key(pytester) -> None:

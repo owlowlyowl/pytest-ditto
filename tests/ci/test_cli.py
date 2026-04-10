@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from ditto.cli import (
     RecorderInfo,
@@ -18,6 +17,7 @@ from ditto.cli import (
 
 
 # ── _parse_snapshot_name ──────────────────────────────────────────────────────
+
 
 class TestParseSnapshotName:
     def test_splits_group_key_and_extension(self):
@@ -58,6 +58,7 @@ class TestParseSnapshotName:
 
 # ── _human_size ───────────────────────────────────────────────────────────────
 
+
 class TestHumanSize:
     def test_formats_with_bytes_suffix_when_under_one_kb(self):
         assert _human_size(0) == "0 B"
@@ -72,10 +73,10 @@ class TestHumanSize:
         assert _human_size(1024 * 1024) == "1.0 MB"
 
     def test_formats_with_gb_suffix_at_gigabyte_boundary(self):
-        assert _human_size(1024 ** 3) == "1.0 GB"
+        assert _human_size(1024**3) == "1.0 GB"
 
     def test_formats_with_tb_suffix_at_terabyte_boundary(self):
-        assert _human_size(1024 ** 4) == "1.0 TB"
+        assert _human_size(1024**4) == "1.0 TB"
 
     def test_formats_fractional_kilobytes(self):
         # 1536 bytes = 1.5 KB
@@ -83,6 +84,7 @@ class TestHumanSize:
 
 
 # ── _build_colour_map ─────────────────────────────────────────────────────────
+
 
 class TestBuildColourMap:
     def test_empty_input_returns_empty_map(self):
@@ -103,12 +105,14 @@ class TestBuildColourMap:
     def test_assigns_palette_colours_in_alphabetical_order(self):
         """First sorted name gets palette[0], second gets palette[1]."""
         from ditto.cli import _RECORDER_PALETTE
+
         result = _build_colour_map(["zz", "aa"])
         assert result["aa"] == _RECORDER_PALETTE[0]
         assert result["zz"] == _RECORDER_PALETTE[1]
 
 
 # ── _ext_map ──────────────────────────────────────────────────────────────────
+
 
 class TestExtMap:
     def test_maps_extension_to_recorder_info(self):
@@ -132,6 +136,7 @@ class TestExtMap:
 
 
 # ── gather_stats ──────────────────────────────────────────────────────────────
+
 
 def _mock_file(name: str, size: int, mtime: float) -> Path:
     """Return a Path-like mock with a working stat()."""
@@ -158,7 +163,8 @@ class TestGatherStats:
         assert stats.by_recorder["pickle"] == (1, 100)
 
     def test_unknown_extension_falls_back_to_raw_name(self):
-        """An unmapped extension uses the extension (minus leading dot) as recorder name."""
+        """An unmapped extension uses the extension (minus leading dot) as recorder
+        name."""
         f = _mock_file("test_foo@snap.custom", size=50, mtime=500.0)
 
         stats = gather_stats([f], ext_map={})
