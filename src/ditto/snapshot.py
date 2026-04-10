@@ -13,11 +13,6 @@ from .recorders import Recorder, default as _default_recorder
 __all__ = ("Snapshot", "SnapshotKey", "session_tracker")
 
 
-# ---------------------------------------------------------------------------
-# SnapshotKey
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class SnapshotKey:
     """Fully-qualified identity for a single snapshot value.
@@ -25,14 +20,14 @@ class SnapshotKey:
     Parameters
     ----------
     module : str
-        Rootdir-relative test file stem, e.g. ``"tests/bar/test_api"``.
+        Rootdir-relative test file stem, e.g. "tests/bar/test_api".
         Provides namespace isolation across files in shared backends.
     group_name : str
-        Test function name, e.g. ``"test_something"``.
+        Test function name, e.g. "test_something".
     key : str
         Per-snapshot identifier within the test.
     extension : str
-        Recorder file extension, e.g. ``"pkl"``, ``"json"``.
+        Recorder file extension, e.g. "pkl", "json".
     """
 
     module: str
@@ -42,16 +37,16 @@ class SnapshotKey:
 
     @property
     def filename(self) -> str:
-        """Short key for filesystem backends: ``'group@key.ext'``.
+        """Short key for filesystem backends: 'group@key.ext'.
 
-        Unique within a single ``.ditto/`` directory. The module is implicit
+        Unique within a single `.ditto/` directory. The module is implicit
         in the directory path, so on-disk layout is unchanged from pre-backend
         versions of ditto.
         """
         return f"{self.group_name}@{self.key}.{self.extension}"
 
     def __str__(self) -> str:
-        """Namespaced key for remote backends: ``'module/group@key.ext'``.
+        """Namespaced key for remote backends: 'module/group@key.ext'.
 
         Unique across all test files in a shared backend (Redis, S3, etc.).
         """
@@ -71,11 +66,6 @@ class SnapshotKey:
         return str(self) if self.module else self.filename
 
 
-# ---------------------------------------------------------------------------
-# Session tracking
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class _BackendRecord:
     backend: MutableMapping[str, bytes]
@@ -87,7 +77,7 @@ class _BackendRecord:
 class _SessionTracker:
     """In-memory record of snapshot activity for the current pytest session.
 
-    Reset at ``pytest_sessionstart`` and read at ``pytest_sessionfinish``.
+    Reset at `pytest_sessionstart` and read at `pytest_sessionfinish`.
     Never written to disk.
     """
 
@@ -132,49 +122,52 @@ class _SessionTracker:
 
 
 session_tracker = _SessionTracker()
+"""Module-level singleton that tracks snapshot activity for the current pytest session.
 
+Collects created, updated, and accessed snapshot keys across all tests.
+Reset at `pytest_sessionstart` and consumed at `pytest_sessionfinish`
+to produce the session report.
 
-# ---------------------------------------------------------------------------
-# Key-of free functions
-# ---------------------------------------------------------------------------
+Notes
+-----
+`reset()` is called by the plugin at `pytest_sessionstart` to clear state
+from any previous session. Between Hypothesis examples, `reset_keys()`
+clears per-example duplicate-key detection without touching the session-level
+`created` and `updated` lists.
+"""
 
 
 def _filename_key(sk: SnapshotKey) -> str:
-    """Return the short filesystem key for a SnapshotKey (``'group@key.ext'``)."""
+    """Return the short filesystem key for a SnapshotKey ('group@key.ext')."""
     return sk.filename
-
-
-# ---------------------------------------------------------------------------
-# Snapshot dataclass
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Snapshot:
     """Immutable configuration for a snapshot: where to store it and how to record it.
 
-    Instances are created by the ``snapshot`` fixture and hold no I/O state.
+    Instances are created by the `snapshot` fixture and hold no I/O state.
     All persistence is handled by the module-level free functions
-    ``save_snapshot``, ``load_snapshot``, and ``resolve_snapshot``.
+    `save_snapshot`, `load_snapshot`, and `resolve_snapshot`.
 
     Parameters
     ----------
     group_name : str
         Prefix used in snapshot keys, typically the test name.
     module : str
-        Rootdir-relative test file stem (e.g. ``"tests/bar/test_api"``).
+        Rootdir-relative test file stem (e.g. "tests/bar/test_api").
         Used to namespace keys in shared backends.
     recorder : Recorder
         Serialisation strategy. Defaults to pickle.
     backend : MutableMapping[str, bytes]
         Storage backend. Defaults to a local fsspec mapper derived from
-        ``path`` when ``path`` is provided (backward-compatible construction).
+        `path` when `path` is provided (backward-compatible construction).
     update : bool
-        When True, overwrite existing snapshots. Set by ``--ditto-update``.
+        When True, overwrite existing snapshots. Set by `--ditto-update`.
     path : Path, optional
-        Deprecated. Provide ``backend`` directly instead. When set, a local
+        Deprecated. Provide `backend` directly instead. When set, a local
         fsspec backend rooted at this path is created automatically and
-        ``SnapshotKey.filename`` (short keys) is used for storage.
+        `SnapshotKey.filename` (short keys) is used for storage.
     """
 
     group_name: str
@@ -208,10 +201,6 @@ class Snapshot:
                 "module='tests/my_module/test_foo'."
             )
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _key(self, key: str) -> SnapshotKey:
         return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
 
@@ -233,15 +222,11 @@ class Snapshot:
             self.recorder
         )
 
-    # ------------------------------------------------------------------
-    # Deprecated API (Phase 1 — removed in Phase 2)
-    # ------------------------------------------------------------------
-
     def filepath(self, key: str) -> Path:
         """Deprecated. Will be removed in the next release.
 
         Returns the filesystem path for a snapshot key. Only available for
-        filesystem backends (those constructed with ``path=``).
+        filesystem backends (those constructed with `path=`).
         """
         warnings.warn(
             "Snapshot.filepath() is deprecated and will be removed in the next release."
@@ -256,38 +241,29 @@ class Snapshot:
             "Snapshot.filepath() is only available for path-based snapshots."
         )
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
     def __call__(self, data: Any, key: str) -> Any:
-        """Save or load the snapshot for ``key``.
+        """Save or load the snapshot for `key`.
 
-        Delegates to ``resolve_snapshot``: saves ``data`` on first call and
+        Delegates to `resolve_snapshot`: saves `data` on first call and
         returns the stored value on subsequent calls.
         """
         return resolve_snapshot(self, data, key)
 
 
-# ---------------------------------------------------------------------------
-# Module-level I/O functions
-# ---------------------------------------------------------------------------
-
-
 def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
-    """Persist ``data`` to the backend as the snapshot for ``key``."""
+    """Persist `data` to the backend as the snapshot for `key`."""
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
     snapshot._store()[storage_key] = data
 
 
 def load_snapshot(snapshot: Snapshot, key: str) -> Any:
-    """Load and return the stored snapshot value for ``key``.
+    """Load and return the stored snapshot value for `key`.
 
     Raises
     ------
     FileNotFoundError
-        When no snapshot exists for ``key``.
+        When no snapshot exists for `key`.
     """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
@@ -300,14 +276,14 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
-    """Return the snapshot value for ``key``, saving it first if absent.
+    """Return the snapshot value for `key`, saving it first if absent.
 
-    When ``snapshot.update`` is True, always overwrites the existing value.
+    When `snapshot.update` is True, always overwrites the existing value.
 
     Raises
     ------
     DuplicateSnapshotKeyError
-        When the same ``key`` is used more than once within a test.
+        When the same `key` is used more than once within a test.
     """
     sk = snapshot._key(key)
     key_of = snapshot._key_of()
