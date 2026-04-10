@@ -246,7 +246,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     # Pass 2 — discover .ditto/ directories not touched this session.
     # Catches stale snapshots from test files that were deleted or renamed.
-    if do_prune or session_tracker.records:
+    #
+    # Gated on do_prune rather than "do_prune or session_tracker.records":
+    # the broader condition fires on any partial run (e.g. pytest tests/foo.py),
+    # where every .ditto/ directory belonging to un-run tests appears as a ghost
+    # and all their snapshots are falsely reported as unused. Ghost detection is
+    # a cleanup operation and only makes sense when the user has explicitly asked
+    # for it. If a non-destructive "unused" report for ghost directories is ever
+    # needed, add a dedicated --ditto-check-ghosts flag rather than coupling it
+    # to session_tracker.records.
+    if do_prune:
         for ditto_dir in rootdir.rglob(".ditto"):
             if not ditto_dir.is_dir():
                 continue
