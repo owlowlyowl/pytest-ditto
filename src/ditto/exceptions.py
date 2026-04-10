@@ -3,7 +3,6 @@ __all__ = (
     "AdditionalMarkError",
     "DittoMarkHasNoIOType",
     "DuplicateSnapshotKeyError",
-    "UnknownBackendError",
 )
 
 
@@ -31,14 +30,4 @@ class DuplicateSnapshotKeyError(DittoException):
         super().__init__(
             f"Snapshot key '{key}' has already been used in this test. "
             "Each snapshot call within a test must use a unique key."
-        )
-
-
-class UnknownBackendError(DittoException):
-    def __init__(self, name: str) -> None:
-        super().__init__(
-            f"No backend registered under the name {name!r}. "
-            "Register it via pytest_ditto_register_backends in conftest.py, "
-            "a [tool.ditto.backends] entry in pyproject.toml, "
-            "or a 'ditto_backends' entry point."
         )
