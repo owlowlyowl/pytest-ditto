@@ -27,12 +27,12 @@ def _label_block(
     text.append(f"  {label:<10}", style=f"bold {colour}")
     text.append(f"{len(items):<5}", style=colour)
     if items:
-        first = items[0].filename if isinstance(items[0], SnapshotKey) else items[0]
+        first = items[0].display_name if isinstance(items[0], SnapshotKey) else items[0]
         text.append(first, style=colour)
         if suffix:
             text.append(f"  {suffix}", style=MUTED)
         for item in items[1:]:
-            name = item.filename if isinstance(item, SnapshotKey) else item
+            name = item.display_name if isinstance(item, SnapshotKey) else item
             text.append(f"\n  {'':<15}{name}", style=colour)
     return text
 

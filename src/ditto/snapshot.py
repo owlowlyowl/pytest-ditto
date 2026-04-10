@@ -57,6 +57,19 @@ class SnapshotKey:
         """
         return f"{self.module}/{self.group_name}@{self.key}.{self.extension}"
 
+    @property
+    def display_name(self) -> str:
+        """Human-readable label for the session report.
+
+        Returns the full namespaced form ('module/group@key.ext') when
+        `module` is set, and the short filename form ('group@key.ext')
+        when it is not. This keeps the report consistent with the raw backend
+        keys used in `pruned`/`unused` entries while avoiding a spurious
+        leading slash for legacy path-based snapshots constructed without
+        `module=`.
+        """
+        return str(self) if self.module else self.filename
+
 
 # ---------------------------------------------------------------------------
 # Session tracking
