@@ -5,11 +5,13 @@ from collections.abc import MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import pytest
 
 from ditto import Snapshot
 import fsspec
+import fsspec.core
 
 from ditto.backends import FsspecMapping
 from ditto.snapshot import session_tracker
@@ -86,6 +88,144 @@ def _resolve_recorder(marks: list) -> Recorder:
 
 
 # ---------------------------------------------------------------------------
+# URI resolution engine
+# ---------------------------------------------------------------------------
+
+
+def _parse_mark_target(marks: list) -> str | None:
+    """Return the target= URI from the record mark, or None if absent."""
+    if not marks:
+        return None
+    return marks[0].kwargs.get("target")
+
+
+def _get_storage_options(request: pytest.FixtureRequest) -> dict[str, dict]:
+    """Return per-scheme storage options from ditto_storage_options, or {}."""
+    try:
+        return request.getfixturevalue("ditto_storage_options")
+    except pytest.FixtureLookupError:
+        return {}
+
+
+def _resolve_uri(
+    uri: str,
+    test_dir: Path,
+    storage_options: dict[str, dict],
+) -> tuple[MutableMapping[str, bytes], str]:
+    """Resolve a URI to (backend, absolute_uri).
+
+    The returned absolute_uri is always fully-qualified (e.g.
+    `file:///home/user/project/tests/.ditto`), even when the input was a
+    relative `file://` URI. This value is stored as `Snapshot.target` and
+    drives key-format selection: `file://` → short keys, everything else →
+    namespaced keys.
+
+    Resolution order
+    ----------------
+    1. file://   — FsspecMapping on local filesystem; relative paths resolve
+                   relative to test_dir; result is cached in _backend_cache.
+    2. BACKEND_REGISTRY scheme — factory(uri, **opts); for non-fsspec backends
+                   such as Redis, PostgreSQL, DuckDB.
+    3. fsspec    — fsspec.core.url_to_fs(uri, **opts); covers S3, GCS, Azure,
+                   memory://, and all other fsspec protocols.
+    4. Unknown   — ValueError with an actionable install hint.
+
+    BACKEND_REGISTRY is checked before fsspec so plugins can override fsspec schemes.
+
+    Parameters
+    ----------
+    uri : str
+        A URI string, e.g. "file://.ditto", "s3://bucket/prefix/",
+        "redis://localhost:6379/0", "duckdb:///:memory:".
+    test_dir : Path
+        Directory of the test file. Used to resolve relative file:// paths.
+    storage_options : dict[str, dict]
+        Per-scheme kwargs from the ditto_storage_options fixture. The entry
+        keyed by the URI scheme is unpacked as kwargs into the factory or
+        fsspec.core.url_to_fs.
+
+    Raises
+    ------
+    ValueError
+        When the scheme is unrecognised by both BACKEND_REGISTRY and fsspec.
+    """
+    from ditto.backends import BACKEND_REGISTRY
+
+    parsed = urlparse(uri)
+    scheme = parsed.scheme
+    opts = storage_options.get(scheme, {})
+
+    if scheme == "file":
+        # urlparse("file://.ditto") → netloc=".ditto", path=""
+        # urlparse("file:///abs")   → netloc="",        path="/abs"
+        path_str = parsed.netloc + parsed.path or ".ditto"
+        p = Path(path_str)
+        if not p.is_absolute():
+            p = (test_dir / p).resolve()
+        abs_uri = f"file://{p.as_posix()}"
+        cache_key = p.as_posix()
+        if cache_key not in _backend_cache:
+            _backend_cache[cache_key] = FsspecMapping(
+                fsspec.filesystem("file"), p.as_posix()
+            )
+        return _backend_cache[cache_key], abs_uri
+
+    if scheme in BACKEND_REGISTRY:
+        backend = BACKEND_REGISTRY[scheme](uri, **opts)
+        return _maybe_enter(backend), uri
+
+    if scheme in fsspec.available_protocols():
+        fs, root = fsspec.core.url_to_fs(uri, **opts)
+        return FsspecMapping(fs, root), uri
+
+    raise ValueError(
+        f"Unknown backend scheme {scheme!r} in target URI {uri!r}. "
+        f"To add support: install an fsspec extension for {scheme!r}, or register a "
+        f"factory under the 'ditto_backends' entry-point group."
+    )
+
+
+def _resolve_target(
+    target_uri: str | None,
+    request: pytest.FixtureRequest,
+) -> tuple[MutableMapping[str, bytes], str]:
+    """Resolve the snapshot storage target for this test.
+
+    Implements the full precedence chain:
+
+        mark target=  →  ditto_backend fixture  →  ditto_target ini  →  file://.ditto
+
+    Returns (backend, absolute_uri). The absolute_uri is passed to Snapshot.target
+    and drives key-format selection.
+
+    The ditto_backend fixture is bypassed when target_uri is set. It remains
+    supported for backward compatibility and for backends that cannot be expressed
+    as a URI.
+    """
+    test_dir = request.path.parent
+    opts = _get_storage_options(request)
+
+    if target_uri is not None:
+        return _resolve_uri(target_uri, test_dir, opts)
+
+    try:
+        raw_backend = request.getfixturevalue("ditto_backend")
+        # ditto_backend provides an opaque MutableMapping without a URI.
+        # Use a sentinel URI so Snapshot.target is always set; the "backend"
+        # scheme is never "file", so namespaced keys are used for session-wide
+        # custom backends.
+        return _maybe_enter(raw_backend), "backend://"
+    except pytest.FixtureLookupError as exc:
+        if exc.argname != "ditto_backend":
+            # A dependency of ditto_backend failed to resolve — re-raise so the
+            # user sees the real error rather than silently falling back to local.
+            raise
+
+    ini_uri = request.config.getini("ditto_target")
+    return _resolve_uri(ini_uri, test_dir, opts)
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -98,40 +238,17 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     recorder = _resolve_recorder(marks)
     update = request.config.getoption("--ditto-update", default=False)
 
-    try:
-        raw_backend = request.getfixturevalue("ditto_backend")
-        backend = _maybe_enter(raw_backend)
-        return Snapshot(
-            module=module,
-            group_name=request.node.name,
-            recorder=recorder,
-            backend=backend,
-            update=update,
-        )
-    except pytest.FixtureLookupError as exc:
-        if exc.argname != "ditto_backend":
-            # A dependency of ditto_backend failed to resolve — re-raise so the
-            # user sees the real error rather than silently falling back to local.
-            raise exc from exc
-        local_path = request.path.parent / ".ditto"
-        # All tests in the same directory share one FsspecMapping instance so
-        # they share one _BackendRecord in session_tracker. Without this cache,
-        # each test gets a distinct object and Pass 1 of pytest_sessionfinish
-        # treats every other test's files as "not accessed", deleting them all.
-        cache_key = local_path.resolve().as_posix()
-        if cache_key not in _backend_cache:
-            _backend_cache[cache_key] = FsspecMapping(
-                fsspec.filesystem("file"), local_path.as_posix()
-            )
-        backend = _backend_cache[cache_key]
-        return Snapshot(
-            module=module,
-            group_name=request.node.name,
-            recorder=recorder,
-            backend=backend,
-            update=update,
-            path=local_path,  # kept for deprecated .path access; signals _filename_key
-        )
+    target_uri = _parse_mark_target(marks)
+    backend, abs_uri = _resolve_target(target_uri, request)
+
+    return Snapshot(
+        module=module,
+        group_name=request.node.name,
+        target=abs_uri,
+        _backend=backend,
+        recorder=recorder,
+        update=update,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +269,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="After the session, delete snapshot files not accessed during this run.",
+    )
+    parser.addini(
+        "ditto_target",
+        help=(
+            "Default snapshot storage URI for all tests in this project. "
+            "Examples: 's3://my-bucket/ditto', 'file://.ditto'. "
+            "Relative file:// paths resolve relative to the test file. "
+            "Credentials come from the ditto_storage_options fixture."
+        ),
+        default="file://.ditto",
     )
 
 

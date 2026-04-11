@@ -23,11 +23,12 @@ class DittoTestCase(unittest.TestCase):
         # inspect.getfile(type(self)) returns the source file of the concrete test
         # class — deterministic regardless of how or where snapshot is accessed.
         test_file = Path(inspect.getfile(type(self)))
-        ditto_dir = test_file.parent / ".ditto"
+        ditto_dir = (test_file.parent / ".ditto").resolve()
+        abs_uri = f"file://{ditto_dir.as_posix()}"
 
         return Snapshot(
             module=test_file.stem,
             group_name=".".join(self.id().split(".")[-3:]),
-            backend=FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix()),
-            path=ditto_dir,  # kept for deprecated .path access in existing tests
+            target=abs_uri,
+            _backend=FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix()),
         )

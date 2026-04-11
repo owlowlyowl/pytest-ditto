@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
@@ -156,47 +155,33 @@ class Snapshot:
         Prefix used in snapshot keys, typically the test name.
     module : str
         Rootdir-relative test file stem (e.g. "tests/bar/test_api").
-        Used to namespace keys in shared backends.
+        Required for non-file:// backends to namespace keys across test files.
+        May be empty for file:// backends (module is implicit in directory path).
+    target : str
+        URI identifying the storage location. The scheme controls key format:
+        `file://` uses short `group@key.ext` keys (preserving on-disk layout);
+        all other schemes use fully-namespaced `module/group@key.ext` keys.
+        Always use absolute `file://` URIs (e.g. `file:///home/user/proj/tests/.ditto`).
+    _backend : MutableMapping[str, bytes]
+        Resolved storage backend. Conventionally private — set by the fixture via
+        `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
         Serialisation strategy. Defaults to pickle.
-    backend : MutableMapping[str, bytes]
-        Storage backend. Defaults to a local fsspec mapper derived from
-        `path` when `path` is provided (backward-compatible construction).
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
-    path : Path, optional
-        Deprecated. Provide `backend` directly instead. When set, a local
-        fsspec backend rooted at this path is created automatically and
-        `SnapshotKey.filename` (short keys) is used for storage.
     """
 
     group_name: str
-    module: str = ""
+    module: str
+    target: str
+    _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
-    backend: MutableMapping[str, bytes] | None = field(
-        default=None, compare=False, hash=False, repr=False
-    )
     update: bool = False
-    path: Path | None = field(default=None, compare=False, hash=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.path is not None and self.backend is None:
-            import fsspec
-
-            from .backends import FsspecMapping
-
-            object.__setattr__(
-                self,
-                "backend",
-                FsspecMapping(fsspec.filesystem("file"), self.path.as_posix()),
-            )
-        if self.backend is None:
+        if urlparse(self.target).scheme != "file" and not self.module:
             raise TypeError(
-                "Snapshot requires a storage target; provide backend= or path=."
-            )
-        if self.path is None and not self.module:
-            raise TypeError(
-                "Snapshot requires module= when using backend= directly. "
+                "Snapshot requires module= for non-file:// backends. "
                 "Pass the rootdir-relative test file stem, e.g. "
                 "module='tests/my_module/test_foo'."
             )
@@ -205,40 +190,15 @@ class Snapshot:
         return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
-        # Filesystem-local backends (constructed via path=) use the short filename
-        # key so existing .ditto/ layouts are preserved unchanged.
-        # All other backends use the fully-namespaced str form.
-        return _filename_key if self.path is not None else str
+        # file:// backends use the short filename key so existing .ditto/ layouts
+        # are preserved unchanged. All other backends use fully-namespaced keys.
+        return _filename_key if urlparse(self.target).scheme == "file" else str
 
     def _store(self) -> Any:
         from .backends import TransformMapping, _make_recorder_transform
 
-        if self.backend is None:
-            raise TypeError(
-                "Snapshot has no backend configured; "
-                "provide path= or backend= at construction."
-            )
-        return TransformMapping(mapping=self.backend) | _make_recorder_transform(
+        return TransformMapping(mapping=self._backend) | _make_recorder_transform(
             self.recorder
-        )
-
-    def filepath(self, key: str) -> Path:
-        """Deprecated. Will be removed in the next release.
-
-        Returns the filesystem path for a snapshot key. Only available for
-        filesystem backends (those constructed with `path=`).
-        """
-        warnings.warn(
-            "Snapshot.filepath() is deprecated and will be removed in the next release."
-            " Call snapshot(data, key=key) directly instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        sk = self._key(key)
-        if self.path is not None:
-            return self.path / sk.filename
-        raise TypeError(
-            "Snapshot.filepath() is only available for path-based snapshots."
         )
 
     def __call__(self, data: Any, key: str) -> Any:
@@ -289,12 +249,7 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     key_of = snapshot._key_of()
     storage_key = key_of(sk)
 
-    backend = snapshot.backend
-    if backend is None:
-        raise TypeError(
-            "Snapshot has no backend configured; "
-            "provide path= or backend= at construction."
-        )
+    backend = snapshot._backend
     used_key = (id(backend), storage_key)
     if used_key in session_tracker.used_keys:
         raise DuplicateSnapshotKeyError(key)
