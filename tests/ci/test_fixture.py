@@ -58,18 +58,14 @@ def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_broken_ditto_backend_dependency_fails_loudly(pytester) -> None:
-    """A ditto_backend fixture whose own dependency is missing fails the test.
-
-    Regression: previously the FixtureLookupError was caught unconditionally,
-    silently falling back to LocalMapping and hiding the broken backend.
-    """
+def test_user_defined_ditto_backend_raises_migration_error(pytester) -> None:
+    """A user-defined ditto_backend fixture now fails with a migration error."""
     pytester.makepyfile("""
         import pytest
 
         @pytest.fixture
-        def ditto_backend(nonexistent_dep):
-            return nonexistent_dep
+        def ditto_backend():
+            return {}
 
         def test_inner(snapshot):
             snapshot("value", key="k")
@@ -78,6 +74,9 @@ def test_broken_ditto_backend_dependency_fails_loudly(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines([
+        "*ditto_backend is superseded by target=, backend registration, and ditto_storage_options*"
+    ])
 
 
 def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
@@ -110,6 +109,31 @@ def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     result.stdout.no_fnmatch_line("*pruned*")
 
 
+def test_shared_memory_target_does_not_report_false_unused(pytester) -> None:
+    """Two tests sharing one memory target should not flag each other as unused."""
+    pytester.makepyfile(
+        test_alpha="""
+            import ditto
+
+            @ditto.record("json", target="memory://shared")
+            def test_alpha(snapshot):
+                assert snapshot({"value": "alpha"}, key="value") == {"value": "alpha"}
+        """,
+        test_beta="""
+            import ditto
+
+            @ditto.record("json", target="memory://shared")
+            def test_beta(snapshot):
+                assert snapshot({"value": "beta"}, key="value") == {"value": "beta"}
+        """,
+    )
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+    result.stderr.no_fnmatch_line("*│   unused*")
+
+
 def test_module_field_uses_forward_slashes(pytester) -> None:
     """The module field in SnapshotKey always uses forward slashes, even on Windows.
 
@@ -122,12 +146,14 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     """
     pytester.makeconftest("""
         import pytest
+        from ditto.backends import BACKEND_REGISTRY
 
         _backend = {}
 
-        @pytest.fixture
-        def ditto_backend():
+        def _factory(uri: str, **kwargs):
             return _backend
+
+        BACKEND_REGISTRY["test"] = _factory
 
         @pytest.fixture
         def stored_keys():
@@ -135,6 +161,8 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     """)
     subdir = pytester.mkdir("sub")
     subdir.joinpath("test_inner.py").write_text(
+        "import ditto\n\n"
+        "@ditto.record('pickle', target='test://shared')\n"
         "def test_inner(snapshot, stored_keys):\n"
         "    snapshot('v', key='k')\n"
         "    key = next(iter(stored_keys))\n"
@@ -150,6 +178,7 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
 _ITER_RAISING_CONFTEST = """
     import pytest
     from collections.abc import MutableMapping, Iterator
+    from ditto.backends import BACKEND_REGISTRY
 
     class {cls}(MutableMapping):
         def __init__(self): self._d = {{}}
@@ -160,9 +189,10 @@ _ITER_RAISING_CONFTEST = """
         def __iter__(self) -> Iterator:
             raise {exc}("{msg}")
 
-    @pytest.fixture
-    def ditto_backend():
+    def _factory(uri: str, **kwargs):
         return {cls}()
+
+    BACKEND_REGISTRY["testiter"] = _factory
 """
 
 
@@ -174,7 +204,12 @@ def test_session_completes_when_backend_iter_raises_not_implemented(pytester) ->
             cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
         )
     )
-    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+    pytester.makepyfile(
+        "import ditto\n\n"
+        "@ditto.record('pickle', target='testiter://shared')\n"
+        "def test_inner(snapshot):\n"
+        "    snapshot('v', key='k')\n"
+    )
 
     result = pytester.runpytest("-W", "always")
 
@@ -196,7 +231,12 @@ def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
             cls="BrokenIterBackend", exc="ConnectionError", msg="network gone"
         )
     )
-    pytester.makepyfile("def test_inner(snapshot): snapshot('v', key='k')")
+    pytester.makepyfile(
+        "import ditto\n\n"
+        "@ditto.record('pickle', target='testiter://shared')\n"
+        "def test_inner(snapshot):\n"
+        "    snapshot('v', key='k')\n"
+    )
 
     result = pytester.runpytest("-W", "always")
 

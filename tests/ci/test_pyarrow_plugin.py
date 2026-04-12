@@ -34,22 +34,20 @@ def test_pyarrow_marks_are_accessible() -> None:
 
 @ditto.pyarrow.parquet
 def test_parquet_mark(snapshot) -> None:
-    """The parquet mark selects the pyarrow_parquet recorder via the snapshot
-    fixture."""
+    """The parquet mark selects the pyarrow_parquet recorder via the snapshot fixture."""
     table = _make_table()
     snapshot(table, key="parquet")
-    assert snapshot.filepath("parquet").exists()
-    assert snapshot.filepath("parquet").suffix == ".parquet"
+    assert snapshot.recorder is recorders.get("pyarrow_parquet")
+    assert snapshot.recorder.extension == "pyarrow.parquet"
 
 
 @ditto.pyarrow.feather
 def test_feather_mark(snapshot) -> None:
-    """The feather mark selects the pyarrow_feather recorder via the snapshot
-    fixture."""
+    """The feather mark selects the pyarrow_feather recorder via the snapshot fixture."""
     table = _make_table()
     snapshot(table, key="feather")
-    assert snapshot.filepath("feather").exists()
-    assert snapshot.filepath("feather").suffix == ".feather"
+    assert snapshot.recorder is recorders.get("pyarrow_feather")
+    assert snapshot.recorder.extension == "pyarrow.feather"
 
 
 @ditto.pyarrow.csv
@@ -57,8 +55,8 @@ def test_csv_mark(snapshot) -> None:
     """The csv mark selects the pyarrow_csv recorder via the snapshot fixture."""
     table = _make_table()
     snapshot(table, key="csv")
-    assert snapshot.filepath("csv").exists()
-    assert snapshot.filepath("csv").suffix == ".csv"
+    assert snapshot.recorder is recorders.get("pyarrow_csv")
+    assert snapshot.recorder.extension == "pyarrow.csv"
 
 
 @pytest.mark.parametrize(

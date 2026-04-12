@@ -29,8 +29,8 @@ def test_parquet_mark(snapshot) -> None:
     """The parquet mark selects the pandas_parquet recorder via the snapshot fixture."""
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="parquet")
-    assert snapshot.filepath("parquet").exists()
-    assert snapshot.filepath("parquet").suffix == ".parquet"
+    assert snapshot.recorder is recorders.get("pandas_parquet")
+    assert snapshot.recorder.extension == "pandas.parquet"
 
 
 @ditto.pandas.json
@@ -38,8 +38,8 @@ def test_json_mark(snapshot) -> None:
     """The json mark selects the pandas_json recorder via the snapshot fixture."""
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="json")
-    assert snapshot.filepath("json").exists()
-    assert snapshot.filepath("json").suffix == ".json"
+    assert snapshot.recorder is recorders.get("pandas_json")
+    assert snapshot.recorder.extension == "pandas.json"
 
 
 @ditto.pandas.csv
@@ -47,8 +47,8 @@ def test_csv_mark(snapshot) -> None:
     """The csv mark selects the pandas_csv recorder via the snapshot fixture."""
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="csv")
-    assert snapshot.filepath("csv").exists()
-    assert snapshot.filepath("csv").suffix == ".csv"
+    assert snapshot.recorder is recorders.get("pandas_csv")
+    assert snapshot.recorder.extension == "pandas.csv"
 
 
 @pytest.mark.parametrize(

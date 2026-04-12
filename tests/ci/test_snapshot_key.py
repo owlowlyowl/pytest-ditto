@@ -12,6 +12,18 @@ def test_filename_uses_short_form() -> None:
     assert sk.filename == "test_result@v.pkl"
 
 
+def test_filename_preserves_multi_dot_identifier() -> None:
+    """filename preserves a dotted persisted recorder identifier unchanged."""
+    sk = SnapshotKey(
+        module="tests/bar/test_api",
+        group_name="test_result",
+        key="v",
+        extension="pandas.parquet",
+    )
+
+    assert sk.filename == "test_result@v.pandas.parquet"
+
+
 def test_str_uses_namespaced_form() -> None:
     """str includes the module so remote backends can distinguish same-named tests
     across files."""
