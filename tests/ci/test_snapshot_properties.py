@@ -39,7 +39,7 @@ def _memory_snapshot(**kwargs) -> Snapshot:
 
 @given(key=_safe_key)
 def test_duplicate_key_always_raises_on_second_call(key: str) -> None:
-    """Calling snapshot twice with the same key always raises DuplicateSnapshotKeyError."""
+    """Calling snapshot twice with one key raises DuplicateSnapshotKeyError."""
     session_tracker.reset_keys()
     snapshot = _memory_snapshot()
     snapshot(1, key)
@@ -50,7 +50,7 @@ def test_duplicate_key_always_raises_on_second_call(key: str) -> None:
 
 @given(keys=st.lists(_safe_key, min_size=1, max_size=10, unique=True))
 def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
-    """Using a distinct key for each snapshot call never raises, regardless of how many calls are made."""
+    """Distinct keys never trigger the duplicate-key error."""
     session_tracker.reset_keys()
     snapshot = _memory_snapshot()
 
@@ -59,7 +59,7 @@ def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
 
 
 def test_reset_keys_does_not_clear_session_level_created_list() -> None:
-    """reset_keys() must not clear `created` or `updated` — those are session-level accumulators.
+    """reset_keys() must not clear `created` or `updated`.
 
     Regression: reset_keys() previously cleared both lists, so any snapshots
     created by ordinary tests before a Hypothesis test ran were wiped from the

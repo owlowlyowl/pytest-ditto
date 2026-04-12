@@ -75,12 +75,13 @@ def test_user_defined_ditto_backend_raises_migration_error(pytester) -> None:
 
     result.assert_outcomes(errors=1)
     result.stdout.fnmatch_lines([
-        "*ditto_backend is superseded by target=, backend registration, and ditto_storage_options*"
+        "*ditto_backend is superseded by target=, backend registration, "
+        "and ditto_storage_options*"
     ])
 
 
 def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
-    """--ditto-prune must not delete snapshots written by other tests in the same directory.
+    """--ditto-prune must not delete snapshots written by sibling tests.
 
     Regression: the fallback fixture created a fresh FsspecMapping per test, giving
     each test its own _BackendRecord. Pass 1 of pytest_sessionfinish enumerated the

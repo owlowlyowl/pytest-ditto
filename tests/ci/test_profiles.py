@@ -1,6 +1,3 @@
-import pytest
-
-
 def test_target_profile_mark_resolves_to_configured_uri(pytester) -> None:
     """target_profile= in a mark expands to the URI from the fixture profile table."""
     pytester.makeconftest("""
@@ -57,7 +54,9 @@ def test_ditto_target_profile_ini_is_used_when_mark_has_no_target(pytester) -> N
     result.assert_outcomes(passed=1)
 
 
-def test_mark_target_uri_takes_precedence_over_ditto_target_profile_ini(pytester) -> None:
+def test_mark_target_uri_takes_precedence_over_ditto_target_profile_ini(
+    pytester,
+) -> None:
     """A mark-level target= URI wins over a ditto_target_profile ini default."""
     pytester.makeconftest("""
         import pytest
@@ -87,7 +86,9 @@ def test_mark_target_uri_takes_precedence_over_ditto_target_profile_ini(pytester
     result.assert_outcomes(passed=1)
 
 
-def test_profile_storage_options_are_not_merged_with_ditto_storage_options(pytester) -> None:
+def test_profile_storage_options_are_not_merged_with_ditto_storage_options(
+    pytester,
+) -> None:
     """Profile-based targets use only their own storage_options; ditto_storage_options is ignored."""
     pytester.makeconftest("""
         import pytest
@@ -163,7 +164,9 @@ def test_raises_when_target_and_target_profile_are_both_set(pytester) -> None:
     result.stdout.fnmatch_lines(["*Use either target= or target_profile=, not both*"])
 
 
-def test_raises_when_ditto_target_and_ditto_target_profile_are_both_configured(pytester) -> None:
+def test_raises_when_ditto_target_and_ditto_target_profile_are_both_configured(
+    pytester,
+) -> None:
     """ditto_target and ditto_target_profile in config together raises at configure time."""
     pytester.makeini("""
         [pytest]
@@ -178,10 +181,14 @@ def test_raises_when_ditto_target_and_ditto_target_profile_are_both_configured(p
     result = pytester.runpytest()
 
     assert result.ret != 0
-    result.stderr.fnmatch_lines(["*Use either ditto_target or ditto_target_profile, not both*"])
+    result.stderr.fnmatch_lines([
+        "*Use either ditto_target or ditto_target_profile, not both*"
+    ])
 
 
-def test_raises_when_duplicate_profile_name_exists_in_fixture_and_static_config(pytester) -> None:
+def test_raises_when_duplicate_profile_name_exists_in_fixture_and_static_config(
+    pytester,
+) -> None:
     """A profile name defined in both the fixture and pyproject.toml raises an error."""
     pytester.makeconftest("""
         import pytest
@@ -299,7 +306,9 @@ def test_two_profiles_with_same_uri_and_options_share_a_backend(pytester) -> Non
     result.assert_outcomes(passed=2)
 
 
-def test_two_profiles_with_same_uri_but_different_options_use_separate_backends(pytester) -> None:
+def test_two_profiles_with_same_uri_but_different_options_use_separate_backends(
+    pytester,
+) -> None:
     """Two profiles with the same URI but different storage_options use distinct backends."""
     pytester.makeconftest("""
         import pytest

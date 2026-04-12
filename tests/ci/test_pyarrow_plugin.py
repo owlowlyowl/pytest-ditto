@@ -34,7 +34,7 @@ def test_pyarrow_marks_are_accessible() -> None:
 
 @ditto.pyarrow.parquet
 def test_parquet_mark(snapshot) -> None:
-    """The parquet mark selects the pyarrow_parquet recorder via the snapshot fixture."""
+    """The parquet mark selects the pyarrow_parquet recorder."""
     table = _make_table()
     snapshot(table, key="parquet")
     assert snapshot.recorder is recorders.get("pyarrow_parquet")
@@ -43,7 +43,7 @@ def test_parquet_mark(snapshot) -> None:
 
 @ditto.pyarrow.feather
 def test_feather_mark(snapshot) -> None:
-    """The feather mark selects the pyarrow_feather recorder via the snapshot fixture."""
+    """The feather mark selects the pyarrow_feather recorder."""
     table = _make_table()
     snapshot(table, key="feather")
     assert snapshot.recorder is recorders.get("pyarrow_feather")
