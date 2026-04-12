@@ -1,7 +1,7 @@
-"""Integration tests for a Redis-backed ditto_backend using fakeredis.
+"""Integration tests for a registered Redis backend using fakeredis.
 
-Demonstrates wiring a flat key-value store (Redis) as a ditto backend via
-PrefixedMapping + a thin MutableMapping adapter around the redis client.
+Demonstrates wiring a flat key-value store (Redis) as a target-resolved ditto
+backend via `redis://` plus a registered factory.
 """
 
 from __future__ import annotations
@@ -11,8 +11,9 @@ from contextlib import AbstractContextManager
 
 import fakeredis
 import pytest
+import ditto
 
-from ditto.backends import PrefixedMapping
+from ditto.backends import BACKEND_REGISTRY, PrefixedMapping
 
 
 # ---------------------------------------------------------------------------
@@ -74,14 +75,14 @@ def _redis_client() -> fakeredis.FakeRedis:
     return fakeredis.FakeRedis()
 
 
-@pytest.fixture(scope="session")
-def ditto_backend(_redis_client: fakeredis.FakeRedis) -> PrefixedMapping:
-    """Session-scoped Redis backend, matching real Redis usage across a suite.
+@pytest.fixture(scope="session", autouse=True)
+def _register_redis_backend(_redis_client: fakeredis.FakeRedis):
+    def create_redis_backend(uri: str, **kwargs) -> PrefixedMapping:
+        return PrefixedMapping(RedisMapping(_redis_client), prefix="ditto:")
 
-    PrefixedMapping scopes all keys under "ditto:" so ditto snapshots don't
-    collide with other tenants in a shared Redis instance.
-    """
-    return PrefixedMapping(RedisMapping(_redis_client), prefix="ditto:")
+    BACKEND_REGISTRY["redis"] = create_redis_backend
+    yield
+    BACKEND_REGISTRY.pop("redis", None)
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +90,7 @@ def ditto_backend(_redis_client: fakeredis.FakeRedis) -> PrefixedMapping:
 # ---------------------------------------------------------------------------
 
 
+@ditto.record("pickle", target="redis://localhost:6379/0")
 def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     """Snapshot stores and retrieves a value via the Redis backend."""
     result = snapshot({"answer": 42}, key="data")
@@ -96,11 +98,12 @@ def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     assert result == {"answer": 42}
 
 
+@ditto.record("pickle", target="redis://localhost:6379/0")
 def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     """Keys stored in Redis use the full module/group@key.ext namespaced form.
 
-    When a backend= is provided (not path=), SnapshotKey.__str__ is used,
-    producing slash-separated module paths for cross-file isolation.
+    Non-file targets use SnapshotKey.__str__ and therefore include the module
+    path for cross-file isolation.
     """
     snapshot(1, key="n")
 
@@ -111,6 +114,7 @@ def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     )
 
 
+@ditto.record("pickle", target="redis://localhost:6379/0")
 def test_snapshot_multiple_keys_in_one_test(snapshot) -> None:
     """Multiple snapshot calls with unique keys in one test all round-trip."""
     a = snapshot([1, 2, 3], key="list")
@@ -130,9 +134,9 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
     pytester.makeconftest("""
         from collections.abc import Iterator, MutableMapping
         from contextlib import AbstractContextManager
+        import ditto
         import fakeredis
-        import pytest
-        from ditto.backends import PrefixedMapping
+        from ditto.backends import BACKEND_REGISTRY, PrefixedMapping
 
         class RedisMapping(AbstractContextManager, MutableMapping):
             def __init__(self, client):
@@ -165,19 +169,27 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
 
         _shared_client = fakeredis.FakeRedis()
 
-        @pytest.fixture(scope="session")
-        def ditto_backend():
+        def create_redis_backend(uri: str, **kwargs):
             return PrefixedMapping(RedisMapping(_shared_client), prefix="ditto:")
+
+        BACKEND_REGISTRY["redis"] = create_redis_backend
     """)
     pytester.makepyfile(
         test_write="""
+            import ditto
+
+            @ditto.record("pickle", target="redis://localhost:6379/0")
             def test_write_alpha(snapshot):
                 snapshot("alpha-value", key="alpha")
 
+            @ditto.record("pickle", target="redis://localhost:6379/0")
             def test_write_beta(snapshot):
                 snapshot("beta-value", key="beta")
         """,
         test_read="""
+            import ditto
+
+            @ditto.record("pickle", target="redis://localhost:6379/0")
             def test_read_alpha_only(snapshot):
                 result = snapshot("alpha-value", key="alpha")
                 assert result == "alpha-value"

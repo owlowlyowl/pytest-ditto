@@ -11,6 +11,11 @@ from ditto.exceptions import DuplicateSnapshotKeyError
 from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
+qualified_json_recorder = recorders.Recorder(
+    extension="plugin.json",
+    save=json_recorder.save,
+    load=json_recorder.load,
+)
 
 
 def _file_snapshot(path: Path, **kwargs) -> Snapshot:
@@ -120,6 +125,21 @@ def test_returns_stored_value_when_snapshot_already_exists(tmp_dir) -> None:
     actual = snapshot(["something-different"], key)
 
     assert actual == stored
+
+
+def test_file_backed_snapshot_preserves_dotted_recorder_identifier(tmp_dir) -> None:
+    """A dotted recorder identifier is preserved in the persisted snapshot name."""
+    snapshot = _file_snapshot(
+        tmp_dir,
+        group_name="group",
+        recorder=qualified_json_recorder,
+    )
+
+    actual = snapshot({"answer": 42}, "result")
+
+    assert actual == {"answer": 42}
+    assert (tmp_dir / "group@result.plugin.json").exists()
+    assert load_snapshot(snapshot, "result") == {"answer": 42}
 
 
 # --- update mode ---

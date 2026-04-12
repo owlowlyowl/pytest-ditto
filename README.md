@@ -42,7 +42,7 @@ specified per test using `ditto` marks — customised `pytest` mark decorators.
 
 The built-in recorders are:
 
-| Mark | Recorder | File extension |
+| Mark | Recorder | Persisted suffix |
 | --- | --- | --- |
 | `@ditto.pickle` | pickle | `.pkl` |
 | `@ditto.yaml` | yaml | `.yaml` |
@@ -59,6 +59,11 @@ Additional recorders can be installed via plugins:
 | --- | --- | --- |
 | `pandas` | `pytest-ditto-pandas` | <ul><li>`@ditto.pandas.parquet`</li><li>`@ditto.pandas.json`</li><li>`@ditto.pandas.csv`</li> |
 | `pyarrow` | `pytest-ditto-pyarrow` | <ul><li>`@ditto.pyarrow.parquet`</li><li>`@ditto.pyarrow.feather`</li><li>`@ditto.pyarrow.csv`</li> |
+
+For plugin recorders, the persisted suffix is the recorder's canonical identifier,
+which may differ from both the mark alias and the recorder registry key. For
+example, `@ditto.pandas.csv` is an alias for `@ditto.record("pandas_csv")`, while
+the snapshot filename suffix is `.pandas.csv`.
 
 
 ## Usage
@@ -198,6 +203,119 @@ Once registered, the recorder is available by name via `@ditto.record("my_record
 Plugin marks (e.g. `@ditto.myplugin.myformat`) can also be registered via the
 `ditto_marks` entry point group.
 
+## Custom Backends
+
+By default, snapshots are stored in a `.ditto/` directory next to each test file.
+The storage target can be overridden at three levels, listed from highest to lowest
+priority:
+
+```
+mark target=  →  ditto_target ini  →  file://.ditto
+```
+
+### Per-test: `target=` in `@ditto.record()`
+
+Specify a URI directly in the mark to route a test's snapshots to a specific
+location. The format and storage location are controlled independently:
+`target=` sets where data is stored, and the recorder name sets how it is
+serialised.
+
+```python
+import ditto
+
+# local path relative to this test file
+@ditto.record("json", target="file://snapshots/group_a")
+def test_foo(snapshot): ...
+
+# S3 bucket (credentials from ditto_storage_options)
+@ditto.record("yaml", target="s3://my-bucket/ci-snapshots/")
+def test_bar(snapshot): ...
+
+# in-memory (ephemeral, no disk I/O)
+@ditto.record("pickle", target="memory://")
+def test_baz(snapshot): ...
+
+# registered non-fsspec backend
+@ditto.record("json", target="postgresql://db-host/mydb")
+def test_qux(snapshot): ...
+```
+
+`target=` accepts any URI whose scheme is a supported `fsspec` protocol or a
+scheme registered via the `ditto_backends` entry-point group.
+
+Relative `file://` paths resolve relative to the test file's directory, matching
+the default `.ditto/` behaviour.
+
+### Auth: `ditto_storage_options` fixture
+
+Credentials for remote backends belong in `conftest.py`, not in marks. Define a
+`ditto_storage_options` fixture returning a dict keyed by URI scheme:
+
+```python
+# conftest.py
+import os
+import pytest
+
+@pytest.fixture(scope="session")
+def ditto_storage_options():
+    return {
+        "s3": {"key": os.environ["AWS_KEY"], "secret": os.environ["AWS_SECRET"]},
+        "postgresql": {"password": os.environ["PGPASSWORD"]},
+        "redis": {"password": os.environ["REDIS_PASSWORD"]},
+    }
+```
+
+The values are passed as kwargs to `fsspec.core.url_to_fs` for fsspec schemes or
+to the registered backend factory for custom schemes. For PostgreSQL and DuckDB,
+credentials can also come from standard environment variables such as
+`PGPASSWORD` or `MOTHERDUCK_TOKEN`.
+
+### Project-wide: `ditto_target` ini
+
+Set a project-wide default URI in `pytest.ini` or `pyproject.toml`:
+
+```ini
+[pytest]
+ditto_target = s3://my-bucket/snapshots/
+```
+
+```toml
+[tool.pytest.ini_options]
+ditto_target = "s3://my-bucket/snapshots/"
+```
+
+Individual marks take precedence over this setting.
+
+### Custom backend plugins
+
+Non-fsspec backends such as Redis, PostgreSQL, or DuckDB are registered via the
+`ditto_backends` entry-point group. Each factory receives the full URI string plus
+any matching kwargs from `ditto_storage_options`:
+
+```python
+def create_my_backend(uri: str, **storage_options) -> MutableMapping[str, bytes]:
+    ...
+```
+
+```toml
+[project.entry-points.ditto_backends]
+myscheme = "my_package:create_my_backend"
+```
+
+Once registered, `target="myscheme://..."` works in any mark.
+
+### Migration from `ditto_backend`
+
+The accepted long-term model is `target=` plus backend registration and
+`ditto_storage_options`.
+
+If you previously used a `ditto_backend` fixture, migrate it by:
+
+1. registering a URI scheme under `ditto_backends`
+2. moving runtime auth and connection kwargs into `ditto_storage_options`
+3. selecting the backend with `target=` or `ditto_target`
+
+
 ## CLI
 
 The `ditto` command provides snapshot management tools independent of a test run.
@@ -284,3 +402,32 @@ ditto recorders
 ```
 
 <img width="39%" src="docs/img/ditto-recorders.png" alt="ditto recorders">
+
+### `ditto doctor`
+
+Runs health checks: verifies pytest is available and all registered plugins loaded
+successfully.
+
+```
+ditto doctor
+```
+
+### `ditto lint`
+
+Checks snapshot files for naming issues, unknown recorder formats, and empty files.
+Exits non-zero if any issues are found.
+
+```
+ditto lint
+ditto lint tests/ci/
+```
+
+### `ditto stats`
+
+Shows a per-directory snapshot usage breakdown (file count and total size per `.ditto/`
+directory). Complements `ditto status`, which shows session-level aggregates.
+
+```
+ditto stats
+ditto stats tests/ci/
+```

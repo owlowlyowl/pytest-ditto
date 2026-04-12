@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import MutableMapping
+from collections.abc import Hashable, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
 from typing import Any, cast
@@ -23,6 +23,9 @@ from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
 __all__ = ("snapshot",)
 
 
+TargetCacheKey = tuple[str, Hashable]
+
+
 # ---------------------------------------------------------------------------
 # Module-level session state — reset in pytest_sessionstart
 #
@@ -34,7 +37,7 @@ __all__ = ("snapshot",)
 
 _session_exit_stack: ExitStack = ExitStack()
 _entered_backends: dict[int, MutableMapping[str, bytes]] = {}
-_backend_cache: dict[str, MutableMapping[str, bytes]] = {}
+_backend_cache: dict[TargetCacheKey, MutableMapping[str, bytes]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -107,23 +110,56 @@ def _get_storage_options(request: pytest.FixtureRequest) -> dict[str, dict]:
         return {}
 
 
+def _freeze_options(value: Any) -> Hashable:
+    """Return a stable hashable representation of nested storage options."""
+    if isinstance(value, dict):
+        items = [
+            (key, _freeze_options(item)) for key, item in value.items()
+        ]
+        return tuple(sorted(items, key=lambda item: repr(item[0])))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_options(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_options(item) for item in value)
+
+    hash(value)
+    return value
+
+
+def _canonicalize_uri(uri: str, test_dir: Path) -> str:
+    """Return the canonical URI used for backend construction and caching."""
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        return uri
+
+    path_str = parsed.netloc + parsed.path or ".ditto"
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = (test_dir / path).resolve()
+    return f"file://{path.as_posix()}"
+
+
+def _cache_key(canonical_uri: str, opts: dict[str, Any]) -> TargetCacheKey | None:
+    """Return the per-session cache key for a resolved target, or None."""
+    try:
+        return canonical_uri, _freeze_options(opts)
+    except TypeError:
+        return None
+
+
 def _resolve_uri(
     uri: str,
     test_dir: Path,
     storage_options: dict[str, dict],
 ) -> tuple[MutableMapping[str, bytes], str]:
-    """Resolve a URI to (backend, absolute_uri).
+    """Resolve a URI to (backend, canonical_uri).
 
-    The returned absolute_uri is always fully-qualified (e.g.
-    `file:///home/user/project/tests/.ditto`), even when the input was a
-    relative `file://` URI. This value is stored as `Snapshot.target` and
-    drives key-format selection: `file://` → short keys, everything else →
-    namespaced keys.
+    canonical_uri is always fully-qualified for local `file://` targets and is
+    used both for backend construction and for per-session backend caching.
 
-    Resolution order
-    ----------------
+    **Resolution order** (first match wins)
     1. file://   — FsspecMapping on local filesystem; relative paths resolve
-                   relative to test_dir; result is cached in _backend_cache.
+                   relative to test_dir; result is cached by canonical URI + opts.
     2. BACKEND_REGISTRY scheme — factory(uri, **opts); for non-fsspec backends
                    such as Redis, PostgreSQL, DuckDB.
     3. fsspec    — fsspec.core.url_to_fs(uri, **opts); covers S3, GCS, Azure,
@@ -154,29 +190,35 @@ def _resolve_uri(
     parsed = urlparse(uri)
     scheme = parsed.scheme
     opts = storage_options.get(scheme, {})
+    canonical_uri = _canonicalize_uri(uri, test_dir)
+    cache_key = _cache_key(canonical_uri, opts)
+
+    if cache_key is not None and cache_key in _backend_cache:
+        return _backend_cache[cache_key], canonical_uri
+
+    canonical = urlparse(canonical_uri)
+    scheme = canonical.scheme
 
     if scheme == "file":
-        # urlparse("file://.ditto") → netloc=".ditto", path=""
-        # urlparse("file:///abs")   → netloc="",        path="/abs"
-        path_str = parsed.netloc + parsed.path or ".ditto"
-        p = Path(path_str)
-        if not p.is_absolute():
-            p = (test_dir / p).resolve()
-        abs_uri = f"file://{p.as_posix()}"
-        cache_key = p.as_posix()
-        if cache_key not in _backend_cache:
-            _backend_cache[cache_key] = FsspecMapping(
-                fsspec.filesystem("file"), p.as_posix()
-            )
-        return _backend_cache[cache_key], abs_uri
+        path = Path(canonical.netloc + canonical.path or ".ditto")
+        backend = FsspecMapping(fsspec.filesystem("file"), path.as_posix())
+        backend = _maybe_enter(backend)
+        if cache_key is not None:
+            _backend_cache[cache_key] = backend
+        return backend, canonical_uri
 
     if scheme in BACKEND_REGISTRY:
-        backend = BACKEND_REGISTRY[scheme](uri, **opts)
-        return _maybe_enter(backend), uri
+        backend = _maybe_enter(BACKEND_REGISTRY[scheme](canonical_uri, **opts))
+        if cache_key is not None:
+            _backend_cache[cache_key] = backend
+        return backend, canonical_uri
 
     if scheme in fsspec.available_protocols():
-        fs, root = fsspec.core.url_to_fs(uri, **opts)
-        return FsspecMapping(fs, root), uri
+        fs, root = fsspec.core.url_to_fs(canonical_uri, **opts)
+        backend = _maybe_enter(FsspecMapping(fs, root))
+        if cache_key is not None:
+            _backend_cache[cache_key] = backend
+        return backend, canonical_uri
 
     raise ValueError(
         f"Unknown backend scheme {scheme!r} in target URI {uri!r}. "
@@ -193,33 +235,24 @@ def _resolve_target(
 
     Implements the full precedence chain:
 
-        mark target=  →  ditto_backend fixture  →  ditto_target ini  →  file://.ditto
+        mark target=  →  ditto_target ini  →  file://.ditto
 
-    Returns (backend, absolute_uri). The absolute_uri is passed to Snapshot.target
-    and drives key-format selection.
-
-    The ditto_backend fixture is bypassed when target_uri is set. It remains
-    supported for backward compatibility and for backends that cannot be expressed
-    as a URI.
+    Returns (backend, canonical_uri). The canonical URI is passed to
+    `Snapshot.target` and drives key-format selection.
     """
+    fixturedefs = request._fixturemanager.getfixturedefs("ditto_backend", request.node)
+    if fixturedefs:
+        raise TypeError(
+            "ditto_backend is superseded by target=, backend registration, and "
+            "ditto_storage_options. Register a URI scheme under 'ditto_backends' "
+            "and configure runtime options via ditto_storage_options."
+        )
+
     test_dir = request.path.parent
     opts = _get_storage_options(request)
 
     if target_uri is not None:
         return _resolve_uri(target_uri, test_dir, opts)
-
-    try:
-        raw_backend = request.getfixturevalue("ditto_backend")
-        # ditto_backend provides an opaque MutableMapping without a URI.
-        # Use a sentinel URI so Snapshot.target is always set; the "backend"
-        # scheme is never "file", so namespaced keys are used for session-wide
-        # custom backends.
-        return _maybe_enter(raw_backend), "backend://"
-    except pytest.FixtureLookupError as exc:
-        if exc.argname != "ditto_backend":
-            # A dependency of ditto_backend failed to resolve — re-raise so the
-            # user sees the real error rather than silently falling back to local.
-            raise
 
     ini_uri = request.config.getini("ditto_target")
     return _resolve_uri(ini_uri, test_dir, opts)
