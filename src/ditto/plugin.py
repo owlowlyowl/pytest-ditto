@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import tomllib
 import warnings
-from collections.abc import Hashable, MutableMapping
+from collections.abc import Hashable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
-from typing import Any, cast
+from typing import TypedDict, cast
 from urllib.parse import urlparse
 
 import pytest
@@ -13,17 +14,31 @@ from ditto import Snapshot
 import fsspec
 import fsspec.core
 
-from ditto.backends import FsspecMapping
+from ditto.backends import BACKEND_REGISTRY, FsspecMapping
 from ditto.snapshot import session_tracker
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
-from ditto.exceptions import AdditionalMarkError, DittoMarkHasNoIOType
+from ditto.exceptions import (
+    AdditionalMarkError,
+    DittoAmbiguousTargetError,
+    DittoDuplicateProfileError,
+    DittoInvalidProfileError,
+    DittoMarkHasNoIOType,
+    DittoUnknownProfileError,
+)
 
 
 __all__ = ("snapshot",)
 
 
 TargetCacheKey = tuple[str, Hashable]
+StorageOptions = dict[str, object]
+StorageOptionsByScheme = dict[str, StorageOptions]
+
+
+class TargetProfileConfig(TypedDict, total=False):
+    uri: str
+    storage_options: StorageOptions
 
 
 # ---------------------------------------------------------------------------
@@ -95,27 +110,53 @@ def _resolve_recorder(marks: list) -> Recorder:
 # ---------------------------------------------------------------------------
 
 
-def _parse_mark_target(marks: list) -> str | None:
-    """Return the target= URI from the record mark, or None if absent."""
+def _parse_mark_target_selection(marks: list) -> tuple[str | None, str | None]:
+    """Return (target_uri, profile_name) from the record mark.
+
+    At most one of the two values is non-None. Raises
+    `DittoAmbiguousTargetError` if both `target=` and `target_profile=` appear
+    on the same mark.
+    """
     if not marks:
-        return None
-    return marks[0].kwargs.get("target")
+        return None, None
+
+    kwargs = marks[0].kwargs
+    target_uri: str | None = kwargs.get("target")
+    profile_name: str | None = kwargs.get("target_profile")
+
+    if target_uri is not None and profile_name is not None:
+        raise DittoAmbiguousTargetError(
+            "Use either target= or target_profile=, not both."
+        )
+
+    return target_uri, profile_name
 
 
-def _get_storage_options(request: pytest.FixtureRequest) -> dict[str, dict]:
-    """Return per-scheme storage options from ditto_storage_options, or {}."""
+def _get_optional_fixturevalue(
+    request: pytest.FixtureRequest,
+    name: str,
+) -> object | None:
+    """Return an optional fixture value without hiding dependency errors."""
     try:
-        return request.getfixturevalue("ditto_storage_options")
-    except pytest.FixtureLookupError:
+        return request.getfixturevalue(name)
+    except pytest.FixtureLookupError as exc:
+        if exc.argname != name:
+            raise
+        return None
+
+
+def _get_storage_options(request: pytest.FixtureRequest) -> StorageOptionsByScheme:
+    """Return per-scheme storage options from ditto_storage_options, or {}."""
+    storage_options = _get_optional_fixturevalue(request, "ditto_storage_options")
+    if storage_options is None:
         return {}
+    return cast(StorageOptionsByScheme, storage_options)
 
 
-def _freeze_options(value: Any) -> Hashable:
+def _freeze_options(value: object) -> Hashable:
     """Return a stable hashable representation of nested storage options."""
-    if isinstance(value, dict):
-        items = [
-            (key, _freeze_options(item)) for key, item in value.items()
-        ]
+    if isinstance(value, Mapping):
+        items = [(key, _freeze_options(item)) for key, item in value.items()]
         return tuple(sorted(items, key=lambda item: repr(item[0])))
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_options(item) for item in value)
@@ -139,7 +180,10 @@ def _canonicalize_uri(uri: str, test_dir: Path) -> str:
     return f"file://{path.as_posix()}"
 
 
-def _cache_key(canonical_uri: str, opts: dict[str, Any]) -> TargetCacheKey | None:
+def _cache_key(
+    canonical_uri: str,
+    opts: Mapping[str, object],
+) -> TargetCacheKey | None:
     """Return the per-session cache key for a resolved target, or None."""
     try:
         return canonical_uri, _freeze_options(opts)
@@ -147,49 +191,195 @@ def _cache_key(canonical_uri: str, opts: dict[str, Any]) -> TargetCacheKey | Non
         return None
 
 
+# ---------------------------------------------------------------------------
+# Profile resolution
+# ---------------------------------------------------------------------------
+
+
+def _get_target_profiles(request: pytest.FixtureRequest) -> dict[str, object]:
+    """Return the `ditto_target_profiles` fixture value, or `{}` if absent.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        The active fixture request for the current test.
+
+    Returns
+    -------
+    dict[str, Any]
+        Profile table from the fixture, or an empty dict when the fixture
+        is not defined.
+    """
+    profiles = _get_optional_fixturevalue(request, "ditto_target_profiles")
+    if profiles is None:
+        return {}
+    return cast(dict[str, object], profiles)
+
+
+def _get_static_target_profiles(config: pytest.Config) -> dict[str, object]:
+    """Return profiles from `[tool.pytest-ditto.target_profiles]` in `pyproject.toml`.
+
+    Parameters
+    ----------
+    config : pytest.Config
+        The active pytest configuration. `config.rootpath` is used to locate
+        `pyproject.toml`.
+
+    Returns
+    -------
+    dict[str, Any]
+        Profile table from the TOML section, or an empty dict when
+        `pyproject.toml` is absent or the section does not exist.
+    """
+    pyproject = config.rootpath / "pyproject.toml"
+    if not pyproject.exists():
+        return {}
+    with pyproject.open("rb") as f:
+        data = tomllib.load(f)
+    return cast(
+        dict[str, object],
+        data.get("tool", {}).get("pytest-ditto", {}).get("target_profiles", {}),
+    )
+
+
+def _merge_profile_sources(
+    fixture_profiles: Mapping[str, object],
+    static_profiles: Mapping[str, object],
+) -> dict[str, object]:
+    """Merge fixture and static profile tables into a single dict.
+
+    Parameters
+    ----------
+    fixture_profiles : Mapping[str, Any]
+        Profiles from the `ditto_target_profiles` fixture.
+    static_profiles : Mapping[str, Any]
+        Profiles from `pyproject.toml`.
+
+    Returns
+    -------
+    dict[str, Any]
+        Combined profile table.
+
+    Raises
+    ------
+    DittoDuplicateProfileError
+        When the same name appears in both sources. No precedence is applied;
+        duplication is always an error.
+    """
+    duplicates = sorted(set(fixture_profiles) & set(static_profiles))
+    if duplicates:
+        raise DittoDuplicateProfileError(duplicates)
+    return {**fixture_profiles, **static_profiles}
+
+
+def _load_target_profiles(request: pytest.FixtureRequest) -> dict[str, object]:
+    """Return the combined target-profile table for the current test run."""
+    return _merge_profile_sources(
+        _get_target_profiles(request),
+        _get_static_target_profiles(request.config),
+    )
+
+
+def _resolve_profile(
+    name: str,
+    profiles: Mapping[str, object],
+) -> tuple[str, StorageOptions]:
+    """Expand a named profile to `(uri, storage_options)`.
+
+    Accepted profile shapes:
+
+    - URI string shorthand: `"s3://bucket/prefix/"`
+    - Full mapping: `{"uri": "s3://bucket/prefix/", "storage_options": {...}}`
+
+    Parameters
+    ----------
+    name : str
+        Profile name to look up.
+    profiles : Mapping[str, Any]
+        Combined profile table produced by `_merge_profile_sources`.
+
+    Returns
+    -------
+    tuple[str, dict[str, Any]]
+        `(uri, storage_options)` where `storage_options` is an empty dict
+        for shorthand profiles.
+
+    Raises
+    ------
+    DittoUnknownProfileError
+        When `name` is not present in `profiles`.
+    DittoInvalidProfileError
+        When the profile value is neither a URI string nor a mapping with
+        a `uri` key.
+    """
+    if name not in profiles:
+        raise DittoUnknownProfileError(name, list(profiles))
+
+    value = profiles[name]
+
+    match value:
+        case str() as uri:
+            return uri, {}
+        case {"uri": str() as uri, **profile}:
+            raw_storage_options = profile.get("storage_options", {})
+            if not isinstance(raw_storage_options, Mapping):
+                raise DittoInvalidProfileError(
+                    name,
+                    "storage_options must be a mapping when provided.",
+                )
+
+            storage_options = dict(cast(Mapping[str, object], raw_storage_options))
+            return uri, storage_options
+        case {"uri": _}:
+            raise DittoInvalidProfileError(name, "uri must be a string.")
+        case _:
+            raise DittoInvalidProfileError(name)
+
+
 def _resolve_uri(
     uri: str,
     test_dir: Path,
-    storage_options: dict[str, dict],
+    opts: Mapping[str, object],
 ) -> tuple[MutableMapping[str, bytes], str]:
-    """Resolve a URI to (backend, canonical_uri).
+    """Resolve a URI to `(backend, canonical_uri)`.
 
-    canonical_uri is always fully-qualified for local `file://` targets and is
-    used both for backend construction and for per-session backend caching.
+    `canonical_uri` is fully-qualified for local `file://` targets and is used
+    both for backend construction and for per-session backend caching.
 
-    **Resolution order** (first match wins)
-    1. file://   — FsspecMapping on local filesystem; relative paths resolve
-                   relative to test_dir; result is cached by canonical URI + opts.
-    2. BACKEND_REGISTRY scheme — factory(uri, **opts); for non-fsspec backends
-                   such as Redis, PostgreSQL, DuckDB.
-    3. fsspec    — fsspec.core.url_to_fs(uri, **opts); covers S3, GCS, Azure,
-                   memory://, and all other fsspec protocols.
-    4. Unknown   — ValueError with an actionable install hint.
+    Resolution order (first match wins):
 
-    BACKEND_REGISTRY is checked before fsspec so plugins can override fsspec schemes.
+    1. `file://` — `FsspecMapping` on the local filesystem; relative paths
+       resolve relative to `test_dir`; cached by canonical URI + opts.
+    2. `BACKEND_REGISTRY` scheme — `factory(uri, **opts)`; for non-fsspec
+       backends such as Redis, PostgreSQL, DuckDB.
+    3. fsspec — `fsspec.core.url_to_fs(uri, **opts)`; covers S3, GCS, Azure,
+       `memory://`, and all other fsspec protocols.
+    4. Unknown — `ValueError` with an actionable install hint.
+
+    `BACKEND_REGISTRY` is checked before fsspec so plugins can override fsspec
+    schemes.
 
     Parameters
     ----------
     uri : str
-        A URI string, e.g. "file://.ditto", "s3://bucket/prefix/",
-        "redis://localhost:6379/0", "duckdb:///:memory:".
+        A URI string, e.g. `"file://.ditto"`, `"s3://bucket/prefix/"`,
+        `"redis://localhost:6379/0"`.
     test_dir : Path
-        Directory of the test file. Used to resolve relative file:// paths.
-    storage_options : dict[str, dict]
-        Per-scheme kwargs from the ditto_storage_options fixture. The entry
-        keyed by the URI scheme is unpacked as kwargs into the factory or
-        fsspec.core.url_to_fs.
+        Directory of the test file. Used to resolve relative `file://` paths.
+    opts : Mapping[str, Any]
+        Flat keyword arguments forwarded to the backend factory or
+        `fsspec.core.url_to_fs`.
+
+    Returns
+    -------
+    tuple[MutableMapping[str, bytes], str]
+        `(backend, canonical_uri)`.
 
     Raises
     ------
     ValueError
-        When the scheme is unrecognised by both BACKEND_REGISTRY and fsspec.
+        When the scheme is unrecognised by both `BACKEND_REGISTRY` and fsspec.
     """
-    from ditto.backends import BACKEND_REGISTRY
-
-    parsed = urlparse(uri)
-    scheme = parsed.scheme
-    opts = storage_options.get(scheme, {})
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
 
@@ -228,17 +418,43 @@ def _resolve_uri(
 
 
 def _resolve_target(
-    target_uri: str | None,
+    mark_target: str | None,
+    mark_target_profile: str | None,
     request: pytest.FixtureRequest,
 ) -> tuple[MutableMapping[str, bytes], str]:
     """Resolve the snapshot storage target for this test.
 
-    Implements the full precedence chain:
+    Precedence (first match wins):
 
-        mark target=  →  ditto_target ini  →  file://.ditto
+    1. Mark `target=` — raw URI supplied directly on the mark.
+    2. Mark `target_profile=` — named profile supplied on the mark.
+    3. `ditto_target` ini — project-wide raw URI default.
+    4. `ditto_target_profile` ini — project-wide named profile default.
+    5. `file://.ditto` — built-in fallback.
 
-    Returns (backend, canonical_uri). The canonical URI is passed to
-    `Snapshot.target` and drives key-format selection.
+    For raw URI paths, backend kwargs come from `ditto_storage_options` keyed
+    by scheme. For profile paths, only the profile's own `storage_options` are
+    used; `ditto_storage_options` is ignored.
+
+    Parameters
+    ----------
+    mark_target : str | None
+        Raw URI from `target=` on the mark, or `None`.
+    mark_target_profile : str | None
+        Profile name from `target_profile=` on the mark, or `None`.
+    request : pytest.FixtureRequest
+        The active fixture request for the current test.
+
+    Returns
+    -------
+    tuple[MutableMapping[str, bytes], str]
+        `(backend, canonical_uri)`. The canonical URI is stored on
+        `Snapshot.target` and drives storage key formatting.
+
+    Raises
+    ------
+    TypeError
+        When a `ditto_backend` fixture is detected (migration error).
     """
     fixturedefs = request._fixturemanager.getfixturedefs("ditto_backend", request.node)
     if fixturedefs:
@@ -249,13 +465,28 @@ def _resolve_target(
         )
 
     test_dir = request.path.parent
-    opts = _get_storage_options(request)
+    storage_options = _get_storage_options(request)
 
-    if target_uri is not None:
-        return _resolve_uri(target_uri, test_dir, opts)
+    if mark_target is not None:
+        parsed = urlparse(mark_target)
+        return _resolve_uri(
+            mark_target, test_dir, storage_options.get(parsed.scheme, {})
+        )
 
-    ini_uri = request.config.getini("ditto_target")
-    return _resolve_uri(ini_uri, test_dir, opts)
+    if mark_target_profile is not None:
+        profiles = _load_target_profiles(request)
+        profile_uri, profile_opts = _resolve_profile(mark_target_profile, profiles)
+        return _resolve_uri(profile_uri, test_dir, profile_opts)
+
+    ini_profile = request.config.getini("ditto_target_profile")
+    if ini_profile:
+        profiles = _load_target_profiles(request)
+        profile_uri, profile_opts = _resolve_profile(ini_profile, profiles)
+        return _resolve_uri(profile_uri, test_dir, profile_opts)
+
+    ini_target = request.config.getini("ditto_target") or "file://.ditto"
+    parsed = urlparse(ini_target)
+    return _resolve_uri(ini_target, test_dir, storage_options.get(parsed.scheme, {}))
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +502,8 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     recorder = _resolve_recorder(marks)
     update = request.config.getoption("--ditto-update", default=False)
 
-    target_uri = _parse_mark_target(marks)
-    backend, abs_uri = _resolve_target(target_uri, request)
+    mark_target, mark_profile = _parse_mark_target_selection(marks)
+    backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
 
     return Snapshot(
         module=module,
@@ -311,8 +542,26 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "Relative file:// paths resolve relative to the test file. "
             "Credentials come from the ditto_storage_options fixture."
         ),
-        default="file://.ditto",
+        default="",
     )
+    parser.addini(
+        "ditto_target_profile",
+        help=(
+            "Default named target profile for all tests in this project. "
+            "Must be a key defined in ditto_target_profiles or "
+            "[tool.pytest-ditto.target_profiles] in pyproject.toml. "
+            "Cannot be set alongside ditto_target."
+        ),
+        default="",
+    )
+
+
+def _validate_target_config(config: pytest.Config) -> None:
+    """Raise if both ditto_target and ditto_target_profile are configured."""
+    if config.getini("ditto_target") and config.getini("ditto_target_profile"):
+        raise DittoAmbiguousTargetError(
+            "Use either ditto_target or ditto_target_profile, not both."
+        )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -320,6 +569,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "record(recorder): snapshot with a specific recorder",
     )
+    try:
+        _validate_target_config(config)
+    except DittoAmbiguousTargetError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -345,7 +598,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     # Pass 2 to skip stale-directory scanning for paths it shouldn't own.
     # A typed protocol (e.g. SupportsRoot) or an explicit registry would make
     # this contract visible and enforceable.
-    def _get_root(backend: Any) -> Path | None:
+    def _get_root(backend: object) -> Path | None:
         root_attr = getattr(backend, "root", None)
         if root_attr is not None:
             return Path(root_attr).resolve()
