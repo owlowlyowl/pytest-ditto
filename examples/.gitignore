@@ -1,0 +1,5 @@
+.ditto/
+.example-snaps/
+.project-snaps/
+*.duckdb
+*.duckdb.wal

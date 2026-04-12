@@ -170,6 +170,25 @@ hypothesis = ">=6.0"
 [tool.pixi.feature.test.pypi-dependencies]
 fakeredis = ">=2.0"
 
+[tool.pixi.feature.examples.pypi-dependencies]
+duckdb = ">=1.2"
+redis = ">=5.0"
+psycopg2-binary = ">=2.9"
+pytest-ditto-pandas = "==0.1.0"
+
+[tool.pixi.feature.examples.tasks]
+examples-local = "pytest examples/local -q"
+examples-duckdb = "pytest examples/duckdb -q"
+examples-duckdb-reset = "rm -f examples/duckdb/.example-snapshots.duckdb examples/duckdb/.example-snapshots.duckdb.wal"
+examples-postgres-up = "docker container ls --filter name=^/pytest-ditto-examples-postgres$ --filter status=running --quiet | rg -q . || docker start pytest-ditto-examples-postgres || docker run -d --name pytest-ditto-examples-postgres -p 5433:5432 -e POSTGRES_DB=ditto_examples -e POSTGRES_USER=ditto -e POSTGRES_PASSWORD=ditto -v pytest-ditto-examples-postgres:/var/lib/postgresql/data postgres:16-alpine"
+examples-postgres = "pytest examples/postgres -q"
+examples-postgres-down = "docker stop pytest-ditto-examples-postgres"
+examples-postgres-reset = "docker rm -f pytest-ditto-examples-postgres >/dev/null 2>&1 || true && docker volume rm -f pytest-ditto-examples-postgres >/dev/null 2>&1 || true"
+examples-redis-up = "docker container ls --filter name=^/pytest-ditto-examples-redis$ --filter status=running --quiet | rg -q . || docker start pytest-ditto-examples-redis || docker run -d --name pytest-ditto-examples-redis -p 6380:6379 -v pytest-ditto-examples-redis:/data redis:7-alpine redis-server --appendonly yes --save 60 1"
+examples-redis = { cmd = "pytest examples/redis -q", env = { DITTO_REDIS_TARGET = "redis://localhost:6380/0" } }
+examples-redis-down = "docker stop pytest-ditto-examples-redis"
+examples-redis-reset = "docker rm -f pytest-ditto-examples-redis >/dev/null 2>&1 || true && docker volume rm -f pytest-ditto-examples-redis >/dev/null 2>&1 || true"
+
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
 
@@ -220,6 +239,7 @@ test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6"
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+examples = { features = ["examples", "py312", "test"], solve-group = "default" }
 pandas = { features = ["pandas", "py312", "test"] }
 pyarrow = { features = ["pyarrow", "py312", "test"] }
 lint = { features = ["lint"] }
