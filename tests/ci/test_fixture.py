@@ -256,3 +256,38 @@ def test_accepts_integer_as_key(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:
+    """--ditto-prune must not prune .ditto/ directories outside the collected paths.
+
+    Regression: Pass 2 of pytest_sessionfinish used rootdir.rglob(".ditto") which
+    scans the entire project. Running --ditto-prune scoped to a subdirectory would
+    find all .ditto/ directories under rootdir and prune every snapshot in ones not
+    opened this session, destroying snapshots from unrelated test directories.
+    The fix scopes the rglob to directories of actually-collected test items.
+    """
+    dir_a = pytester.mkpydir("dir_a")
+    dir_b = pytester.mkpydir("dir_b")
+
+    (dir_a / "test_a.py").write_text("""
+def test_a(snapshot):
+    assert snapshot("value_a", key="k") == "value_a"
+""")
+    (dir_b / "test_b.py").write_text("""
+def test_b(snapshot):
+    assert snapshot("value_b", key="k") == "value_b"
+""")
+
+    # First run: record snapshots in both directories.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    snapshots_b_before = list((dir_b / ".ditto").rglob("*.pkl"))
+    assert snapshots_b_before, "dir_b snapshots must exist before partial prune"
+
+    # Second run: prune scoped to dir_a only — dir_b must be untouched.
+    result = pytester.runpytest("dir_a", "--ditto-prune")
+    result.assert_outcomes(passed=1)
+
+    snapshots_b_after = list((dir_b / ".ditto").rglob("*.pkl"))
+    assert snapshots_b_after == snapshots_b_before

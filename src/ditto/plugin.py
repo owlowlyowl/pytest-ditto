@@ -586,7 +586,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     do_prune = config.getoption("--ditto-prune", default=False)
-    rootdir = config.rootpath
 
     pruned: list[str] = []
     unused: list[str] = []
@@ -670,7 +669,19 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     # needed, add a dedicated --ditto-check-ghosts flag rather than coupling it
     # to session_tracker.records.
     if do_prune:
-        for ditto_dir in rootdir.rglob(".ditto"):
+        # Scope ghost detection to directories that were actually collected.
+        # Using rootdir.rglob(".ditto") would scan the entire project and treat
+        # every .ditto/ directory belonging to un-collected tests as a ghost,
+        # pruning their snapshots during a partial run (e.g. pytest examples/duckdb/).
+        # session.items is populated by this point; each item carries a .path
+        # pointing to its test file, so item.path.parent is the containing directory.
+        collected_dirs = {item.path.parent for item in session.items}
+        ghost_candidates = [
+            ditto_dir
+            for d in collected_dirs
+            for ditto_dir in d.rglob(".ditto")
+        ]
+        for ditto_dir in ghost_candidates:
             if not ditto_dir.is_dir():
                 continue
             if ditto_dir.resolve() in registered_fs_roots:
