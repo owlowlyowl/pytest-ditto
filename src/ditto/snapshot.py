@@ -22,7 +22,8 @@ class SnapshotKey:
         Rootdir-relative test file stem, e.g. "tests/bar/test_api".
         Provides namespace isolation across files in shared backends.
     group_name : str
-        Test function name, e.g. "test_something".
+        Test function name, e.g. "test_something". For class-based tests includes
+        the class prefix: "TestClass.test_something".
     key : str
         Per-snapshot identifier within the test.
     extension : str
@@ -36,11 +37,11 @@ class SnapshotKey:
 
     @property
     def filename(self) -> str:
-        """Short key for filesystem backends: 'group@key.ext'.
+        """Short key: 'group@key.ext'. Not used as the storage key for any backend.
 
-        Unique within a single `.ditto/` directory. The module is implicit
-        in the directory path, so on-disk layout is unchanged from pre-backend
-        versions of ditto.
+        Kept for reference and user code that inspects `SnapshotKey` objects.
+        File backends use `_flat_key` ('module.group@key.ext') and remote backends
+        use `str(key)` ('module/group@key.ext').
         """
         return f"{self.group_name}@{self.key}.{self.extension}"
 
@@ -48,21 +49,14 @@ class SnapshotKey:
         """Namespaced key for remote backends: 'module/group@key.ext'.
 
         Unique across all test files in a shared backend (Redis, S3, etc.).
+        Also used as the human-readable display name in session reports.
         """
         return f"{self.module}/{self.group_name}@{self.key}.{self.extension}"
 
     @property
     def display_name(self) -> str:
-        """Human-readable label for the session report.
-
-        Returns the full namespaced form ('module/group@key.ext') when
-        `module` is set, and the short filename form ('group@key.ext')
-        when it is not. This keeps the report consistent with the raw backend
-        keys used in `pruned`/`unused` entries while avoiding a spurious
-        leading slash for legacy path-based snapshots constructed without
-        `module=`.
-        """
-        return str(self) if self.module else self.filename
+        """Human-readable label for the session report: 'module/group@key.ext'."""
+        return str(self)
 
 
 @dataclass
@@ -136,9 +130,15 @@ clears per-example duplicate-key detection without touching the session-level
 """
 
 
-def _filename_key(sk: SnapshotKey) -> str:
-    """Return the short filesystem key for a SnapshotKey ('group@key.ext')."""
-    return sk.filename
+def _flat_key(sk: SnapshotKey) -> str:
+    """Flat filesystem key for file backends: 'module.group@key.ext'.
+
+    Slashes in the module path are replaced with dots so the key maps to
+    a single flat filename — no subdirectories inside `.ditto/`.
+    Unique across all test files sharing the same `file://` target.
+    """
+    module_dotted = sk.module.replace("/", ".")
+    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.extension}"
 
 
 @dataclass(frozen=True)
@@ -152,15 +152,15 @@ class Snapshot:
     Parameters
     ----------
     group_name : str
-        Prefix used in snapshot keys, typically the test name.
+        Prefix used in snapshot keys. Derived from the pytest nodeid minus the
+        file path (e.g. "test_something" or "TestClass.test_something").
     module : str
-        Rootdir-relative test file stem (e.g. "tests/bar/test_api").
-        Required for non-file:// backends to namespace keys across test files.
-        May be empty for file:// backends (module is implicit in directory path).
+        Rootdir-relative test file stem (e.g. "tests/bar/test_api"). Required
+        for all backends. Provides namespace isolation across test files.
     target : str
         URI identifying the storage location. The scheme controls key format:
-        `file://` uses short `group@key.ext` keys (preserving on-disk layout);
-        all other schemes use fully-namespaced `module/group@key.ext` keys.
+        `file://` uses flat dotted keys (`module.group@key.ext`);
+        all other schemes use slash-separated keys (`module/group@key.ext`).
         Always use absolute `file://` URIs (e.g. `file:///home/user/proj/tests/.ditto`).
     _backend : MutableMapping[str, bytes]
         Resolved storage backend. Conventionally private — set by the fixture via
@@ -179,9 +179,9 @@ class Snapshot:
     update: bool = False
 
     def __post_init__(self) -> None:
-        if urlparse(self.target).scheme != "file" and not self.module:
+        if not self.module:
             raise TypeError(
-                "Snapshot requires module= for non-file:// backends. "
+                "Snapshot requires module= for all backends. "
                 "Pass the rootdir-relative test file stem, e.g. "
                 "module='tests/my_module/test_foo'."
             )
@@ -190,9 +190,9 @@ class Snapshot:
         return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
-        # file:// backends use the short filename key so existing .ditto/ layouts
-        # are preserved unchanged. All other backends use fully-namespaced keys.
-        return _filename_key if urlparse(self.target).scheme == "file" else str
+        # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
+        # stays a flat directory. All other backends use slash-namespaced keys.
+        return _flat_key if urlparse(self.target).scheme == "file" else str
 
     def _store(self) -> Any:
         from .backends import TransformMapping, _make_recorder_transform

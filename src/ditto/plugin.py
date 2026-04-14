@@ -505,9 +505,13 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     mark_target, mark_profile = _parse_mark_target_selection(marks)
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
 
+    file_prefix = str(request.path.relative_to(rootdir)) + "::"
+    qualified_name = request.node.nodeid.removeprefix(file_prefix)
+    group_name = qualified_name.replace("::", ".")
+
     return Snapshot(
         module=module,
-        group_name=request.node.name,
+        group_name=group_name,
         target=abs_uri,
         _backend=backend,
         recorder=recorder,

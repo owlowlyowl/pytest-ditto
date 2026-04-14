@@ -34,7 +34,11 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
 
     def test_returns_value_on_first_call(self):
         """On first call, snapshot returns the value that was passed to it."""
-        snapshot_file = _ditto_dir(self.snapshot) / f"{self.snapshot.group_name}@v.pkl"
+        module_dotted = self.snapshot.module.replace("/", ".")
+        snapshot_file = (
+            _ditto_dir(self.snapshot)
+            / f"{module_dotted}.{self.snapshot.group_name}@v.pkl"
+        )
         self.addCleanup(snapshot_file.unlink, missing_ok=True)
 
         actual = self.snapshot({"a": 1}, key="v")
@@ -43,7 +47,11 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
 
     def test_creates_snapshot_file_on_first_call(self):
         """On first call, snapshot writes the value to disk."""
-        snapshot_file = _ditto_dir(self.snapshot) / f"{self.snapshot.group_name}@w.pkl"
+        module_dotted = self.snapshot.module.replace("/", ".")
+        snapshot_file = (
+            _ditto_dir(self.snapshot)
+            / f"{module_dotted}.{self.snapshot.group_name}@w.pkl"
+        )
         self.addCleanup(snapshot_file.unlink, missing_ok=True)
 
         self.snapshot({"a": 1}, key="w")
@@ -53,7 +61,8 @@ class TestDittoTestCaseSnapshot(ditto.DittoTestCase):
     def test_loads_stored_value_when_snapshot_file_already_exists(self):
         """snapshot returns the stored value when the snapshot file already exists."""
         ditto_dir = _ditto_dir(self.snapshot)
-        snapshot_file = ditto_dir / f"{self.snapshot.group_name}@v2.pkl"
+        module_dotted = self.snapshot.module.replace("/", ".")
+        snapshot_file = ditto_dir / f"{module_dotted}.{self.snapshot.group_name}@v2.pkl"
         ditto_dir.mkdir(parents=True, exist_ok=True)
         snapshot_file.write_bytes(pickle.dumps({"b": 2}))
         self.addCleanup(snapshot_file.unlink, missing_ok=True)

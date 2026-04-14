@@ -34,8 +34,8 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
     """snapshot returns the stored value, not the argument, when the file exists."""
     key = "read"
 
-    # tests/ci/.ditto/test_returns_stored_value_on_subsequent_calls@read.pkl is
-    # committed and contains "read-value". Passing a different argument proves the
+    # tests/ci/.ditto/tests.ci.test_fixture.test_returns_stored_value_on_subsequent_calls@read.pkl
+    # is committed and contains "read-value". Passing a different argument proves the
     # stored value is returned rather than the argument.
     actual = snapshot("different-value", key=key)
 
@@ -291,3 +291,80 @@ def test_b(snapshot):
 
     snapshots_b_after = list((dir_b / ".ditto").rglob("*.pkl"))
     assert snapshots_b_after == snapshots_b_before
+
+
+def test_class_method_group_name_includes_class_prefix(pytester) -> None:
+    """group_name for a class-based test includes ClassName.method_name.
+
+    Regression for issue 32: request.node.name returned the bare method name,
+    so TestFoo::test_roundtrip and TestBar::test_roundtrip produced the same
+    group_name and collided on disk.
+    """
+    pytester.makepyfile("""
+        class TestExample:
+            def test_inner(self, snapshot):
+                assert snapshot.group_name == "TestExample.test_inner"
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_two_classes_same_method_name_use_distinct_keys(pytester) -> None:
+    """Two classes with identically-named methods produce different snapshot keys.
+
+    Regression for issue 32 (collision class 1): tests with the same function
+    name in different classes must not overwrite each other's snapshots.
+    """
+    pytester.makepyfile("""
+        class TestFoo:
+            def test_roundtrip(self, snapshot):
+                assert snapshot("foo", key="v") == "foo"
+
+        class TestBar:
+            def test_roundtrip(self, snapshot):
+                assert snapshot("bar", key="v") == "bar"
+    """)
+
+    # First run creates both snapshots.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    # Second run: both tests read back their own values.
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+
+
+def test_shared_file_target_does_not_collide_across_files(pytester) -> None:
+    """Two test files sharing the same file:// target use distinct keys.
+
+    Regression for issue 32 (collision class 2): tests with the same function
+    name in different files sharing a file:// target must not overwrite each
+    other's snapshots.
+    """
+    shared_target = pytester.path / "shared_ditto"
+    pytester.makepyfile(
+        test_alpha=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_roundtrip(snapshot):
+                assert snapshot("alpha", key="v") == "alpha"
+        """,
+        test_beta=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_roundtrip(snapshot):
+                assert snapshot("beta", key="v") == "beta"
+        """,
+    )
+
+    # First run: creates both snapshots with distinct keys.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    # Second run: each test reads back its own value, not the other's.
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
