@@ -106,16 +106,6 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
-    def reset_keys(self) -> None:
-        """Reset per-example duplicate-key detection only.
-
-        Safe to call between Hypothesis examples. Does not touch the
-        session-level `created` and `updated` lists, which accumulate
-        across the entire session and are read by `render_session_report`
-        at the end. Those are only cleared in `reset()`.
-        """
-        self.used_keys.clear()
-
     def reset(self) -> None:
         self._records.clear()
         self.created.clear()
@@ -138,9 +128,7 @@ to produce the session report.
 Notes
 -----
 `reset()` is called by the plugin at `pytest_sessionstart` to clear state
-from any previous session. Between Hypothesis examples, `reset_keys()`
-clears per-example duplicate-key detection without touching the session-level
-`created` and `updated` lists.
+from any previous session.
 """
 
 
