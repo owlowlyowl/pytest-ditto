@@ -81,6 +81,19 @@ class _SessionTracker:
     # backend instance. Tests using different backends (separate fsspec mappers for
     # different tmp dirs) cannot collide even when group_name and key are identical.
     used_keys: set[tuple[int, str]] = field(default_factory=set)
+    # Maps id(backend) → set of module stems that used this backend this session.
+    # Populated by the snapshot fixture at fixture-creation time (before any calls),
+    # so modules that request snapshot but make no calls are still tracked. Used by
+    # Pass 1 prune to restrict enumeration to owned key prefixes only.
+    backend_modules: dict[int, set[str]] = field(default_factory=dict)
+
+    def register_backend_module(self, backend_id: int, module: str) -> None:
+        """Record that `module` uses the backend identified by `backend_id`.
+
+        Called by the `snapshot` fixture at fixture-creation time so that Pass 1
+        prune knows which key prefixes are owned by this session's collected tests.
+        """
+        self.backend_modules.setdefault(backend_id, set()).add(module)
 
     def register_access(
         self,
@@ -108,6 +121,7 @@ class _SessionTracker:
         self.created.clear()
         self.updated.clear()
         self.used_keys.clear()
+        self.backend_modules.clear()
 
     @property
     def records(self) -> dict[int, _BackendRecord]:

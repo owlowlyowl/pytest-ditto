@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 import warnings
-from collections.abc import Hashable, Mapping, MutableMapping
+from collections.abc import Callable, Hashable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
 from typing import TypedDict, cast
@@ -15,7 +15,7 @@ import fsspec
 import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.snapshot import session_tracker
+from ditto.snapshot import SnapshotKey, session_tracker
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -505,6 +505,8 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     mark_target, mark_profile = _parse_mark_target_selection(marks)
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
 
+    session_tracker.register_backend_module(id(backend), module)
+
     file_prefix = str(request.path.relative_to(rootdir)) + "::"
     qualified_name = request.node.nodeid.removeprefix(file_prefix)
     group_name = qualified_name.replace("::", ".")
@@ -587,6 +589,28 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     session_tracker.reset()
 
 
+def _keys_for_modules(
+    all_keys: set[str],
+    modules: set[str],
+    key_of: Callable[[SnapshotKey], str],
+) -> set[str]:
+    """Return the subset of `all_keys` that belong to any module in `modules`.
+
+    File backends (key_of is `_flat_key`) use a dotted prefix `module.stem + "."`.
+    All other backends use a slash-separated prefix `module + "/"`.
+    An empty `modules` set returns an empty set (no keys owned).
+    """
+    if not modules:
+        return set()
+    from .snapshot import _flat_key
+
+    if key_of is _flat_key:
+        prefixes = frozenset(m.replace("/", ".") + "." for m in modules)
+    else:
+        prefixes = frozenset(m + "/" for m in modules)
+    return {k for k in all_keys if any(k.startswith(p) for p in prefixes)}
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     do_prune = config.getoption("--ditto-prune", default=False)
@@ -642,7 +666,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             )
             continue
 
-        not_accessed = all_keys - accessed_keys
+        backend_id = id(record.backend)
+        registered_modules = session_tracker.backend_modules.get(backend_id, set())
+        accessed_modules = {sk.module for sk in record.accessed}
+        owned_modules = registered_modules | accessed_modules
+        owned_keys = _keys_for_modules(all_keys, owned_modules, record.key_of)
+        not_accessed = owned_keys - accessed_keys
         for raw_key in sorted(not_accessed):
             if do_prune:
                 # Catch all backend errors so a single failed delete (e.g.

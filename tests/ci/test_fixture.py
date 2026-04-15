@@ -368,3 +368,43 @@ def test_shared_file_target_does_not_collide_across_files(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=2)
+
+
+def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> None:
+    """--ditto-prune on a partial run must not prune snapshots from uncollected
+    modules sharing the same backend.
+
+    When two test files write to the same file:// target, running --ditto-prune
+    scoped to one file must leave the other file's snapshots intact. Only keys
+    that belong to modules in the current run are candidates for pruning.
+    """
+    shared_target = pytester.path / "shared_ditto"
+    pytester.makepyfile(
+        test_alpha=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_alpha(snapshot):
+                assert snapshot("alpha", key="v") == "alpha"
+        """,
+        test_beta=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_beta(snapshot):
+                assert snapshot("beta", key="v") == "beta"
+        """,
+    )
+
+    # First run: create both snapshots in the shared backend.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    snapshots_before = list(shared_target.rglob("*.pkl"))
+    assert len(snapshots_before) == 2, "both snapshots must exist before partial prune"
+
+    # Second run: prune scoped to test_alpha only — test_beta's snapshot must survive.
+    result = pytester.runpytest("test_alpha.py", "--ditto-prune")
+    result.assert_outcomes(passed=1)
+
+    snapshots_after = list(shared_target.rglob("*.pkl"))
+    assert len(snapshots_after) == 2, "test_beta snapshot must not be pruned"
