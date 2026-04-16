@@ -41,9 +41,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
 
     def _full_path(self, key: str) -> str:
         if posixpath.isabs(key):
-            raise ValueError(
-                f"key {key!r} must be a relative path, not absolute"
-            )
+            raise ValueError(f"key {key!r} must be a relative path, not absolute")
         candidate = posixpath.normpath(f"{self._root}/{key}")
         # Candidate must be strictly inside the root, not equal to it —
         # a key that resolves to the root directory itself (e.g. ".") is invalid.
@@ -84,7 +82,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
             return iter([])
         prefix = self._root + "/"
         return (
-            p[len(prefix):]
+            p[len(prefix) :]
             for p in self._fs.find(self._root, detail=False)
             if p.startswith(prefix)
         )

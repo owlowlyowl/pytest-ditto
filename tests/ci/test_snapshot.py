@@ -25,7 +25,7 @@ def _file_snapshot(path: Path, **kwargs) -> Snapshot:
         target=f"file://{resolved.as_posix()}",
         _backend=FsspecMapping(fsspec.filesystem("file"), resolved.as_posix()),
         group_name=kwargs.pop("group_name", "group"),
-        module=kwargs.pop("module", ""),
+        module=kwargs.pop("module", "m"),
         **kwargs,
     )
 
@@ -81,7 +81,7 @@ def test_returns_deserialised_stored_value(tmp_dir) -> None:
     group_name = "OEIS"
     value = [1, 2, 3, 6, 7, 9, 18, 25, 27, 54, 73, 97, 129, 171, 231, 313]
 
-    with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
+    with open(tmp_dir / f"m.{group_name}@{key}.json", "w") as f:
         json.dump(value, f)
     snapshot = _file_snapshot(tmp_dir, group_name=group_name, recorder=json_recorder)
 
@@ -118,7 +118,7 @@ def test_returns_stored_value_when_snapshot_already_exists(tmp_dir) -> None:
         "#4b0082",
     ]
 
-    with open(tmp_dir / f"{group_name}@{key}.json", "w") as f:
+    with open(tmp_dir / f"m.{group_name}@{key}.json", "w") as f:
         json.dump(stored, f)
     snapshot = _file_snapshot(tmp_dir, group_name=group_name, recorder=json_recorder)
 
@@ -138,7 +138,7 @@ def test_file_backed_snapshot_preserves_dotted_recorder_identifier(tmp_dir) -> N
     actual = snapshot({"answer": 42}, "result")
 
     assert actual == {"answer": 42}
-    assert (tmp_dir / "group@result.plugin.json").exists()
+    assert (tmp_dir / "m.group@result.plugin.json").exists()
     assert load_snapshot(snapshot, "result") == {"answer": 42}
 
 
@@ -202,8 +202,8 @@ def test_does_not_raise_when_different_keys_are_used(tmp_dir) -> None:
 # --- construction validation ---
 
 
-def test_raises_at_construction_when_module_is_empty_for_non_file_scheme() -> None:
-    """Snapshot raises TypeError when a non-file:// target is given without module=."""
+def test_raises_at_construction_when_module_is_empty() -> None:
+    """Snapshot raises TypeError when constructed without module= for any backend."""
     with pytest.raises(TypeError, match="module="):
         Snapshot(
             group_name="test",
@@ -213,8 +213,9 @@ def test_raises_at_construction_when_module_is_empty_for_non_file_scheme() -> No
         )
 
 
-def test_accepts_empty_module_for_file_scheme(tmp_dir) -> None:
-    """Snapshot allows module='' for file:// targets — module is implicit in path."""
-    snapshot = _file_snapshot(tmp_dir, group_name="test", module="")
-
-    assert snapshot.module == ""
+def test_raises_at_construction_when_module_is_empty_for_file_scheme(
+    tmp_dir,
+) -> None:
+    """Snapshot raises TypeError when constructed without module= for file:// too."""
+    with pytest.raises(TypeError, match="module="):
+        _file_snapshot(tmp_dir, group_name="test", module="")

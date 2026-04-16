@@ -1,10 +1,10 @@
 """Behavioural tests for SnapshotKey identity and key-format contracts."""
 
-from ditto.snapshot import SnapshotKey
+from ditto.snapshot import SnapshotKey, _flat_key
 
 
 def test_filename_uses_short_form() -> None:
-    """filename omits the module so on-disk layout matches pre-backend ditto."""
+    """filename returns the legacy short form 'group@key.ext' without module."""
     sk = SnapshotKey(
         module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
     )
@@ -63,22 +63,46 @@ def test_keys_are_hashable() -> None:
     assert {a, b} == {a}
 
 
-def test_display_name_uses_namespaced_form_when_module_is_set() -> None:
-    """display_name returns the full namespaced key when module is present,
-    matching the format used for pruned/unused entries in the session report."""
+def test_flat_key_uses_dotted_module_prefix() -> None:
+    """_flat_key replaces slashes in module with dots for flat filesystem storage."""
+    sk = SnapshotKey(
+        module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
+    )
+
+    assert _flat_key(sk) == "tests.bar.test_api.test_result@v.pkl"
+
+
+def test_flat_key_with_class_prefix() -> None:
+    """_flat_key includes the class prefix in group_name unchanged."""
+    sk = SnapshotKey(
+        module="tests/bar/test_api",
+        group_name="TestClass.test_result",
+        key="v",
+        extension="pkl",
+    )
+
+    assert _flat_key(sk) == "tests.bar.test_api.TestClass.test_result@v.pkl"
+
+
+def test_flat_key_preserves_multi_dot_extension() -> None:
+    """_flat_key preserves multi-part extensions like 'pandas.parquet'."""
+    sk = SnapshotKey(
+        module="tests/bar/test_api",
+        group_name="test_result",
+        key="v",
+        extension="pandas.parquet",
+    )
+
+    assert _flat_key(sk) == "tests.bar.test_api.test_result@v.pandas.parquet"
+
+
+def test_display_name_always_uses_namespaced_form() -> None:
+    """display_name always returns 'module/group@key.ext'."""
     sk = SnapshotKey(
         module="tests/bar/test_api", group_name="test_result", key="v", extension="pkl"
     )
 
     assert sk.display_name == "tests/bar/test_api/test_result@v.pkl"
-
-
-def test_display_name_uses_short_form_when_module_is_empty() -> None:
-    """display_name falls back to filename when module is empty, avoiding a
-    spurious leading slash for legacy path-based snapshots without module=."""
-    sk = SnapshotKey(module="", group_name="test_result", key="v", extension="pkl")
-
-    assert sk.display_name == "test_result@v.pkl"
 
 
 def test_different_keys_within_same_group_are_unequal() -> None:

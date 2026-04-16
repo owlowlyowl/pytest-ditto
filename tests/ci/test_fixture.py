@@ -34,8 +34,8 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
     """snapshot returns the stored value, not the argument, when the file exists."""
     key = "read"
 
-    # tests/ci/.ditto/test_returns_stored_value_on_subsequent_calls@read.pkl is
-    # committed and contains "read-value". Passing a different argument proves the
+    # tests/ci/.ditto/tests.ci.test_fixture.test_returns_stored_value_on_subsequent_calls@read.pkl
+    # is committed and contains "read-value". Passing a different argument proves the
     # stored value is returned rather than the argument.
     actual = snapshot("different-value", key=key)
 
@@ -75,12 +75,13 @@ def test_user_defined_ditto_backend_raises_migration_error(pytester) -> None:
 
     result.assert_outcomes(errors=1)
     result.stdout.fnmatch_lines([
-        "*ditto_backend is superseded by target=, backend registration, and ditto_storage_options*"
+        "*ditto_backend is superseded by target=, backend registration, "
+        "and ditto_storage_options*"
     ])
 
 
 def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
-    """--ditto-prune must not delete snapshots written by other tests in the same directory.
+    """--ditto-prune must not delete snapshots written by sibling tests.
 
     Regression: the fallback fixture created a fresh FsspecMapping per test, giving
     each test its own _BackendRecord. Pass 1 of pytest_sessionfinish enumerated the
@@ -255,3 +256,155 @@ def test_accepts_integer_as_key(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:
+    """--ditto-prune must not prune .ditto/ directories outside the collected paths.
+
+    Regression: Pass 2 of pytest_sessionfinish used rootdir.rglob(".ditto") which
+    scans the entire project. Running --ditto-prune scoped to a subdirectory would
+    find all .ditto/ directories under rootdir and prune every snapshot in ones not
+    opened this session, destroying snapshots from unrelated test directories.
+    The fix scopes the rglob to directories of actually-collected test items.
+    """
+    dir_a = pytester.mkpydir("dir_a")
+    dir_b = pytester.mkpydir("dir_b")
+
+    (dir_a / "test_a.py").write_text("""
+def test_a(snapshot):
+    assert snapshot("value_a", key="k") == "value_a"
+""")
+    (dir_b / "test_b.py").write_text("""
+def test_b(snapshot):
+    assert snapshot("value_b", key="k") == "value_b"
+""")
+
+    # First run: record snapshots in both directories.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    snapshots_b_before = list((dir_b / ".ditto").rglob("*.pkl"))
+    assert snapshots_b_before, "dir_b snapshots must exist before partial prune"
+
+    # Second run: prune scoped to dir_a only — dir_b must be untouched.
+    result = pytester.runpytest("dir_a", "--ditto-prune")
+    result.assert_outcomes(passed=1)
+
+    snapshots_b_after = list((dir_b / ".ditto").rglob("*.pkl"))
+    assert snapshots_b_after == snapshots_b_before
+
+
+def test_class_method_group_name_includes_class_prefix(pytester) -> None:
+    """group_name for a class-based test includes ClassName.method_name.
+
+    Regression for issue 32: request.node.name returned the bare method name,
+    so TestFoo::test_roundtrip and TestBar::test_roundtrip produced the same
+    group_name and collided on disk.
+    """
+    pytester.makepyfile("""
+        class TestExample:
+            def test_inner(self, snapshot):
+                assert snapshot.group_name == "TestExample.test_inner"
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_two_classes_same_method_name_use_distinct_keys(pytester) -> None:
+    """Two classes with identically-named methods produce different snapshot keys.
+
+    Regression for issue 32 (collision class 1): tests with the same function
+    name in different classes must not overwrite each other's snapshots.
+    """
+    pytester.makepyfile("""
+        class TestFoo:
+            def test_roundtrip(self, snapshot):
+                assert snapshot("foo", key="v") == "foo"
+
+        class TestBar:
+            def test_roundtrip(self, snapshot):
+                assert snapshot("bar", key="v") == "bar"
+    """)
+
+    # First run creates both snapshots.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    # Second run: both tests read back their own values.
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+
+
+def test_shared_file_target_does_not_collide_across_files(pytester) -> None:
+    """Two test files sharing the same file:// target use distinct keys.
+
+    Regression for issue 32 (collision class 2): tests with the same function
+    name in different files sharing a file:// target must not overwrite each
+    other's snapshots.
+    """
+    shared_target = pytester.path / "shared_ditto"
+    pytester.makepyfile(
+        test_alpha=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_roundtrip(snapshot):
+                assert snapshot("alpha", key="v") == "alpha"
+        """,
+        test_beta=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_roundtrip(snapshot):
+                assert snapshot("beta", key="v") == "beta"
+        """,
+    )
+
+    # First run: creates both snapshots with distinct keys.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    # Second run: each test reads back its own value, not the other's.
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=2)
+
+
+def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> None:
+    """--ditto-prune on a partial run must not prune snapshots from uncollected
+    modules sharing the same backend.
+
+    When two test files write to the same file:// target, running --ditto-prune
+    scoped to one file must leave the other file's snapshots intact. Only keys
+    that belong to modules in the current run are candidates for pruning.
+    """
+    shared_target = pytester.path / "shared_ditto"
+    pytester.makepyfile(
+        test_alpha=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_alpha(snapshot):
+                assert snapshot("alpha", key="v") == "alpha"
+        """,
+        test_beta=f"""
+            import ditto
+
+            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            def test_beta(snapshot):
+                assert snapshot("beta", key="v") == "beta"
+        """,
+    )
+
+    # First run: create both snapshots in the shared backend.
+    pytester.runpytest().assert_outcomes(passed=2)
+
+    snapshots_before = list(shared_target.rglob("*.pkl"))
+    assert len(snapshots_before) == 2, "both snapshots must exist before partial prune"
+
+    # Second run: prune scoped to test_alpha only — test_beta's snapshot must survive.
+    result = pytester.runpytest("test_alpha.py", "--ditto-prune")
+    result.assert_outcomes(passed=1)
+
+    snapshots_after = list(shared_target.rglob("*.pkl"))
+    assert len(snapshots_after) == 2, "test_beta snapshot must not be pruned"

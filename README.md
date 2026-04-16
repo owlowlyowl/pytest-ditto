@@ -315,6 +315,15 @@ If you previously used a `ditto_backend` fixture, migrate it by:
 2. moving runtime auth and connection kwargs into `ditto_storage_options`
 3. selecting the backend with `target=` or `ditto_target`
 
+### Runnable examples
+
+See [examples/README.md](examples/README.md) for self-contained local,
+profile-based Postgres, Redis, and DuckDB examples.
+
+The Postgres, Redis, and DuckDB directories register their backend factories in
+example-local `conftest.py` files so the patterns stay runnable even though
+this repository does not ship installable backend plugins for those schemes.
+
 
 ## CLI
 
