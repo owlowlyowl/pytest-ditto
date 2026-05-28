@@ -20,7 +20,9 @@ def _mem() -> FsspecMapping:
     MemoryFileSystem uses a class-level store, so each call uses a distinct
     root path to prevent test pollution.
     """
-    return FsspecMapping(MemoryFileSystem(skip_instance_cache=True), f"/{uuid.uuid4().hex}")
+    return FsspecMapping(
+        MemoryFileSystem(skip_instance_cache=True), f"/{uuid.uuid4().hex}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +370,7 @@ def test_prefixed_mapping_does_not_fail_when_inner_has_no_context_manager() -> N
     assert m["k"] == b"v"
 
 
-def test_routes_io_through_entered_proxy_when_inner_enter_returns_different_object() -> None:
+def test_routes_io_through_entered_proxy_when_inner_returns_proxy() -> None:
     """Writes and reads after entry go through the object returned by __enter__."""
 
     class ProxyStore(MutableMapping[str, bytes]):

@@ -206,11 +206,11 @@ Plugin marks (e.g. `@ditto.myplugin.myformat`) can also be registered via the
 ## Custom Backends
 
 By default, snapshots are stored in a `.ditto/` directory next to each test file.
-The storage target can be overridden at three levels, listed from highest to lowest
-priority:
+The storage target can be overridden at several levels, listed from highest to
+lowest priority:
 
 ```
-mark target=  →  ditto_target ini  →  file://.ditto
+mark target=  →  mark target_profile=  →  ditto_target ini  →  ditto_target_profile ini  →  file://.ditto
 ```
 
 ### Per-test: `target=` in `@ditto.record()`
@@ -286,6 +286,76 @@ ditto_target = "s3://my-bucket/snapshots/"
 
 Individual marks take precedence over this setting.
 
+### Named profiles: `target_profile=` and `ditto_target_profile`
+
+A profile is a reusable, named target. Profiles help when a suite routes to a
+small set of stable backends, or when two targets share a scheme but need
+different credentials (e.g. two S3 buckets in different regions) — something a
+single scheme-keyed `ditto_storage_options` entry cannot express.
+
+Define profiles either in a `ditto_target_profiles` fixture (for values computed
+at runtime, such as secrets from the environment) or in a
+`[tool.pytest-ditto.target_profiles]` table in `pyproject.toml` (for static
+project-wide config):
+
+```python
+# conftest.py — dynamic profiles
+import os
+import pytest
+
+@pytest.fixture(scope="session")
+def ditto_target_profiles():
+    return {
+        "golden": "s3://my-bucket/golden/",  # URI string shorthand
+        "s3_east": {                          # full mapping with options
+            "uri": "s3://east-bucket/golden/",
+            "storage_options": {
+                "key": os.environ["AWS_KEY"],
+                "secret": os.environ["AWS_SECRET"],
+            },
+        },
+    }
+```
+
+```toml
+# pyproject.toml — static profiles
+[tool.pytest-ditto.target_profiles]
+golden = "s3://my-bucket/golden/"
+
+[tool.pytest-ditto.target_profiles.s3_east]
+uri = "s3://east-bucket/golden/"
+storage_options = { key = "...", secret = "..." }
+```
+
+A profile value is either a URI string or a mapping with a `uri` key and an
+optional `storage_options` mapping. Any other key in the mapping is an error, so
+typos like `storage_optoins` fail loudly rather than being silently dropped. A
+name defined in both the fixture and `pyproject.toml` is also an error.
+
+Select a profile per-test with `target_profile=`, or set a project-wide default
+with the `ditto_target_profile` ini option:
+
+```python
+import ditto
+
+@ditto.record("json", target_profile="s3_east")
+def test_foo(snapshot): ...
+```
+
+```ini
+[pytest]
+ditto_target_profile = golden
+```
+
+**Profiles do not read `ditto_storage_options`.** A profile-based target uses only
+the `storage_options` declared on the profile itself, keeping each profile
+self-contained. This is the main difference from raw `target=`, which pulls kwargs
+from `ditto_storage_options` by scheme.
+
+`target=` and `target_profile=` are mutually exclusive on a mark, as are
+`ditto_target` and `ditto_target_profile` in the ini — setting both raises an
+error. See `examples/postgres/` for a runnable `ditto_target_profiles` fixture.
+
 ### Custom backend plugins
 
 Non-fsspec backends such as Redis, PostgreSQL, or DuckDB are registered via the
@@ -314,6 +384,31 @@ If you previously used a `ditto_backend` fixture, migrate it by:
 1. registering a URI scheme under `ditto_backends`
 2. moving runtime auth and connection kwargs into `ditto_storage_options`
 3. selecting the backend with `target=` or `ditto_target`
+
+### Upgrading: snapshot key format changed
+
+Recent versions changed how snapshot keys are derived, so snapshots recorded by
+older versions will not be found after upgrading:
+
+- `file://` snapshots are now stored as flat `module.group@key.ext` files (one
+  `.ditto/` directory, no per-module subdirectories).
+- Keys for class-based tests now include the class name
+  (`TestClass.test_method` rather than `test_method`).
+
+Because a missing snapshot is **recorded and passes** rather than failing, an
+upgrade will silently re-record every snapshot from your code's current output on
+the next run. To avoid masking a regression, re-record deliberately with
+`--ditto-update` and **review the regenerated snapshots in your diff** — do not
+trust the first green run after upgrading.
+
+### Runnable examples
+
+See [examples/README.md](examples/README.md) for self-contained local,
+profile-based Postgres, Redis, and DuckDB examples.
+
+The Postgres, Redis, and DuckDB directories register their backend factories in
+example-local `conftest.py` files so the patterns stay runnable even though
+this repository does not ship installable backend plugins for those schemes.
 
 
 ## CLI

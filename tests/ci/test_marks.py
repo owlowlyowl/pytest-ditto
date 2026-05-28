@@ -185,8 +185,7 @@ def test_ditto_target_ini_applies_when_no_mark_is_present(pytester) -> None:
     )
     subdir = pytester.mkdir("sub")
     subdir.joinpath("test_inner.py").write_text(
-        "def test_inner(snapshot):\n"
-        "    assert snapshot(7, key='n') == 7\n"
+        "def test_inner(snapshot):\n    assert snapshot(7, key='n') == 7\n"
     )
 
     result = pytester.runpytest()
