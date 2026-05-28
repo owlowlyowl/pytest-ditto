@@ -5,7 +5,7 @@ import warnings
 from collections.abc import Callable, Hashable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 from urllib.parse import urlparse
 
 import pytest
@@ -34,11 +34,6 @@ __all__ = ("snapshot",)
 TargetCacheKey = tuple[str, Hashable]
 StorageOptions = dict[str, object]
 StorageOptionsByScheme = dict[str, StorageOptions]
-
-
-class TargetProfileConfig(TypedDict, total=False):
-    uri: str
-    storage_options: StorageOptions
 
 
 # ---------------------------------------------------------------------------
@@ -309,8 +304,9 @@ def _resolve_profile(
     DittoUnknownProfileError
         When `name` is not present in `profiles`.
     DittoInvalidProfileError
-        When the profile value is neither a URI string nor a mapping with
-        a `uri` key.
+        When the profile value is neither a URI string nor a mapping with a
+        `uri` key, when the mapping carries keys other than `uri` and
+        `storage_options`, or when `storage_options` is not a mapping.
     """
     if name not in profiles:
         raise DittoUnknownProfileError(name, list(profiles))
@@ -320,8 +316,16 @@ def _resolve_profile(
     match value:
         case str() as uri:
             return uri, {}
-        case {"uri": str() as uri, **profile}:
-            raw_storage_options = profile.get("storage_options", {})
+        case {"uri": str() as uri, **rest}:
+            unknown = set(rest) - {"storage_options"}
+            if unknown:
+                raise DittoInvalidProfileError(
+                    name,
+                    f"unknown key(s) {', '.join(sorted(unknown))}; "
+                    "allowed keys are uri and storage_options.",
+                )
+
+            raw_storage_options = rest.get("storage_options", {})
             if not isinstance(raw_storage_options, Mapping):
                 raise DittoInvalidProfileError(
                     name,
