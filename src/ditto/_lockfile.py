@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
+
 import msgspec
 
-from .exceptions import DittoLockFileVersionError
+from .exceptions import DittoLockFileError, DittoLockFileVersionError
 
 __all__ = (
     "LOCKFILE_VERSION",
@@ -12,6 +16,8 @@ __all__ = (
     "LockFile",
     "serialise",
     "deserialise",
+    "read_lockfile",
+    "write_lockfile",
 )
 
 LOCKFILE_VERSION = 1
@@ -65,3 +71,37 @@ def deserialise(data: bytes) -> LockFile:
     if lock.version != LOCKFILE_VERSION:
         raise DittoLockFileVersionError(LOCKFILE_VERSION, lock.version)
     return lock
+
+
+def read_lockfile(path: Path) -> LockFile | None:
+    """Return the parsed lock file, `None` if absent, raising if present but corrupt.
+
+    A `None` return means no lock file exists yet — callers should treat this as
+    an empty lock (e.g. `lock = read_lockfile(p) or LockFile(version=LOCKFILE_VERSION,
+    targets={})`).  A file that exists but cannot be parsed is always an error
+    because it indicates corruption or a hand-edit mistake that should be fixed
+    explicitly rather than silently overwritten.
+    """
+    if not path.exists():
+        return None
+    try:
+        return deserialise(path.read_bytes())
+    except DittoLockFileVersionError:
+        raise
+    except (msgspec.DecodeError, msgspec.ValidationError) as exc:
+        raise DittoLockFileError(f"{path} is not valid ({exc})") from exc
+
+
+def write_lockfile(path: Path, lock: LockFile) -> None:
+    """Atomically write `lock` to `path` (temp file in the same dir + os.replace)."""
+    data = serialise(lock)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=".ditto.lock.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
