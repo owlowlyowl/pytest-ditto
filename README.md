@@ -415,6 +415,20 @@ this repository does not ship installable backend plugins for those schemes.
 
 The `ditto` command provides snapshot management tools independent of a test run.
 
+### CLI and remote backends
+
+`ditto list`, `status`, `stats`, and `lint` work with remote and registered
+backends, not just local `file://` snapshots. To stay correct in the presence of
+per-test `record(target=...)` marks and fixture-defined profiles — which static
+config inspection cannot see — these commands always run an internal
+`pytest --setup-only` pass. The real `ditto_target_profiles` /
+`ditto_storage_options` fixtures resolve each backend, and ditto renders what the
+pass enumerated. So these commands import your test modules and need the same
+runtime credentials your test run needs, and they are slower than a plain
+directory listing even for local-only projects.
+
+`ditto clean` remains local-only and never touches remote snapshots.
+
 ### `ditto run`
 
 Runs pytest and reports snapshot activity via the ditto session report. Any extra
