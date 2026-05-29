@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Iterator, MutableMapping
 
 import pytest
+from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.memory import MemoryFileSystem
 
 from ditto.backends import FsspecMapping, PrefixedMapping, TransformMapping
@@ -408,3 +409,34 @@ def test_routes_io_through_entered_proxy_when_inner_returns_proxy() -> None:
         actual = entered_m["key"]
 
     assert actual == b"val"
+
+
+# ── FsspecMapping.stat_entries ─────────────────────────────────────────────────
+
+
+def test_stat_entries_reports_size_and_mtime_for_local_files(tmp_path) -> None:
+    """stat_entries yields each key with its byte size and a real mtime on local fs."""
+    backend = FsspecMapping(LocalFileSystem(), str(tmp_path / "snaps"))
+    backend["mod.test_a@v.json"] = b"hello"
+
+    by_key = {k: (size, mtime) for k, size, mtime in backend.stat_entries()}
+
+    assert by_key["mod.test_a@v.json"][0] == 5
+    assert by_key["mod.test_a@v.json"][1] is not None
+
+
+def test_stat_entries_is_empty_when_root_is_absent(tmp_path) -> None:
+    """stat_entries yields nothing when the backend root does not exist."""
+    backend = FsspecMapping(LocalFileSystem(), str(tmp_path / "missing"))
+
+    assert list(backend.stat_entries()) == []
+
+
+def test_stat_entries_reports_none_mtime_when_filesystem_has_no_mtime() -> None:
+    """A filesystem that reports no mtime yields modified=None alongside the size."""
+    backend = _mem()
+    backend["mod.test_a@v.json"] = b"hi"
+
+    (entry,) = backend.stat_entries()
+
+    assert (entry[1], entry[2]) == (2, None)
