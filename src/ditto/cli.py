@@ -50,6 +50,7 @@ from ._theme import (
     MAUVE,
     FLAMINGO,
 )
+from ._manifest import ManifestEntry
 
 
 console = Console()
@@ -123,6 +124,13 @@ def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
     return {info.extension: info for info in infos}
 
 
+def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
+    """Map a parsed extension to its recorder name, falling back to the bare ext."""
+    if ext in ext_map:
+        return ext_map[ext].name
+    return ext.lstrip(".")
+
+
 def _human_size(n: int) -> str:
     value: float = n
     for unit in ("B", "KB", "MB", "GB"):
@@ -140,39 +148,34 @@ class SnapshotStats:
     total_count: int
     total_size: int
     by_recorder: Mapping[str, tuple[int, int]]  # name → (count, bytes)
-    oldest: tuple[float, Path] | None
-    newest: tuple[float, Path] | None
+    oldest: tuple[float, str] | None
+    newest: tuple[float, str] | None
 
 
 def gather_stats(
-    files: list[Path], ext_map: Mapping[str, RecorderInfo]
+    entries: list[ManifestEntry], ext_map: Mapping[str, RecorderInfo]
 ) -> SnapshotStats:
-    """Aggregate snapshot file statistics, calling stat() on each file."""
+    """Aggregate snapshot statistics from a list of ManifestEntry items."""
     total_size = 0
     by_recorder: dict[str, tuple[int, int]] = {}
-    oldest: tuple[float, Path] | None = None
-    newest: tuple[float, Path] | None = None
+    oldest: tuple[float, str] | None = None
+    newest: tuple[float, str] | None = None
 
-    for fp in files:
-        stat = fp.stat()
-        sz = stat.st_size
-        mtime = stat.st_mtime
-        total_size += sz
-
-        _, _, ext = _parse_snapshot_name(fp.name)
-        recorder_name = (
-            ext_map[ext].name if ext in ext_map else ext.lstrip(".") if ext else ""
-        )
+    for entry in entries:
+        total_size += entry.size_bytes
+        _, _, ext = _parse_snapshot_name(entry.storage_key)
+        recorder_name = _recorder_name(ext, ext_map)
         count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + sz)
+        by_recorder[recorder_name] = (count + 1, total + entry.size_bytes)
 
-        if oldest is None or mtime < oldest[0]:
-            oldest = (mtime, fp)
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, fp)
+        if entry.modified is not None:
+            if oldest is None or entry.modified < oldest[0]:
+                oldest = (entry.modified, entry.storage_key)
+            if newest is None or entry.modified > newest[0]:
+                newest = (entry.modified, entry.storage_key)
 
     return SnapshotStats(
-        total_count=len(files),
+        total_count=len(entries),
         total_size=total_size,
         by_recorder=by_recorder,
         oldest=oldest,
@@ -204,10 +207,10 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
         oldest_date = datetime.fromtimestamp(stats.oldest[0]).strftime("%Y-%m-%d")
         newest_date = datetime.fromtimestamp(stats.newest[0]).strftime("%Y-%m-%d")
         lines.append("  Oldest  ", style=MUTED)
-        lines.append(f"{stats.oldest[1].name}  ", style=PATH)
+        lines.append(f"{stats.oldest[1]}  ", style=PATH)
         lines.append(f"{oldest_date}\n", style=MUTED)
         lines.append("  Newest  ", style=MUTED)
-        lines.append(f"{stats.newest[1].name}  ", style=PATH)
+        lines.append(f"{stats.newest[1]}  ", style=PATH)
         lines.append(f"{newest_date}", style=MUTED)
 
     console.print(
@@ -528,22 +531,22 @@ def _doctor_checks() -> list[CheckResult]:
 
 
 def _find_lint_issues(
-    files: list[Path], em: Mapping[str, RecorderInfo]
+    entries: list[ManifestEntry], em: Mapping[str, RecorderInfo]
 ) -> list[LintIssue]:
-    """Return lint issues for a list of snapshot files without any I/O."""
+    """Return lint issues for inventory entries without further I/O."""
     issues: list[LintIssue] = []
-    for fp in files:
-        _, key, ext = _parse_snapshot_name(fp.name)
+    for entry in entries:
+        _, key, ext = _parse_snapshot_name(entry.storage_key)
         if key == "":
             issues.append(
-                LintIssue(filename=fp.name, issue="Malformed name (missing @)")
+                LintIssue(filename=entry.storage_key, issue="Malformed name (missing @)")
             )
         elif ext not in em:
             issues.append(
-                LintIssue(filename=fp.name, issue=f"Unknown extension: {ext!r}")
+                LintIssue(filename=entry.storage_key, issue=f"Unknown extension: {ext!r}")
             )
-        if fp.stat().st_size == 0:
-            issues.append(LintIssue(filename=fp.name, issue="Empty file"))
+        if entry.size_bytes == 0:
+            issues.append(LintIssue(filename=entry.storage_key, issue="Empty file"))
     return issues
 
 

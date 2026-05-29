@@ -3,18 +3,17 @@ consistency fixes on list/status/clean/recorders."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
+from ditto._manifest import ManifestEntry
 from ditto.cli import (
     RecorderInfo,
     _doctor_checks,
     _ext_map,
     _find_lint_issues,
-    _gather_dir_stats,
     cmd_clean,
     cmd_list,
     cmd_recorders,
@@ -44,15 +43,6 @@ def _entry_points(*, pytest11=(), recorders=(), marks=()):
         "ditto_marks": list(marks),
     }
     return lambda group: mapping.get(group, [])
-
-
-def _make_ditto_dir(root: Path, subdir: str, files: dict[str, bytes]) -> Path:
-    """Create a .ditto/ directory under root/subdir and populate it."""
-    d = root / subdir / ".ditto"
-    d.mkdir(parents=True)
-    for name, content in files.items():
-        (d / name).write_bytes(content)
-    return d
 
 
 @pytest.fixture()
@@ -178,126 +168,59 @@ def test_returns_one_result_per_mark_entry_point() -> None:
 # ── _find_lint_issues: clean inputs ───────────────────────────────────────────
 
 
-def test_returns_no_issues_for_empty_file_list(pickle_ext_map) -> None:
-    """No files means no issues."""
+def test_returns_no_issues_for_empty_entry_list(pickle_ext_map) -> None:
+    """No entries means no issues."""
     assert _find_lint_issues([], pickle_ext_map) == []
 
 
-def test_returns_no_issues_for_valid_snapshot_file(tmp_path, pickle_ext_map) -> None:
-    """A correctly named, non-empty file with a known extension produces no issues."""
-    fp = tmp_path / "test_foo@result.pkl"
-    fp.write_bytes(b"data")
+def test_returns_no_issues_for_valid_entry(pickle_ext_map) -> None:
+    """A well-named, non-empty entry with a known extension produces no issues."""
+    entry = ManifestEntry("test_foo@result.pkl", size_bytes=4, modified=None)
 
-    actual = _find_lint_issues([fp], pickle_ext_map)
-
-    assert actual == []
+    assert _find_lint_issues([entry], pickle_ext_map) == []
 
 
 # ── _find_lint_issues: issue detection ────────────────────────────────────────
 
 
-def test_reports_malformed_name_when_filename_has_no_at_sign(
-    tmp_path, pickle_ext_map
-) -> None:
-    """A filename without '@' is flagged as malformed."""
-    fp = tmp_path / "no_at_sign.pkl"
-    fp.write_bytes(b"data")
+def test_reports_malformed_name_when_key_has_no_at_sign(pickle_ext_map) -> None:
+    """A storage key without '@' is flagged as malformed."""
+    entry = ManifestEntry("no_at_sign.pkl", size_bytes=4, modified=None)
 
-    issues = _find_lint_issues([fp], pickle_ext_map)
+    issues = _find_lint_issues([entry], pickle_ext_map)
 
     assert len(issues) == 1
     assert issues[0].filename == "no_at_sign.pkl"
     assert "Malformed" in issues[0].issue
 
 
-def test_reports_unknown_extension_when_ext_not_in_ext_map(tmp_path) -> None:
-    """A snapshot file with an unregistered extension is flagged as unknown format."""
-    fp = tmp_path / "test_foo@result.mystery"
-    fp.write_bytes(b"data")
+def test_reports_unknown_extension_when_ext_not_in_ext_map() -> None:
+    """An entry with an unregistered extension is flagged as unknown format."""
+    entry = ManifestEntry("test_foo@result.mystery", size_bytes=4, modified=None)
 
-    issues = _find_lint_issues([fp], {})
+    issues = _find_lint_issues([entry], {})
 
     assert len(issues) == 1
     assert "Unknown extension" in issues[0].issue
 
 
-def test_reports_empty_file_when_size_is_zero(tmp_path, pickle_ext_map) -> None:
-    """A zero-byte snapshot file is flagged as empty."""
-    fp = tmp_path / "test_foo@result.pkl"
-    fp.write_bytes(b"")
+def test_reports_empty_file_when_size_is_zero(pickle_ext_map) -> None:
+    """A zero-byte entry is flagged as empty."""
+    entry = ManifestEntry("test_foo@result.pkl", size_bytes=0, modified=None)
 
-    issues = _find_lint_issues([fp], pickle_ext_map)
+    issues = _find_lint_issues([entry], pickle_ext_map)
 
     assert any(i.issue == "Empty file" for i in issues)
 
 
-def test_reports_empty_file_independently_of_unknown_extension(tmp_path) -> None:
-    """An empty file with an unknown extension produces two separate issues."""
-    fp = tmp_path / "test_foo@result.mystery"
-    fp.write_bytes(b"")
+def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
+    """An empty entry with an unknown extension produces two separate issues."""
+    entry = ManifestEntry("test_foo@result.mystery", size_bytes=0, modified=None)
 
-    issues = _find_lint_issues([fp], {})
+    issue_texts = {i.issue for i in _find_lint_issues([entry], {})}
 
-    issue_texts = {i.issue for i in issues}
     assert any("Unknown extension" in t for t in issue_texts)
     assert any("Empty file" in t for t in issue_texts)
-
-
-# ── _gather_dir_stats ─────────────────────────────────────────────────────────
-
-
-def test_returns_empty_when_given_no_dirs() -> None:
-    """An empty directory list produces no results."""
-    assert _gather_dir_stats([], {}) == []
-
-
-def test_returns_empty_when_all_ditto_dirs_contain_no_files(tmp_path) -> None:
-    """A .ditto/ directory with no files is excluded from the results."""
-    empty = tmp_path / ".ditto"
-    empty.mkdir()
-
-    actual = _gather_dir_stats([empty], {})
-
-    assert actual == []
-
-
-def test_returns_one_entry_per_non_empty_ditto_dir(tmp_path) -> None:
-    """Each .ditto/ directory that contains files produces one entry in the result."""
-    dir_a = _make_ditto_dir(tmp_path, "a", {"test@snap.pkl": b"x"})
-    dir_b = _make_ditto_dir(tmp_path, "b", {"test@snap.pkl": b"y"})
-
-    actual = _gather_dir_stats([dir_a, dir_b], {})
-
-    assert len(actual) == 2
-
-
-def test_stats_reflect_file_count_in_directory(tmp_path) -> None:
-    """The SnapshotStats for a directory reports the correct number of files."""
-    d = _make_ditto_dir(
-        tmp_path,
-        "tests",
-        {
-            "test_a@snap.pkl": b"aaa",
-            "test_b@snap.pkl": b"bb",
-        },
-    )
-
-    actual = _gather_dir_stats([d], {})
-
-    _, stats = actual[0]
-    assert stats.total_count == 2
-
-
-def test_skips_empty_dir_and_includes_populated_dir(tmp_path) -> None:
-    """An empty .ditto/ dir is skipped while a populated one is included."""
-    populated = _make_ditto_dir(tmp_path, "a", {"test@snap.pkl": b"data"})
-    empty = tmp_path / "b" / ".ditto"
-    empty.mkdir(parents=True)
-
-    actual = _gather_dir_stats([populated, empty], {})
-
-    assert len(actual) == 1
-    assert actual[0][0] == populated
 
 
 # ── exit code consistency ─────────────────────────────────────────────────────
