@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import msgspec
 
 from .exceptions import DittoLockFileError, DittoLockFileVersionError
+from .snapshot import SnapshotKey, _flat_key
 
 __all__ = (
     "LOCKFILE_VERSION",
@@ -18,6 +20,8 @@ __all__ = (
     "deserialise",
     "read_lockfile",
     "write_lockfile",
+    "portable_target_id",
+    "storage_key",
 )
 
 LOCKFILE_VERSION = 1
@@ -105,3 +109,43 @@ def write_lockfile(path: Path, lock: LockFile) -> None:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
+
+
+def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
+    """Return a machine-independent target id.
+
+    `file://` targets become the rootdir-relative posix path; other schemes are
+    returned unchanged. A `file://` path outside `rootdir` (not portable) is
+    returned as the full absolute URI, unchanged.
+    """
+    parsed = urlparse(canonical_uri)
+    if parsed.scheme != "file":
+        return canonical_uri
+    path = Path(parsed.netloc + parsed.path)
+    try:
+        return path.relative_to(rootdir).as_posix()
+    except ValueError:
+        return canonical_uri
+
+
+def _split_nodeid(nodeid: str) -> tuple[str, str]:
+    """Split a pytest nodeid into `(module_stem, group_name)`.
+
+    `tests/test_api.py::TestX::test_foo` -> (`tests/test_api`, `TestX.test_foo`),
+    matching `SnapshotKey.module` and `SnapshotKey.group_name`.
+    """
+    path_part, _, rest = nodeid.partition("::")
+    module = path_part.removesuffix(".py")
+    group = rest.replace("::", ".")
+    return module, group
+
+
+def storage_key(entry: LockEntry, scheme: str) -> str:
+    """Derive the backend storage key for a lock entry.
+
+    Reuses the live `SnapshotKey` logic: `file` schemes use the flat dotted key,
+    all others use the slash-namespaced key.
+    """
+    module, group = _split_nodeid(entry.nodeid)
+    sk = SnapshotKey(module, group, entry.key, entry.recorder)
+    return _flat_key(sk) if scheme == "file" else str(sk)
