@@ -50,6 +50,8 @@ from ._theme import (
     MAUVE,
     FLAMINGO,
 )
+from ._manifest import Manifest, ManifestEntry
+from ._cli_introspect import IntrospectError, run_introspect
 
 
 console = Console()
@@ -89,12 +91,27 @@ def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
     return group, key, f"{dot}{ext_suffix}"
 
 
-def _find_ditto_files(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob(".ditto/*") if p.is_file())
-
-
 def _find_ditto_dirs(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto") if p.is_dir())
+
+
+def _inventory_or_exit(path: Path) -> Manifest:
+    """Run the introspection pass for PATH, or print the error and exit(1).
+
+    Always introspects: the pytest pass resolves real fixtures and per-test
+    record(target=...) marks, so the inventory covers local file://, remote, and
+    fixture-defined backends with nothing inferred from static config.
+    """
+    try:
+        return run_introspect(path)
+    except IntrospectError as exc:
+        console.print(f"[bold {PRUNED}]Introspection failed:[/bold {PRUNED}] {exc}")
+        sys.exit(1)
+
+
+def _entries(manifest: Manifest) -> list[ManifestEntry]:
+    """Flatten all entries across the manifest's backends."""
+    return [e for b in manifest for e in b.entries]
 
 
 @dataclass(frozen=True)
@@ -123,6 +140,13 @@ def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
     return {info.extension: info for info in infos}
 
 
+def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
+    """Map a parsed extension to its recorder name, falling back to the bare ext."""
+    if ext in ext_map:
+        return ext_map[ext].name
+    return ext.lstrip(".")
+
+
 def _human_size(n: int) -> str:
     value: float = n
     for unit in ("B", "KB", "MB", "GB"):
@@ -140,39 +164,34 @@ class SnapshotStats:
     total_count: int
     total_size: int
     by_recorder: Mapping[str, tuple[int, int]]  # name → (count, bytes)
-    oldest: tuple[float, Path] | None
-    newest: tuple[float, Path] | None
+    oldest: tuple[float, str] | None
+    newest: tuple[float, str] | None
 
 
 def gather_stats(
-    files: list[Path], ext_map: Mapping[str, RecorderInfo]
+    entries: list[ManifestEntry], ext_map: Mapping[str, RecorderInfo]
 ) -> SnapshotStats:
-    """Aggregate snapshot file statistics, calling stat() on each file."""
+    """Aggregate snapshot statistics from a list of ManifestEntry items."""
     total_size = 0
     by_recorder: dict[str, tuple[int, int]] = {}
-    oldest: tuple[float, Path] | None = None
-    newest: tuple[float, Path] | None = None
+    oldest: tuple[float, str] | None = None
+    newest: tuple[float, str] | None = None
 
-    for fp in files:
-        stat = fp.stat()
-        sz = stat.st_size
-        mtime = stat.st_mtime
-        total_size += sz
-
-        _, _, ext = _parse_snapshot_name(fp.name)
-        recorder_name = (
-            ext_map[ext].name if ext in ext_map else ext.lstrip(".") if ext else ""
-        )
+    for entry in entries:
+        total_size += entry.size_bytes
+        _, _, ext = _parse_snapshot_name(entry.storage_key)
+        recorder_name = _recorder_name(ext, ext_map)
         count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + sz)
+        by_recorder[recorder_name] = (count + 1, total + entry.size_bytes)
 
-        if oldest is None or mtime < oldest[0]:
-            oldest = (mtime, fp)
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, fp)
+        if entry.modified is not None:
+            if oldest is None or entry.modified < oldest[0]:
+                oldest = (entry.modified, entry.storage_key)
+            if newest is None or entry.modified > newest[0]:
+                newest = (entry.modified, entry.storage_key)
 
     return SnapshotStats(
-        total_count=len(files),
+        total_count=len(entries),
         total_size=total_size,
         by_recorder=by_recorder,
         oldest=oldest,
@@ -204,10 +223,10 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
         oldest_date = datetime.fromtimestamp(stats.oldest[0]).strftime("%Y-%m-%d")
         newest_date = datetime.fromtimestamp(stats.newest[0]).strftime("%Y-%m-%d")
         lines.append("  Oldest  ", style=MUTED)
-        lines.append(f"{stats.oldest[1].name}  ", style=PATH)
+        lines.append(f"{stats.oldest[1]}  ", style=PATH)
         lines.append(f"{oldest_date}\n", style=MUTED)
         lines.append("  Newest  ", style=MUTED)
-        lines.append(f"{stats.newest[1].name}  ", style=PATH)
+        lines.append(f"{stats.newest[1]}  ", style=PATH)
         lines.append(f"{newest_date}", style=MUTED)
 
     console.print(
@@ -320,8 +339,9 @@ def cmd_list(path: Path):
       ditto list
       ditto list tests/ci/
     """
-    files = _find_ditto_files(path)
-    if not files:
+    manifest = _inventory_or_exit(path)
+    entries = _entries(manifest)
+    if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)
 
@@ -341,17 +361,19 @@ def cmd_list(path: Path):
     table.add_column("Size", justify="right", style=MUTED)
     table.add_column("Modified", style=MUTED)
 
-    for fp in files:
-        group, key, ext = _parse_snapshot_name(fp.name)
-        recorder_name = em[ext].name if ext in em else ext.lstrip(".") if ext else ""
-        stat = fp.stat()
-        size = _human_size(stat.st_size)
-        modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+    for entry in entries:
+        group, key, ext = _parse_snapshot_name(entry.storage_key)
+        recorder_name = _recorder_name(ext, em)
+        modified = (
+            datetime.fromtimestamp(entry.modified).strftime("%Y-%m-%d")
+            if entry.modified is not None
+            else "—"
+        )
         table.add_row(
             group,
             key,
             Text(recorder_name, style=colour_map.get(recorder_name, MUTED)),
-            size,
+            _human_size(entry.size_bytes),
             modified,
         )
 
@@ -416,12 +438,13 @@ def cmd_status(path: Path):
       ditto status
       ditto status tests/ci/
     """
-    files = _find_ditto_files(path)
-    if not files:
+    manifest = _inventory_or_exit(path)
+    entries = _entries(manifest)
+    if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)
 
-    render_stats(gather_stats(files, _ext_map(_load_recorder_infos())), console)
+    render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
 
 
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
@@ -528,35 +551,23 @@ def _doctor_checks() -> list[CheckResult]:
 
 
 def _find_lint_issues(
-    files: list[Path], em: Mapping[str, RecorderInfo]
+    entries: list[ManifestEntry], em: Mapping[str, RecorderInfo]
 ) -> list[LintIssue]:
-    """Return lint issues for a list of snapshot files without any I/O."""
+    """Return lint issues for inventory entries without further I/O."""
     issues: list[LintIssue] = []
-    for fp in files:
-        _, key, ext = _parse_snapshot_name(fp.name)
+    for entry in entries:
+        _, key, ext = _parse_snapshot_name(entry.storage_key)
         if key == "":
             issues.append(
-                LintIssue(filename=fp.name, issue="Malformed name (missing @)")
+                LintIssue(filename=entry.storage_key, issue="Malformed name (missing @)")
             )
         elif ext not in em:
             issues.append(
-                LintIssue(filename=fp.name, issue=f"Unknown extension: {ext!r}")
+                LintIssue(filename=entry.storage_key, issue=f"Unknown extension: {ext!r}")
             )
-        if fp.stat().st_size == 0:
-            issues.append(LintIssue(filename=fp.name, issue="Empty file"))
+        if entry.size_bytes == 0:
+            issues.append(LintIssue(filename=entry.storage_key, issue="Empty file"))
     return issues
-
-
-def _gather_dir_stats(
-    dirs: list[Path], em: Mapping[str, RecorderInfo]
-) -> list[tuple[Path, SnapshotStats]]:
-    """Return per-directory stats for non-empty .ditto/ dirs, I/O limited to stat()."""
-    result = []
-    for d in dirs:
-        files = sorted(f for f in d.iterdir() if f.is_file())
-        if files:
-            result.append((d, gather_stats(files, em)))
-    return result
 
 
 # ── Doctor / Lint / Stats rendering ───────────────────────────────────────────
@@ -601,7 +612,7 @@ def _render_lint_issues(issues: list[LintIssue], console: Console) -> None:
 
 
 def _render_stats_table(
-    dir_stats: list[tuple[Path, SnapshotStats]], console: Console
+    dir_stats: list[tuple[str, SnapshotStats]], console: Console
 ) -> None:
     all_names = {name for _, s in dir_stats for name in s.by_recorder}
     colour_map = _build_colour_map(all_names)
@@ -632,7 +643,7 @@ def _render_stats_table(
                 recorder_text.append("  ")
             recorder_text.append(f"{name}×{cnt}", style=colour_map.get(name, MUTED))
         table.add_row(
-            str(d), str(s.total_count), _human_size(s.total_size), recorder_text
+            d, str(s.total_count), _human_size(s.total_size), recorder_text
         )
 
     table.columns[1].footer = str(total_count)
@@ -670,9 +681,8 @@ def cmd_lint(path: Path):
       ditto lint
       ditto lint tests/ci/
     """
-    issues = _find_lint_issues(
-        _find_ditto_files(path), _ext_map(_load_recorder_infos())
-    )
+    manifest = _inventory_or_exit(path)
+    issues = _find_lint_issues(_entries(manifest), _ext_map(_load_recorder_infos()))
     if not issues:
         console.print(f"[{MUTED}]All snapshots are valid.[/{MUTED}]")
         return
@@ -692,10 +702,10 @@ def cmd_stats(path: Path):
       ditto stats
       ditto stats tests/ci/
     """
-    dir_stats = _gather_dir_stats(
-        _find_ditto_dirs(path), _ext_map(_load_recorder_infos())
-    )
-    if not dir_stats:
+    manifest = _inventory_or_exit(path)
+    if not manifest:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)
+    em = _ext_map(_load_recorder_infos())
+    dir_stats = [(b.location, gather_stats(b.entries, em)) for b in manifest]
     _render_stats_table(dir_stats, console)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import posixpath
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -9,6 +10,23 @@ if TYPE_CHECKING:
 
 
 __all__ = ("FsspecMapping",)
+
+
+def _info_mtime(info: Mapping[str, object]) -> float | None:
+    """Extract a POSIX mtime from an fsspec info dict, or None if absent.
+
+    Local fs reports `mtime` (float); S3 reports `LastModified` (datetime); GCS
+    `last_modified`. Anything else (memory fs) has no mtime.
+    """
+    match info.get("mtime", info.get("LastModified", info.get("last_modified"))):
+        case bool():  # bool is an int subclass — never a timestamp
+            return None
+        case int() | float() as ts:
+            return float(ts)
+        case datetime() as dt:
+            return dt.timestamp()
+        case _:
+            return None
 
 
 class FsspecMapping(MutableMapping[str, bytes]):
@@ -89,3 +107,18 @@ class FsspecMapping(MutableMapping[str, bytes]):
 
     def __len__(self) -> int:
         return sum(1 for _ in self)
+
+    def stat_entries(self) -> Iterator[tuple[str, int, float | None]]:
+        """Yield (key, size_bytes, modified) for each stored snapshot.
+
+        Uses one `fs.find(detail=True)` listing, so size and mtime come from a
+        single round trip — no per-key reads. `modified` is None when the
+        filesystem reports no mtime. Mirrors `__iter__`'s root-prefix stripping.
+        """
+        if not self._fs.exists(self._root):
+            return
+        prefix = self._root + "/"
+        for path, info in self._fs.find(self._root, detail=True).items():
+            if not path.startswith(prefix):
+                continue
+            yield path[len(prefix) :], int(info.get("size") or 0), _info_mtime(info)

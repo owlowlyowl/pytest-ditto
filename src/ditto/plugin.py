@@ -16,6 +16,7 @@ import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
 from ditto.snapshot import SnapshotKey, session_tracker
+from ditto._manifest import BackendManifest, ManifestEntry, to_json
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -48,6 +49,7 @@ StorageOptionsByScheme = dict[str, StorageOptions]
 _session_exit_stack: ExitStack = ExitStack()
 _entered_backends: dict[int, MutableMapping[str, bytes]] = {}
 _backend_cache: dict[TargetCacheKey, MutableMapping[str, bytes]] = {}
+_introspect_backends: dict[str, MutableMapping[str, bytes]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +513,9 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
 
     session_tracker.register_backend_module(id(backend), module)
 
+    if request.config.getoption("--ditto-introspect", default=""):
+        _introspect_backends.setdefault(abs_uri, backend)
+
     file_prefix = str(request.path.relative_to(rootdir)) + "::"
     qualified_name = request.node.nodeid.removeprefix(file_prefix)
     group_name = qualified_name.replace("::", ".")
@@ -543,6 +548,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="After the session, delete snapshot files not accessed during this run.",
+    )
+    group.addoption(
+        "--ditto-introspect",
+        default="",
+        metavar="PATH",
+        help=(
+            "Internal: resolve every test's backend, write a JSON manifest of "
+            "stored snapshots to PATH, then skip pruning. Used by the ditto CLI "
+            "to introspect backends. Combine with --setup-only."
+        ),
     )
     parser.addini(
         "ditto_target",
@@ -590,6 +605,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _session_exit_stack = ExitStack()
     _entered_backends.clear()
     _backend_cache.clear()
+    _introspect_backends.clear()
     session_tracker.reset()
 
 
@@ -615,8 +631,54 @@ def _keys_for_modules(
     return {k for k in all_keys if any(k.startswith(p) for p in prefixes)}
 
 
+def _enumerate_entries(backend: MutableMapping[str, bytes]) -> list[ManifestEntry]:
+    """Enumerate one backend's stored snapshots as manifest entries.
+
+    fsspec-backed stores report size and mtime from a single listing; generic
+    MutableMapping backends (e.g. Redis) report size via a per-key read and
+    carry no mtime. Enumeration errors are warned and yield an empty backend, so
+    one unreachable store never aborts the whole pass — the backend still appears
+    in the manifest (so the CLI can flag it as empty/misconfigured).
+    """
+    try:
+        if isinstance(backend, FsspecMapping):
+            return [
+                ManifestEntry(storage_key=key, size_bytes=size, modified=modified)
+                for key, size, modified in backend.stat_entries()
+            ]
+        return [
+            ManifestEntry(storage_key=key, size_bytes=len(backend[key]), modified=None)
+            for key in backend
+        ]
+    except Exception as exc:
+        warnings.warn(
+            f"Failed to enumerate backend {backend!r}: {exc}; "
+            "reporting it with no entries.",
+            stacklevel=1,
+        )
+        return []
+
+
+def _write_introspect_manifest(path: str) -> None:
+    """Write a manifest of every resolved backend to `path`.
+
+    Called before the session ExitStack closes, so backends are still open.
+    """
+    manifest = [
+        BackendManifest(location=uri, entries=_enumerate_entries(backend))
+        for uri, backend in _introspect_backends.items()
+    ]
+    Path(path).write_text(to_json(manifest))
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
+
+    introspect_path = config.getoption("--ditto-introspect", default="")
+    if introspect_path:
+        _write_introspect_manifest(introspect_path)
+        return
+
     do_prune = config.getoption("--ditto-prune", default=False)
 
     pruned: list[str] = []
