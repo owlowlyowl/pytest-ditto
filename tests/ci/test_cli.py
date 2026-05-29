@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from ditto._manifest import ManifestEntry
+from click.testing import CliRunner
+
+from ditto import cli as cli_mod
+from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
     _RECORDER_PALETTE,
     RecorderInfo,
@@ -10,6 +13,7 @@ from ditto.cli import (
     _ext_map,
     _human_size,
     _parse_snapshot_name,
+    cli,
     gather_stats,
 )
 
@@ -218,3 +222,53 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     assert stats.total_count == 3
     assert stats.total_size == 600
     assert stats.by_recorder["pickle"] == (3, 600)
+
+
+# ── command inventory dispatch ─────────────────────────────────────────────────
+
+
+def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
+    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: manifest)
+
+
+def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:
+    """`ditto list` renders the storage keys the introspection pass enumerated."""
+    manifest = [
+        BackendManifest("file:///x/.ditto", [ManifestEntry("mod.test_y@v.json", 7, None)])
+    ]
+    _patch_inventory(monkeypatch, manifest)
+
+    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "test_y" in result.output
+
+
+def test_stats_shows_a_configured_backend_even_with_no_snapshots(
+    tmp_path, monkeypatch
+) -> None:
+    """An empty-but-resolved backend still appears in `ditto stats`, flagging it to
+    the user as removable or misconfigured."""
+    manifest = [BackendManifest("redis://h/0", [])]
+    _patch_inventory(monkeypatch, manifest)
+
+    result = CliRunner().invoke(cli, ["stats", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "redis://h/0" in result.output
+
+
+def test_list_reports_failure_and_exits_one_when_introspection_errors(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed introspection pass surfaces an error and a non-zero exit."""
+
+    def _boom(path):
+        raise cli_mod.IntrospectError("pytest blew up")
+
+    monkeypatch.setattr(cli_mod, "run_introspect", _boom)
+
+    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Introspection failed" in result.output

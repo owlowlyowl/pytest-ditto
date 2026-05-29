@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from ditto import cli as cli_mod
 from ditto._manifest import ManifestEntry
 from ditto.cli import (
     RecorderInfo,
@@ -226,15 +227,19 @@ def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
 # ── exit code consistency ─────────────────────────────────────────────────────
 
 
-def test_list_exits_one_when_no_snapshot_files_exist(tmp_path) -> None:
-    """ditto list exits 1 when no snapshot files are found under the given path."""
+def test_list_exits_one_when_no_snapshots_exist(tmp_path, monkeypatch) -> None:
+    """ditto list exits 1 when the inventory is empty."""
+    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: [])
+
     result = CliRunner().invoke(cmd_list, [str(tmp_path)])
 
     assert result.exit_code == 1
 
 
-def test_status_exits_one_when_no_snapshot_files_exist(tmp_path) -> None:
-    """ditto status exits 1 when no snapshot files are found under the given path."""
+def test_status_exits_one_when_no_snapshots_exist(tmp_path, monkeypatch) -> None:
+    """ditto status exits 1 when the inventory is empty."""
+    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: [])
+
     result = CliRunner().invoke(cmd_status, [str(tmp_path)])
 
     assert result.exit_code == 1
