@@ -30,6 +30,7 @@ dependencies = [
     "rich",
     "click",
     "fsspec",
+    "msgspec>=0.18",
 ]
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]
