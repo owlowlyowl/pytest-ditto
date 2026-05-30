@@ -9,7 +9,7 @@ from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("Snapshot", "SnapshotKey", "session_tracker")
+__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "session_tracker")
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,32 @@ class SnapshotKey:
         return str(self)
 
 
+@dataclass(frozen=True)
+class LockSeen:
+    """A lock entry observed this session, plus where it lives.
+
+    Parameters
+    ----------
+    target_id : str
+        Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
+    scheme : str
+        The target's URI scheme, e.g. `file` or `s3`. Used to derive the storage
+        key for this entry later.
+    nodeid : str
+        Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
+    key : str
+        Per-snapshot identifier within the test.
+    recorder : str
+        Recorder extension string, e.g. `pkl`, `json`, `pandas.parquet`.
+    """
+
+    target_id: str
+    scheme: str
+    nodeid: str
+    key: str
+    recorder: str
+
+
 @dataclass
 class _BackendRecord:
     backend: MutableMapping[str, bytes]
@@ -86,6 +112,8 @@ class _SessionTracker:
     # so modules that request snapshot but make no calls are still tracked. Used by
     # Pass 1 prune to restrict enumeration to owned key prefixes only.
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
+    lock_created: set[LockSeen] = field(default_factory=set)
+    lock_accessed: set[LockSeen] = field(default_factory=set)
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -106,12 +134,20 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
+    def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
+        """Record a lock entry accessed this session; also as created on first write."""
+        self.lock_accessed.add(seen)
+        if created:
+            self.lock_created.add(seen)
+
     def reset(self) -> None:
         self._records.clear()
         self.created.clear()
         self.updated.clear()
         self.used_keys.clear()
         self.backend_modules.clear()
+        self.lock_created.clear()
+        self.lock_accessed.clear()
 
     @property
     def records(self) -> dict[int, _BackendRecord]:
