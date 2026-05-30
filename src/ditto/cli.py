@@ -559,11 +559,17 @@ def _find_lint_issues(
         _, key, ext = _parse_snapshot_name(entry.storage_key)
         if key == "":
             issues.append(
-                LintIssue(filename=entry.storage_key, issue="Malformed name (missing @)")
+                LintIssue(
+                    filename=entry.storage_key,
+                    issue="Malformed name (missing @)",
+                )
             )
         elif ext not in em:
             issues.append(
-                LintIssue(filename=entry.storage_key, issue=f"Unknown extension: {ext!r}")
+                LintIssue(
+                    filename=entry.storage_key,
+                    issue=f"Unknown extension: {ext!r}",
+                )
             )
         if entry.size_bytes == 0:
             issues.append(LintIssue(filename=entry.storage_key, issue="Empty file"))

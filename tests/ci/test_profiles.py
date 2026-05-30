@@ -25,7 +25,8 @@ def test_target_profile_mark_resolves_to_configured_uri(pytester) -> None:
 
 
 def test_ditto_target_profile_ini_is_used_when_mark_has_no_target(pytester) -> None:
-    """ditto_target_profile ini selects the default profile when the mark carries no target."""
+    """ditto_target_profile ini selects the default profile when the mark
+    carries no target."""
     pytester.makeconftest("""
         import pytest
 
@@ -89,7 +90,8 @@ def test_mark_target_uri_takes_precedence_over_ditto_target_profile_ini(
 def test_profile_storage_options_are_not_merged_with_ditto_storage_options(
     pytester,
 ) -> None:
-    """Profile-based targets use only their own storage_options; ditto_storage_options is ignored."""
+    """Profile-based targets use only their own storage_options;
+    ditto_storage_options is ignored."""
     pytester.makeconftest("""
         import pytest
         from ditto.backends import BACKEND_REGISTRY
@@ -167,7 +169,8 @@ def test_raises_when_target_and_target_profile_are_both_set(pytester) -> None:
 def test_raises_when_ditto_target_and_ditto_target_profile_are_both_configured(
     pytester,
 ) -> None:
-    """ditto_target and ditto_target_profile in config together raises at configure time."""
+    """ditto_target and ditto_target_profile in config together raises at
+    configure time."""
     pytester.makeini("""
         [pytest]
         ditto_target = memory://x
@@ -239,7 +242,8 @@ def test_raises_when_unknown_profile_name_is_requested(pytester) -> None:
 
 
 def test_raises_when_profile_fixture_dependency_is_missing(pytester) -> None:
-    """A broken ditto_target_profiles fixture dependency fails loudly instead of falling back."""
+    """A broken ditto_target_profiles fixture dependency fails loudly
+    instead of falling back."""
     pytester.makeconftest("""
         import pytest
 
@@ -262,7 +266,8 @@ def test_raises_when_profile_fixture_dependency_is_missing(pytester) -> None:
 
 
 def test_two_profiles_with_same_uri_and_options_share_a_backend(pytester) -> None:
-    """Two profiles that resolve to identical URI and options share one backend instance."""
+    """Two profiles that resolve to identical URI and options share one
+    backend instance."""
     pytester.makeconftest("""
         import pytest
         from ditto.backends import BACKEND_REGISTRY
@@ -309,7 +314,8 @@ def test_two_profiles_with_same_uri_and_options_share_a_backend(pytester) -> Non
 def test_two_profiles_with_same_uri_but_different_options_use_separate_backends(
     pytester,
 ) -> None:
-    """Two profiles with the same URI but different storage_options use distinct backends."""
+    """Two profiles with the same URI but different storage_options use
+    distinct backends."""
     pytester.makeconftest("""
         import pytest
         from ditto.backends import BACKEND_REGISTRY
@@ -353,7 +359,8 @@ def test_two_profiles_with_same_uri_but_different_options_use_separate_backends(
 
 
 def test_profile_with_file_uri_resolves_relative_to_test_file(pytester) -> None:
-    """A profile with a relative file:// URI resolves relative to the test file's directory."""
+    """A profile with a relative file:// URI resolves relative to the test
+    file's directory."""
     pytester.makeconftest("""
         import pytest
 

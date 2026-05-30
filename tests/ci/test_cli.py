@@ -234,7 +234,10 @@ def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
 def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:
     """`ditto list` renders the storage keys the introspection pass enumerated."""
     manifest = [
-        BackendManifest("file:///x/.ditto", [ManifestEntry("mod.test_y@v.json", 7, None)])
+        BackendManifest(
+            "file:///x/.ditto",
+            [ManifestEntry("mod.test_y@v.json", 7, None)],
+        )
     ]
     _patch_inventory(monkeypatch, manifest)
 

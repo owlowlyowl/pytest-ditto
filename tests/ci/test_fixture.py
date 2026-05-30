@@ -34,7 +34,8 @@ def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
     """snapshot returns the stored value, not the argument, when the file exists."""
     key = "read"
 
-    # tests/ci/.ditto/tests.ci.test_fixture.test_returns_stored_value_on_subsequent_calls@read.pkl
+    # tests/ci/.ditto/tests.ci.test_fixture\
+    #   .test_returns_stored_value_on_subsequent_calls@read.pkl
     # is committed and contains "read-value". Passing a different argument proves the
     # stored value is returned rather than the argument.
     actual = snapshot("different-value", key=key)

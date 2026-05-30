@@ -496,7 +496,8 @@ def test_raises_when_profile_storage_options_is_not_a_mapping() -> None:
 
 
 def test_raises_when_profile_mapping_has_unknown_keys() -> None:
-    """A profile mapping key other than uri/storage_options raises DittoInvalidProfileError."""
+    """A profile mapping key other than uri/storage_options raises
+    DittoInvalidProfileError."""
     profiles = {"bad": {"uri": "s3://east-bucket/", "storage_optoins": {}}}
 
     with pytest.raises(DittoInvalidProfileError, match="unknown key.*storage_optoins"):

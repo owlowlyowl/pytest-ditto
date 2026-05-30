@@ -3,7 +3,9 @@
 import json
 
 
-def test_introspect_pass_enumerates_a_fixture_resolved_generic_backend(pytester, tmp_path):
+def test_introspect_pass_enumerates_a_fixture_resolved_generic_backend(
+    pytester, tmp_path
+):
     """--setup-only --ditto-introspect resolves a fixture-defined generic
     MutableMapping backend and enumerates its stored keys into a manifest,
     without running test bodies."""

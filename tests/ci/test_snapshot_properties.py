@@ -54,5 +54,3 @@ def test_unique_keys_never_trigger_duplicate_error(keys: list[str]) -> None:
 
     for i, key in enumerate(keys):
         snapshot(i, key)
-
-
