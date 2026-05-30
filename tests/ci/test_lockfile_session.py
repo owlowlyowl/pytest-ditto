@@ -141,8 +141,9 @@ def test_failed_snapshot_write_leaves_no_phantom_lock_entry(pytester):
     """A snapshot whose write fails must not leave an entry in ditto.lock."""
     pytester.makepyfile(test_mod=PHANTOM_MODULE)
 
-    pytester.runpytest_subprocess()  # the snapshot write raises; the test fails
+    result = pytester.runpytest_subprocess()
 
+    assert result.ret != 0  # the write raised, so the scenario actually triggered
     lock = pytester.path / "ditto.lock"
     if lock.exists():
         assert not any("test_phantom" in n for n in _nodeids_in_lockfile(pytester))
