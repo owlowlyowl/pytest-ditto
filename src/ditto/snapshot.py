@@ -114,6 +114,11 @@ class _SessionTracker:
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
     lock_created: set[LockSeen] = field(default_factory=set)
     lock_accessed: set[LockSeen] = field(default_factory=set)
+    # Maps portable target_id → (scheme, live backend); populated at fixture
+    # creation so verify (and prune) can enumerate every active target's backend.
+    target_backends: dict[str, tuple[str, MutableMapping[str, bytes]]] = field(
+        default_factory=dict
+    )
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -134,6 +139,12 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
+    def register_target_backend(
+        self, target_id: str, scheme: str, backend: MutableMapping[str, bytes]
+    ) -> None:
+        """Record the live backend (and scheme) resolved for `target_id`."""
+        self.target_backends[target_id] = (scheme, backend)
+
     def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
         """Record a lock entry accessed this session; also as created on first write."""
         self.lock_accessed.add(seen)
@@ -148,6 +159,7 @@ class _SessionTracker:
         self.backend_modules.clear()
         self.lock_created.clear()
         self.lock_accessed.clear()
+        self.target_backends.clear()
 
     @property
     def records(self) -> dict[int, _BackendRecord]:
@@ -207,6 +219,10 @@ class Snapshot:
         Serialisation strategy. Defaults to pickle.
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
+    readonly : bool
+        When True, never write to the backend — `resolve_snapshot` returns the
+        stored value (or the given data, if absent) without persisting. Set by
+        `--ditto-verify` so a verify run cannot recreate a deleted snapshot.
     nodeid : str
         Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
         Used to build lock-file entries. Empty when constructed outside the fixture.
@@ -220,6 +236,7 @@ class Snapshot:
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
     update: bool = False
+    readonly: bool = False
     nodeid: str = ""
     target_id: str = ""
 
@@ -318,6 +335,19 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         if snapshot.target_id
         else None
     )
+
+    if snapshot.readonly:
+        # In read-only mode (e.g. --ditto-verify) never write to the backend.
+        # Return the existing value if present, otherwise return `data` unchanged
+        # so the test assertion can still pass, but leave the backend untouched so
+        # the drift check can detect the missing key.
+        # Record as "created" when the key is absent so that the verify hook can
+        # identify intended-but-blocked new snapshots as unsynced.
+        if seen is not None:
+            session_tracker.record_lock_seen(seen, created=not exists)
+        if exists:
+            return store[storage_key]
+        return data
 
     if not exists or snapshot.update:
         store[storage_key] = data

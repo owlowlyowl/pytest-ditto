@@ -2,6 +2,7 @@ import importlib.metadata
 import warnings
 
 from ._protocol import Recorder
+from ..exceptions import DittoWarning
 
 
 __all__ = ("RECORDER_REGISTRY", "MARK_REGISTRY", "load_recorders", "load_mark_plugins")
@@ -28,6 +29,7 @@ def load_recorders() -> dict[str, Recorder]:
         except Exception as exc:
             warnings.warn(
                 f"ditto: failed to load recorder {ep.name!r}: {exc}",
+                category=DittoWarning,
                 stacklevel=2,
             )
     return result
@@ -54,6 +56,7 @@ def load_mark_plugins() -> dict[str, object]:
         except Exception as exc:
             warnings.warn(
                 f"ditto: failed to load mark plugin {ep.name!r}: {exc}",
+                category=DittoWarning,
                 stacklevel=2,
             )
     return result

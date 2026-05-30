@@ -6,6 +6,8 @@ Subcommands
 run         Run pytest, reporting any snapshot activity at the end.
 update      Re-run pytest with --ditto-update to regenerate snapshots.
 prune       Re-run pytest with --ditto-prune to remove stale snapshots.
+lock        Rebuild ditto.lock from current snapshots.
+verify      Fail if the backend has drifted from ditto.lock (read-only).
 list        List all snapshot files under a path.
 clean       Delete all .ditto/ directories under a path.
 status      Show aggregate statistics for snapshots under a path.
@@ -346,6 +348,26 @@ def cmd_lock(pytest_args):
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--ditto-lock", *pytest_args],
+        check=False,
+    )
+    sys.exit(result.returncode)
+
+
+@cli.command(
+    name="verify",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
+def cmd_verify(pytest_args):
+    """Fail if the backend has drifted from ditto.lock (read-only).
+
+    \b
+    Examples:
+      ditto verify
+      ditto verify tests/ci/
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--ditto-verify", *pytest_args],
         check=False,
     )
     sys.exit(result.returncode)

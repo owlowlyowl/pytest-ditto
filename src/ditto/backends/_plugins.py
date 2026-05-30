@@ -4,6 +4,8 @@ import importlib.metadata
 import warnings
 from collections.abc import Callable, MutableMapping
 
+from ..exceptions import DittoWarning
+
 
 __all__ = ("BACKEND_REGISTRY", "load_backends")
 
@@ -28,5 +30,6 @@ def load_backends() -> None:
         except Exception:
             warnings.warn(
                 f"Failed to load ditto backend {ep.name!r}; it will be unavailable.",
+                category=DittoWarning,
                 stacklevel=1,
             )
