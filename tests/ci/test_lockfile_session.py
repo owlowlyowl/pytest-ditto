@@ -125,3 +125,20 @@ def test_warns_when_lockfile_is_gitignored(pytester):
     result = pytester.runpytest_subprocess()
 
     result.stdout.fnmatch_lines(["*ditto.lock*gitignore*"])
+
+
+PHANTOM_MODULE = '''
+def test_phantom(snapshot):
+    snapshot(lambda x: x, key="k")  # unpicklable -> write fails -> test errors
+'''
+
+
+def test_failed_snapshot_write_leaves_no_phantom_lock_entry(pytester):
+    """A snapshot whose write fails must not leave an entry in ditto.lock."""
+    pytester.makepyfile(test_mod=PHANTOM_MODULE)
+
+    pytester.runpytest_subprocess()  # the snapshot write raises; the test fails
+
+    lock = pytester.path / "ditto.lock"
+    if lock.exists():
+        assert not any("test_phantom" in n for n in _nodeids_in_lockfile(pytester))
