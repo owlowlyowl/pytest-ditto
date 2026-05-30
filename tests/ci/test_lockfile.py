@@ -5,6 +5,7 @@ import pytest
 from ditto._lockfile import LockEntry, LockTarget, LockFile, serialise, deserialise
 from ditto._lockfile import read_lockfile, write_lockfile
 from ditto._lockfile import portable_target_id, storage_key
+from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
 
 
@@ -156,3 +157,54 @@ def test_returns_file_uri_verbatim_when_outside_rootdir():
 
     expected = "file:///elsewhere/.ditto"
     assert actual == expected
+
+
+def test_unions_new_entry_without_dropping_existing():
+    """Appending adds the new entry and keeps the existing ones."""
+    new = LockEntry("tests/test_api.py::test_update", "body", "json")
+
+    result = merge_append(_canonical_sample(), "tests/api/.ditto", "file", [new])
+
+    entries = result.targets["tests/api/.ditto"].entries
+    assert new in entries
+    assert len(entries) == 3
+
+
+def test_is_idempotent_for_a_duplicate_entry():
+    """Appending an entry that already exists changes nothing."""
+    existing = _canonical_sample()
+    dup = existing.targets["tests/api/.ditto"].entries[0]
+
+    result = merge_append(existing, "tests/api/.ditto", "file", [dup])
+
+    assert len(result.targets["tests/api/.ditto"].entries) == 2
+
+
+def test_creates_target_when_absent():
+    """Appending to an unknown target creates it from scratch."""
+    new = LockEntry("tests/test_x.py::test_y", "k", "pkl")
+
+    result = merge_append(None, "tests/x/.ditto", "file", [new])
+
+    assert result.version == 1
+    assert result.targets["tests/x/.ditto"].entries == (new,)
+
+
+def test_leaves_other_targets_untouched():
+    """Appending to one target does not disturb the others."""
+    new = LockEntry("tests/test_x.py::test_y", "k", "pkl")
+
+    result = merge_append(_canonical_sample(), "s3://b/snaps", "s3", [new])
+
+    assert "tests/api/.ditto" in result.targets
+    assert "s3://b/snaps" in result.targets
+
+
+def test_does_not_mutate_existing_lockfile():
+    """merge_append returns a new value and leaves the input lock file unchanged."""
+    original = _canonical_sample()
+    before = dict(original.targets)
+
+    merge_append(original, "tests/api/.ditto", "file", [LockEntry("a::b", "k", "pkl")])
+
+    assert original.targets == before
