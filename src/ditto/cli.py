@@ -335,10 +335,14 @@ def cmd_prune(pytest_args):
 def cmd_lock(pytest_args):
     """Rebuild ditto.lock from current snapshots (full run; values unchanged).
 
+    Must run the whole suite: passing positional path/nodeid args narrows the run
+    and is refused, because a narrowed rebuild can truncate entries for files it
+    did not collect. Configure the suite's scope via `testpaths` in pyproject/ini
+    instead.
+
     \b
     Examples:
       ditto lock
-      ditto lock tests/ci/
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--ditto-lock", *pytest_args],

@@ -35,6 +35,7 @@ from ditto.exceptions import (
     DittoAmbiguousTargetError,
     DittoDuplicateProfileError,
     DittoInvalidProfileError,
+    DittoLockFileError,
     DittoMarkHasNoIOType,
     DittoUnknownProfileError,
 )
@@ -634,20 +635,56 @@ def _append_lockfile(config: pytest.Config) -> None:
         write_lockfile(path, lock)
 
 
+def _fail_session(session: pytest.Session) -> None:
+    """Mark the pytest session as failed without masking a real test failure."""
+    if session.exitstatus == 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def _xdist_is_distributing(config: pytest.Config) -> bool:
+    """True when pytest-xdist is distributing this run across worker processes.
+
+    Under distribution the controller process (which runs `pytest_sessionfinish`
+    and writes the lock) never executes test bodies, so its `session_tracker` is
+    empty and any lock write would be wrong (see #83). `numprocesses` is set by
+    `-n auto`/`-n N` and is falsy (`None`/`0`) for single-process runs.
+    """
+    return bool(getattr(config.option, "numprocesses", None))
+
+
 def _is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     """True when this run is safe to rebuild the lock file from.
 
-    Refuses filtered runs (`-k`, `-m`, `--lf`/`--ff`), runs with failures, and
-    runs that did not exit cleanly. The `exitstatus` check catches collection
-    errors (a module that fails to import leaves `testsfailed == 0` yet a
-    non-zero exit), which would otherwise let a partial collection rebuild and
-    silently shrink the lock. Node-id / path narrowing is not detected here
-    (documented limitation).
+    Refuses filtered runs (`-k`, `-m`, `--lf`/`--ff`), positional path/nodeid
+    narrowing (`pytest tests/foo.py` or `::nodeid`), runs with failures, and runs
+    that did not exit cleanly. The `exitstatus` check catches collection errors
+    (a module that fails to import leaves `testsfailed == 0` yet a non-zero exit),
+    which would otherwise let a partial collection rebuild and silently shrink the
+    lock.
+
+    Notes
+    -----
+    Positional narrowing is refused outright (#82): a path/nodeid run can silently
+    truncate entries for files it did not collect from a shared target. An
+    alternative considered was *module-scoped preservation* — rewriting only the
+    entries for modules actually exercised this run and preserving the rest, which
+    would make file/dir narrowing safe without refusing. It was rejected because it
+    still cannot make nodeid narrowing safe (that sub-selects within a module) and
+    it stops a full run from ever cleaning entries for deleted files. Refusing is
+    simpler and safe; `ditto lock` with no positional args is the supported full
+    rebuild.
     """
     opt = session.config.option
-    if getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""):
-        return False
-    if getattr(opt, "last_failed", False) or getattr(opt, "failed_first", False):
+    # Any truthy signal here means the run was narrowed or filtered and is not
+    # authoritative over the full keyspace. Add new narrowing options to the tuple.
+    narrowing = (
+        getattr(opt, "keyword", ""),  # -k
+        getattr(opt, "markexpr", ""),  # -m
+        getattr(opt, "last_failed", False),  # --lf
+        getattr(opt, "failed_first", False),  # --ff
+        getattr(opt, "file_or_dir", None),  # positional path/nodeid args
+    )
+    if any(narrowing):
         return False
     return session.testsfailed == 0 and exitstatus == 0
 
@@ -659,7 +696,15 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
     """
     grouped = _grouped(session_tracker.lock_accessed)
     path = config.rootpath / LOCKFILE_NAME
-    existing = read_lockfile(path)
+    # An authoritative rebuild must be able to recover a corrupt lock file, so a
+    # parse failure of the existing file is downgraded to "start fresh" rather
+    # than aborting (see #85). Entries for unexercised targets in a corrupt file
+    # are unrecoverable, which is acceptable for a from-scratch rebuild.
+    try:
+        existing = read_lockfile(path)
+    except DittoLockFileError as exc:
+        warnings.warn(f"Replacing unreadable {LOCKFILE_NAME} ({exc}).", stacklevel=1)
+        existing = None
     targets = dict(existing.targets) if existing is not None else {}
     for (target_id, scheme), entries in grouped.items():
         # A target's scheme is intrinsic to its id; preserve the existing one
@@ -792,20 +837,42 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "--ditto-introspect", default=""
     ):
         _warn_if_lockfile_ignored(config)
-        try:
-            if config.getoption("--ditto-lock", default=False):
-                if _is_authoritative_run(session, exitstatus):
-                    _rewrite_lockfile(config)
-                else:
-                    warnings.warn(
-                        "--ditto-lock requires a full run (no -k/-m/--lf and no "
-                        "failures); leaving ditto.lock unchanged.",
-                        stacklevel=1,
-                    )
+        is_lock = config.getoption("--ditto-lock", default=False)
+        if _xdist_is_distributing(config):
+            # The controller saw no snapshots under distribution, so it cannot
+            # write the lock correctly (see #83). Refuse an explicit rebuild;
+            # only warn for the passive append path.
+            if is_lock:
+                warnings.warn(
+                    "--ditto-lock cannot rebuild ditto.lock under pytest-xdist "
+                    "distribution; run without -n.",
+                    stacklevel=1,
+                )
+                _fail_session(session)
             else:
-                _append_lockfile(config)
-        except Exception as exc:  # never crash a run over a lock-file write
-            warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
+                warnings.warn(
+                    f"{LOCKFILE_NAME} is not maintained under pytest-xdist "
+                    "distribution (-n); run single-process or `ditto lock` to "
+                    "update it.",
+                    stacklevel=1,
+                )
+        else:
+            try:
+                if is_lock:
+                    if _is_authoritative_run(session, exitstatus):
+                        _rewrite_lockfile(config)
+                    else:
+                        warnings.warn(
+                            "--ditto-lock requires a full run (no -k/-m/--lf, no "
+                            "path/nodeid args, and no failures); leaving "
+                            "ditto.lock unchanged.",
+                            stacklevel=1,
+                        )
+                        _fail_session(session)
+                else:
+                    _append_lockfile(config)
+            except Exception as exc:  # never crash a run over a lock-file write
+                warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:
