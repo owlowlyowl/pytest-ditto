@@ -9,6 +9,25 @@ on:
     branches: [main]
 
 jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.69.0
+          cache: true
+          environments: lint
+
+      - name: Run basedpyright
+        run: pixi run -e lint typecheck
+
   test:
     name: Test (Python 3.${{ matrix.python-version }})
     runs-on: ubuntu-latest

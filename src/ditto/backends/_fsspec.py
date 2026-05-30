@@ -73,7 +73,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         p = self._full_path(key)
         try:
             with self._fs.open(p, "rb") as f:
-                return f.read()
+                return f.read()  # type: ignore[return-value]  # fsspec binary mode
         except FileNotFoundError:
             raise KeyError(key)
 
@@ -82,7 +82,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         parent = posixpath.dirname(p)
         self._fs.makedirs(parent, exist_ok=True)
         with self._fs.open(p, "wb") as f:
-            f.write(value)
+            f.write(value)  # type: ignore[arg-type]  # fsspec binary mode
 
     def __delitem__(self, key: str) -> None:
         p = self._full_path(key)
@@ -118,7 +118,8 @@ class FsspecMapping(MutableMapping[str, bytes]):
         if not self._fs.exists(self._root):
             return
         prefix = self._root + "/"
-        for path, info in self._fs.find(self._root, detail=True).items():
+        entries: dict[str, dict[str, object]] = self._fs.find(self._root, detail=True)  # type: ignore[assignment]
+        for path, info in entries.items():
             if not path.startswith(prefix):
                 continue
-            yield path[len(prefix) :], int(info.get("size") or 0), _info_mtime(info)
+            yield path[len(prefix) :], int(info.get("size") or 0), _info_mtime(info)  # type: ignore[arg-type]

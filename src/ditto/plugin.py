@@ -506,7 +506,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     module = request.path.relative_to(rootdir).with_suffix("").as_posix()
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
-    update = request.config.getoption("--ditto-update", default=False)
+    update: bool = request.config.getoption("--ditto-update", default=False)  # type: ignore[assignment]
 
     mark_target, mark_profile = _parse_mark_target_selection(marks)
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)

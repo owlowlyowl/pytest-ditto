@@ -144,6 +144,10 @@ line-ending = "auto"
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
@@ -156,11 +160,11 @@ pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
 
 [tool.pixi.feature.lint.pypi-dependencies]
-ty = ">=0.0.0a1"
+basedpyright = ">=1.29"
 
 [tool.pixi.feature.lint.tasks]
 lint = "pre-commit run --all"
-ty = "ty check src/"
+typecheck = "basedpyright src/"
 
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.3,<9"
