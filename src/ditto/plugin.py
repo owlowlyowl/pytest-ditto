@@ -669,6 +669,27 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
         write_lockfile(path, lock)
 
 
+def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
+    """Warn if ditto.lock matches a .gitignore pattern — it must be committed."""
+    gitignore = config.rootpath / ".gitignore"
+    if not gitignore.exists():
+        return
+    patterns = {
+        line.strip()
+        for line in gitignore.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    # Exact-match only — a literal `ditto.lock` / `/ditto.lock` line. Broader
+    # globs (e.g. `*.lock`) are not detected; full gitignore semantics are out
+    # of scope for a best-effort warning.
+    if LOCKFILE_NAME in patterns or f"/{LOCKFILE_NAME}" in patterns:
+        warnings.warn(
+            f"{LOCKFILE_NAME} matches a .gitignore pattern but must be committed "
+            "to do its job; remove the ignore rule.",
+            stacklevel=1,
+        )
+
+
 def _validate_target_config(config: pytest.Config) -> None:
     """Raise if both ditto_target and ditto_target_profile are configured."""
     if config.getini("ditto_target") and config.getini("ditto_target_profile"):
@@ -765,6 +786,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if not _is_xdist_worker(config) and not config.getoption(
         "--ditto-introspect", default=""
     ):
+        _warn_if_lockfile_ignored(config)
         try:
             if config.getoption("--ditto-lock", default=False):
                 if _is_authoritative_run(session, exitstatus):

@@ -113,3 +113,13 @@ def test_ditto_lock_preserves_unexercised_targets(pytester):
     pytester.runpytest_subprocess("--ditto-lock")
 
     assert any("other/test_x.py::test_x" in n for n in _nodeids_in_lockfile(pytester))
+
+
+def test_warns_when_lockfile_is_gitignored(pytester):
+    """A gitignored ditto.lock is flagged because it must be committed."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    (pytester.path / ".gitignore").write_text("ditto.lock\n")
+
+    result = pytester.runpytest_subprocess()
+
+    result.stdout.fnmatch_lines(["*ditto.lock*gitignore*"])
