@@ -8,7 +8,13 @@ from ditto._lockfile import read_lockfile, write_lockfile
 from ditto._lockfile import portable_target_id, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
-from ditto.snapshot import _SessionTracker, LockSeen, Snapshot, resolve_snapshot, session_tracker
+from ditto.snapshot import (
+    _SessionTracker,
+    LockSeen,
+    Snapshot,
+    resolve_snapshot,
+    session_tracker,
+)
 from ditto.backends import FsspecMapping
 from ditto.recorders import default as _default_recorder
 
@@ -111,7 +117,9 @@ def test_raises_when_lockfile_is_corrupt(tmp_path):
 
 def test_relativises_file_uri_to_rootdir():
     """A file:// target becomes a rootdir-relative, machine-independent id."""
-    actual = portable_target_id("file:///home/u/proj/tests/api/.ditto", Path("/home/u/proj"))
+    actual = portable_target_id(
+        "file:///home/u/proj/tests/api/.ditto", Path("/home/u/proj")
+    )
 
     expected = "tests/api/.ditto"
     assert actual == expected
