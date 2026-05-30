@@ -327,6 +327,26 @@ def cmd_prune(pytest_args):
     sys.exit(result.returncode)
 
 
+@cli.command(
+    name="lock",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
+def cmd_lock(pytest_args):
+    """Rebuild ditto.lock from current snapshots (full run; values unchanged).
+
+    \b
+    Examples:
+      ditto lock
+      ditto lock tests/ci/
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--ditto-lock", *pytest_args],
+        check=False,
+    )
+    sys.exit(result.returncode)
+
+
 @cli.command(name="list")
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)

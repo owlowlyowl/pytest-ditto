@@ -19,7 +19,10 @@ from ditto.snapshot import LockSeen, SnapshotKey, session_tracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
 from ditto._lockfile import (
     LockEntry,
+    LockFile,
+    LockTarget,
     LOCKFILE_NAME,
+    LOCKFILE_VERSION,
     merge_append,
     portable_target_id,
     read_lockfile,
@@ -569,6 +572,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "to introspect backends. Combine with --setup-only."
         ),
     )
+    group.addoption(
+        "--ditto-lock",
+        action="store_true",
+        default=False,
+        help=(
+            "Rebuild ditto.lock from the snapshots exercised by this run, without "
+            "rewriting snapshot values. Requires a full (unfiltered, passing) run."
+        ),
+    )
     parser.addini(
         "ditto_target",
         help=(
@@ -616,6 +628,43 @@ def _append_lockfile(config: pytest.Config) -> None:
     lock = existing
     for (target_id, scheme), entries in grouped.items():
         lock = merge_append(lock, target_id, scheme, entries)
+    if lock != existing:
+        write_lockfile(path, lock)
+
+
+def _is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
+    """True when this run is safe to rebuild the lock file from.
+
+    Refuses filtered runs (`-k`, `-m`, `--lf`/`--ff`), runs with failures, and
+    runs that did not exit cleanly. The `exitstatus` check catches collection
+    errors (a module that fails to import leaves `testsfailed == 0` yet a
+    non-zero exit), which would otherwise let a partial collection rebuild and
+    silently shrink the lock. Node-id / path narrowing is not detected here
+    (documented limitation).
+    """
+    opt = session.config.option
+    if getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""):
+        return False
+    if getattr(opt, "last_failed", False) or getattr(opt, "failed_first", False):
+        return False
+    return session.testsfailed == 0 and exitstatus == 0
+
+
+def _rewrite_lockfile(config: pytest.Config) -> None:
+    """Rewrite each exercised target's entries to this session's accessed-or-created set."""
+    grouped = _grouped(session_tracker.lock_accessed)
+    path = config.rootpath / LOCKFILE_NAME
+    existing = read_lockfile(path)
+    targets = dict(existing.targets) if existing is not None else {}
+    for (target_id, scheme), entries in grouped.items():
+        # A target's scheme is intrinsic to its id; preserve the existing one
+        # (matching merge_append) and only use the observed scheme for a new target.
+        current = targets.get(target_id)
+        target_scheme = current.scheme if current is not None else scheme
+        targets[target_id] = LockTarget(
+            scheme=target_scheme, entries=tuple(sorted(set(entries)))
+        )
+    lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
     if lock != existing:
         write_lockfile(path, lock)
 
@@ -717,7 +766,17 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         "--ditto-introspect", default=""
     ):
         try:
-            _append_lockfile(config)
+            if config.getoption("--ditto-lock", default=False):
+                if _is_authoritative_run(session, exitstatus):
+                    _rewrite_lockfile(config)
+                else:
+                    warnings.warn(
+                        "--ditto-lock requires a full run (no -k/-m/--lf and no "
+                        "failures); leaving ditto.lock unchanged.",
+                        stacklevel=1,
+                    )
+            else:
+                _append_lockfile(config)
         except Exception as exc:  # never crash a run over a lock-file write
             warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
 
