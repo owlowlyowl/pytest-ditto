@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,6 +23,7 @@ __all__ = (
     "write_lockfile",
     "portable_target_id",
     "storage_key",
+    "merge_append",
 )
 
 LOCKFILE_VERSION = 1
@@ -149,3 +151,25 @@ def storage_key(entry: LockEntry, scheme: str) -> str:
     module, group = _split_nodeid(entry.nodeid)
     sk = SnapshotKey(module, group, entry.key, entry.recorder)
     return _flat_key(sk) if scheme == "file" else str(sk)
+
+
+def merge_append(
+    existing: LockFile | None,
+    target_id: str,
+    scheme: str,
+    new_entries: Iterable[LockEntry],
+) -> LockFile:
+    """Return a new `LockFile` with `new_entries` unioned into `target_id`.
+
+    Append-only: existing entries (in this and every other target) are preserved.
+    Result entries are de-duplicated and sorted.
+    """
+    targets = dict(existing.targets) if existing is not None else {}
+    current = targets.get(target_id)
+    merged = set(current.entries) if current is not None else set()
+    merged.update(new_entries)
+    # A target's scheme is intrinsic to its id; preserve the existing one and only
+    # fall back to the caller-supplied scheme when creating a new target.
+    target_scheme = current.scheme if current is not None else scheme
+    targets[target_id] = LockTarget(scheme=target_scheme, entries=tuple(sorted(merged)))
+    return LockFile(version=LOCKFILE_VERSION, targets=targets)
