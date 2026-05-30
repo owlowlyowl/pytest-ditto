@@ -17,6 +17,7 @@ import fsspec.core
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
 from ditto.snapshot import SnapshotKey, session_tracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
+from ditto._lockfile import portable_target_id
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -527,6 +528,8 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         _backend=backend,
         recorder=recorder,
         update=update,
+        nodeid=request.node.nodeid,
+        target_id=portable_target_id(abs_uri, rootdir),
     )
 
 

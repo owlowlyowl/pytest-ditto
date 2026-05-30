@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import fsspec
 import pytest
 
 from ditto._lockfile import LockEntry, LockTarget, LockFile, serialise, deserialise
@@ -7,7 +8,9 @@ from ditto._lockfile import read_lockfile, write_lockfile
 from ditto._lockfile import portable_target_id, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
-from ditto.snapshot import _SessionTracker, LockSeen
+from ditto.snapshot import _SessionTracker, LockSeen, Snapshot, resolve_snapshot, session_tracker
+from ditto.backends import FsspecMapping
+from ditto.recorders import default as _default_recorder
 
 
 def _canonical_sample() -> LockFile:
@@ -209,6 +212,63 @@ def test_does_not_mutate_existing_lockfile():
     merge_append(original, "tests/api/.ditto", "file", [LockEntry("a::b", "k", "pkl")])
 
     assert original.targets == before
+
+
+def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
+    """Creating a snapshot records a created lock entry for its target."""
+    session_tracker.reset()
+    backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
+    snap = Snapshot(
+        group_name="test_foo",
+        module="tests/test_foo",
+        target=f"file://{tmp_path}/.ditto",
+        _backend=backend,
+        recorder=_default_recorder(),
+        nodeid="tests/test_foo.py::test_foo",
+        target_id="tests/.ditto",
+    )
+
+    resolve_snapshot(snap, 123, "k")
+
+    expected = LockSeen(
+        target_id="tests/.ditto",
+        scheme="file",
+        nodeid="tests/test_foo.py::test_foo",
+        key="k",
+        recorder="pkl",
+    )
+    assert expected in session_tracker.lock_created
+    session_tracker.reset()
+
+
+def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
+    """Resolving an already-stored snapshot records access but not creation."""
+    session_tracker.reset()
+    backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
+    snap = Snapshot(
+        group_name="test_foo",
+        module="tests/test_foo",
+        target=f"file://{tmp_path}/.ditto",
+        _backend=backend,
+        recorder=_default_recorder(),
+        nodeid="tests/test_foo.py::test_foo",
+        target_id="tests/.ditto",
+    )
+    resolve_snapshot(snap, 123, "k")  # first call creates and records it
+    session_tracker.reset()  # clear observations; the stored snapshot remains on disk
+
+    resolve_snapshot(snap, 123, "k")
+
+    seen = LockSeen(
+        target_id="tests/.ditto",
+        scheme="file",
+        nodeid="tests/test_foo.py::test_foo",
+        key="k",
+        recorder="pkl",
+    )
+    assert seen in session_tracker.lock_accessed
+    assert seen not in session_tracker.lock_created
+    session_tracker.reset()
 
 
 def test_records_entry_as_created_and_accessed_when_created():
