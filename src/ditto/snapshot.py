@@ -207,6 +207,11 @@ class Snapshot:
         Serialisation strategy. Defaults to pickle.
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
+    nodeid : str
+        Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
+        Used to build lock-file entries. Empty when constructed outside the fixture.
+    target_id : str
+        Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
     """
 
     group_name: str
@@ -215,6 +220,8 @@ class Snapshot:
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
     update: bool = False
+    nodeid: str = ""
+    target_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.module:
@@ -296,6 +303,18 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
 
     store = snapshot._store()
     exists = storage_key in store
+
+    if snapshot.target_id:
+        session_tracker.record_lock_seen(
+            LockSeen(
+                target_id=snapshot.target_id,
+                scheme=urlparse(snapshot.target).scheme,
+                nodeid=snapshot.nodeid,
+                key=key,
+                recorder=snapshot.recorder.extension,
+            ),
+            created=not exists,
+        )
 
     if not exists or snapshot.update:
         store[storage_key] = data
