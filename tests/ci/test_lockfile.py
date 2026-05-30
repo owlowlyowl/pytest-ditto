@@ -7,6 +7,7 @@ from ditto._lockfile import read_lockfile, write_lockfile
 from ditto._lockfile import portable_target_id, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
+from ditto.snapshot import _SessionTracker, LockSeen
 
 
 def _canonical_sample() -> LockFile:
@@ -208,3 +209,39 @@ def test_does_not_mutate_existing_lockfile():
     merge_append(original, "tests/api/.ditto", "file", [LockEntry("a::b", "k", "pkl")])
 
     assert original.targets == before
+
+
+def test_records_entry_as_created_and_accessed_when_created():
+    """A first-write observation is recorded as both created and accessed."""
+    tracker = _SessionTracker()
+    seen = LockSeen("tests/.ditto", "file", "tests/test_a.py::test_a", "k", "pkl")
+
+    tracker.record_lock_seen(seen, created=True)
+
+    assert seen in tracker.lock_created
+    assert seen in tracker.lock_accessed
+
+
+def test_records_entry_as_accessed_only_when_not_created():
+    """Loading an existing snapshot records access but not creation."""
+    tracker = _SessionTracker()
+    seen = LockSeen("tests/.ditto", "file", "tests/test_a.py::test_a", "k", "pkl")
+
+    tracker.record_lock_seen(seen, created=False)
+
+    assert seen not in tracker.lock_created
+    assert seen in tracker.lock_accessed
+
+
+def test_clears_lock_sets_on_reset():
+    """Resetting the tracker drops all recorded lock observations."""
+    tracker = _SessionTracker()
+    tracker.record_lock_seen(
+        LockSeen("tests/.ditto", "file", "tests/test_a.py::test_a", "k", "pkl"),
+        created=True,
+    )
+
+    tracker.reset()
+
+    assert not tracker.lock_created
+    assert not tracker.lock_accessed
