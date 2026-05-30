@@ -23,11 +23,14 @@ from ditto._lockfile import (
     LockTarget,
     LOCKFILE_NAME,
     LOCKFILE_VERSION,
+    _split_nodeid,
     merge_append,
     portable_target_id,
     read_lockfile,
+    storage_key,
     write_lockfile,
 )
+from ditto._reconcile import diff_backend, owned_prefixes
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -520,6 +523,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     marks = list(request.node.iter_markers(name="record"))
     recorder = _resolve_recorder(marks)
     update: bool = request.config.getoption("--ditto-update", default=False)  # type: ignore[assignment]
+    readonly: bool = request.config.getoption("--ditto-verify", default=False)  # type: ignore[assignment]
 
     mark_target, mark_profile = _parse_mark_target_selection(marks)
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
@@ -543,6 +547,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         _backend=backend,
         recorder=recorder,
         update=update,
+        readonly=readonly,
         nodeid=request.node.nodeid,
         target_id=portable_target_id(abs_uri, rootdir),
     )
@@ -584,6 +589,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=(
             "Rebuild ditto.lock from the snapshots exercised by this run, without "
             "rewriting snapshot values. Requires a full (unfiltered, passing) run."
+        ),
+    )
+    group.addoption(
+        "--ditto-verify",
+        action="store_true",
+        default=False,
+        help=(
+            "Read-only: fail the run if the live backend has drifted from "
+            "ditto.lock (missing, orphan, or unrecorded snapshots)."
         ),
     )
     parser.addini(
@@ -749,6 +763,106 @@ def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
         )
 
 
+def _verify_target(
+    target_id: str,
+    scheme: str,
+    backend: MutableMapping[str, bytes],
+    lock: LockFile | None,
+    session_modules: set[str],
+    created_keys: set[str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Return (missing, orphan, unsynced) storage keys for one target.
+
+    `unsynced` is every key produced this run that the lock does not record
+    (whether or not it reached the backend — read-only verify blocks the write,
+    so an intended new snapshot never lands on the backend). `orphan` is a backend
+    key, absent from the lock, that was not produced this run (e.g. a deleted
+    test's leftover). `missing` is a lock key absent from the backend.
+    """
+    lock_target = lock.targets.get(target_id) if lock is not None else None
+    entries = lock_target.entries if lock_target is not None else ()
+    lock_keys = {storage_key(e, scheme) for e in entries}
+    lock_modules = {_split_nodeid(e.nodeid)[0] for e in entries}
+    owned = owned_prefixes(session_modules | lock_modules, scheme)
+    result = diff_backend(lock_keys, set(backend), owned)
+    # Orphans produced this run: in backend but not in lock, and created this run.
+    # Also catch intended creates that were blocked by read-only mode and never
+    # reached the backend (created this run, not in lock, not on backend).
+    unsynced_set = created_keys - lock_keys
+    unsynced = sorted(unsynced_set)
+    orphan = [k for k in result.orphan if k not in unsynced_set]
+    return list(result.missing), orphan, unsynced
+
+
+def _verify_report_error(message: str) -> None:
+    print(f"ditto verify: {message}")
+
+
+def _verify_report_drift(
+    missing: list[str], orphan: list[str], unsynced: list[str]
+) -> None:
+    print("ditto verify: lock drift detected")
+    for k in sorted(missing):
+        print(f"  missing (recorded in lock, absent from backend): {k}")
+    for k in sorted(orphan):
+        print(f"  orphan (in backend, not in lock): {k}")
+    for k in sorted(unsynced):
+        print(f"  unsynced (produced this run, not in lock — run `ditto lock`): {k}")
+
+
+def _run_verify(session: pytest.Session) -> None:
+    """Verify every exercised target against ditto.lock; fail the session on drift."""
+    config = session.config
+    try:
+        lock = read_lockfile(config.rootpath / LOCKFILE_NAME)
+    except DittoLockFileError as exc:
+        _verify_report_error(str(exc))
+        _fail_session(session)
+        return
+    if lock is None:
+        _verify_report_error(
+            f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one."
+        )
+        _fail_session(session)
+        return
+
+    modules_by_target: dict[str, set[str]] = {}
+    created_by_target: dict[str, set[str]] = {}
+    for seen in session_tracker.lock_accessed:
+        modules_by_target.setdefault(seen.target_id, set()).add(
+            _split_nodeid(seen.nodeid)[0]
+        )
+    for seen in session_tracker.lock_created:
+        created_by_target.setdefault(seen.target_id, set()).add(
+            storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
+        )
+
+    all_missing: list[str] = []
+    all_orphan: list[str] = []
+    all_unsynced: list[str] = []
+    for target_id, (scheme, backend) in session_tracker.target_backends.items():
+        try:
+            missing, orphan, unsynced = _verify_target(
+                target_id,
+                scheme,
+                backend,
+                lock,
+                modules_by_target.get(target_id, set()),
+                created_by_target.get(target_id, set()),
+            )
+        except Exception as exc:  # backend unreachable, etc.
+            _verify_report_error(f"could not verify {target_id!r}: {exc}")
+            _fail_session(session)
+            continue
+        all_missing.extend(missing)
+        all_orphan.extend(orphan)
+        all_unsynced.extend(unsynced)
+
+    if all_missing or all_orphan or all_unsynced:
+        _verify_report_drift(all_missing, all_orphan, all_unsynced)
+        _fail_session(session)
+
+
 def _validate_target_config(config: pytest.Config) -> None:
     """Raise if both ditto_target and ditto_target_profile are configured."""
     if config.getini("ditto_target") and config.getini("ditto_target_profile"):
@@ -762,6 +876,14 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "record(recorder): snapshot with a specific recorder",
     )
+    if config.getoption("--ditto-verify", default=False) and (
+        config.getoption("--ditto-update", default=False)
+        or config.getoption("--ditto-lock", default=False)
+    ):
+        raise pytest.UsageError(
+            "--ditto-verify is read-only and cannot be combined with "
+            "--ditto-update or --ditto-lock."
+        )
     try:
         _validate_target_config(config)
     except DittoAmbiguousTargetError as exc:
@@ -846,6 +968,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if not _is_xdist_worker(config) and not config.getoption(
         "--ditto-introspect", default=""
     ):
+        if config.getoption("--ditto-verify", default=False):
+            _run_verify(session)
+            return
         _warn_if_lockfile_ignored(config)
         is_lock = config.getoption("--ditto-lock", default=False)
         if _xdist_is_distributing(config):

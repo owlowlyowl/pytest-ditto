@@ -219,6 +219,10 @@ class Snapshot:
         Serialisation strategy. Defaults to pickle.
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
+    readonly : bool
+        When True, never write to the backend — `resolve_snapshot` returns the
+        stored value (or the given data, if absent) without persisting. Set by
+        `--ditto-verify` so a verify run cannot recreate a deleted snapshot.
     nodeid : str
         Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
         Used to build lock-file entries. Empty when constructed outside the fixture.
@@ -232,6 +236,7 @@ class Snapshot:
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
     update: bool = False
+    readonly: bool = False
     nodeid: str = ""
     target_id: str = ""
 
@@ -330,6 +335,19 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         if snapshot.target_id
         else None
     )
+
+    if snapshot.readonly:
+        # In read-only mode (e.g. --ditto-verify) never write to the backend.
+        # Return the existing value if present, otherwise return `data` unchanged
+        # so the test assertion can still pass, but leave the backend untouched so
+        # the drift check can detect the missing key.
+        # Record as "created" when the key is absent so that the verify hook can
+        # identify intended-but-blocked new snapshots as unsynced.
+        if seen is not None:
+            session_tracker.record_lock_seen(seen, created=not exists)
+        if exists:
+            return store[storage_key]
+        return data
 
     if not exists or snapshot.update:
         store[storage_key] = data
