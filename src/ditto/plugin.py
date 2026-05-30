@@ -38,6 +38,7 @@ from ditto.exceptions import (
     DittoLockFileError,
     DittoMarkHasNoIOType,
     DittoUnknownProfileError,
+    DittoWarning,
 )
 
 
@@ -703,7 +704,11 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
     try:
         existing = read_lockfile(path)
     except DittoLockFileError as exc:
-        warnings.warn(f"Replacing unreadable {LOCKFILE_NAME} ({exc}).", stacklevel=1)
+        warnings.warn(
+            f"Replacing unreadable {LOCKFILE_NAME} ({exc}).",
+            category=DittoWarning,
+            stacklevel=1,
+        )
         existing = None
     targets = dict(existing.targets) if existing is not None else {}
     for (target_id, scheme), entries in grouped.items():
@@ -736,6 +741,7 @@ def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
         warnings.warn(
             f"{LOCKFILE_NAME} matches a .gitignore pattern but must be committed "
             "to do its job; remove the ignore rule.",
+            category=DittoWarning,
             stacklevel=1,
         )
 
@@ -813,6 +819,7 @@ def _enumerate_entries(backend: MutableMapping[str, bytes]) -> list[ManifestEntr
         warnings.warn(
             f"Failed to enumerate backend {backend!r}: {exc}; "
             "reporting it with no entries.",
+            category=DittoWarning,
             stacklevel=1,
         )
         return []
@@ -846,6 +853,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 warnings.warn(
                     "--ditto-lock cannot rebuild ditto.lock under pytest-xdist "
                     "distribution; run without -n.",
+                    category=DittoWarning,
                     stacklevel=1,
                 )
                 _fail_session(session)
@@ -854,6 +862,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     f"{LOCKFILE_NAME} is not maintained under pytest-xdist "
                     "distribution (-n); run single-process or `ditto lock` to "
                     "update it.",
+                    category=DittoWarning,
                     stacklevel=1,
                 )
         else:
@@ -866,13 +875,18 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                             "--ditto-lock requires a full run (no -k/-m/--lf, no "
                             "path/nodeid args, and no failures); leaving "
                             "ditto.lock unchanged.",
+                            category=DittoWarning,
                             stacklevel=1,
                         )
                         _fail_session(session)
                 else:
                     _append_lockfile(config)
             except Exception as exc:  # never crash a run over a lock-file write
-                warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
+                warnings.warn(
+                    f"Failed to write {LOCKFILE_NAME}: {exc}",
+                    category=DittoWarning,
+                    stacklevel=1,
+                )
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:
@@ -917,6 +931,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             warnings.warn(
                 f"Backend {record.backend!r} does not support enumeration; "
                 "skipping unused-snapshot detection for this backend.",
+                category=DittoWarning,
                 stacklevel=1,
             )
             continue
@@ -928,6 +943,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 f"Backend {record.backend!r} raised {type(exc).__name__} during "
                 f"enumeration: {exc}; skipping unused-snapshot "
                 "detection for this backend.",
+                category=DittoWarning,
                 stacklevel=1,
             )
             continue
@@ -949,6 +965,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 except Exception as exc:
                     warnings.warn(
                         f"Failed to prune snapshot {raw_key!r}: {exc}",
+                        category=DittoWarning,
                         stacklevel=1,
                     )
                 else:
@@ -992,6 +1009,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 warnings.warn(
                     f"Failed to enumerate ghost directory {ditto_dir!r}: {exc}; "
                     "skipping unused-snapshot detection for this directory.",
+                    category=DittoWarning,
                     stacklevel=1,
                 )
                 continue
@@ -1004,6 +1022,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     except Exception as exc:
                         warnings.warn(
                             f"Failed to prune snapshot {raw_key!r}: {exc}",
+                            category=DittoWarning,
                             stacklevel=1,
                         )
                     else:

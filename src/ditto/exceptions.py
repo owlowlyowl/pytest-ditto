@@ -1,5 +1,6 @@
 __all__ = (
     "DittoException",
+    "DittoWarning",
     "AdditionalMarkError",
     "DittoMarkHasNoIOType",
     "DuplicateSnapshotKeyError",
@@ -10,6 +11,15 @@ __all__ = (
     "DittoLockFileError",
     "DittoLockFileVersionError",
 )
+
+
+class DittoWarning(UserWarning):
+    """Category for all pytest-ditto advisory warnings.
+
+    Subclasses `UserWarning`, so a blanket `ignore::UserWarning` still applies;
+    use `ignore::ditto.exceptions.DittoWarning` to silence only ditto's
+    advisories, or `error::ditto.exceptions.DittoWarning` to escalate them.
+    """
 
 
 class DittoException(Exception):
