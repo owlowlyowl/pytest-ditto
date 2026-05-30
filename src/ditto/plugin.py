@@ -15,9 +15,16 @@ import fsspec
 import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.snapshot import SnapshotKey, session_tracker
+from ditto.snapshot import LockSeen, SnapshotKey, session_tracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
-from ditto._lockfile import portable_target_id
+from ditto._lockfile import (
+    LockEntry,
+    LOCKFILE_NAME,
+    merge_append,
+    portable_target_id,
+    read_lockfile,
+    write_lockfile,
+)
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -584,6 +591,35 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    """True when running inside an xdist worker subprocess."""
+    return hasattr(config, "workerinput")
+
+
+def _grouped(seen: set[LockSeen]) -> dict[tuple[str, str], list[LockEntry]]:
+    """Group lock observations by `(target_id, scheme)`."""
+    grouped: dict[tuple[str, str], list[LockEntry]] = {}
+    for obs in seen:
+        grouped.setdefault((obs.target_id, obs.scheme), []).append(
+            LockEntry(obs.nodeid, obs.key, obs.recorder)
+        )
+    return grouped
+
+
+def _append_lockfile(config: pytest.Config) -> None:
+    """Union this session's newly-created entries into `ditto.lock` (append-only)."""
+    grouped = _grouped(session_tracker.lock_created)
+    if not grouped:
+        return
+    path = config.rootpath / LOCKFILE_NAME
+    existing = read_lockfile(path)
+    lock = existing
+    for (target_id, scheme), entries in grouped.items():
+        lock = merge_append(lock, target_id, scheme, entries)
+    if lock != existing:
+        write_lockfile(path, lock)
+
+
 def _validate_target_config(config: pytest.Config) -> None:
     """Raise if both ditto_target and ditto_target_profile are configured."""
     if config.getini("ditto_target") and config.getini("ditto_target_profile"):
@@ -676,6 +712,14 @@ def _write_introspect_manifest(path: str) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
+
+    if not _is_xdist_worker(config) and not config.getoption(
+        "--ditto-introspect", default=""
+    ):
+        try:
+            _append_lockfile(config)
+        except Exception as exc:  # never crash a run over a lock-file write
+            warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:
