@@ -114,6 +114,11 @@ class _SessionTracker:
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
     lock_created: set[LockSeen] = field(default_factory=set)
     lock_accessed: set[LockSeen] = field(default_factory=set)
+    # Maps portable target_id → (scheme, live backend); populated at fixture
+    # creation so verify (and prune) can enumerate every active target's backend.
+    target_backends: dict[str, tuple[str, MutableMapping[str, bytes]]] = field(
+        default_factory=dict
+    )
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -134,6 +139,12 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
+    def register_target_backend(
+        self, target_id: str, scheme: str, backend: MutableMapping[str, bytes]
+    ) -> None:
+        """Record the live backend (and scheme) resolved for `target_id`."""
+        self.target_backends[target_id] = (scheme, backend)
+
     def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
         """Record a lock entry accessed this session; also as created on first write."""
         self.lock_accessed.add(seen)
@@ -148,6 +159,7 @@ class _SessionTracker:
         self.backend_modules.clear()
         self.lock_created.clear()
         self.lock_accessed.clear()
+        self.target_backends.clear()
 
     @property
     def records(self) -> dict[int, _BackendRecord]:

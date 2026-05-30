@@ -525,6 +525,9 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
 
     session_tracker.register_backend_module(id(backend), module)
+    session_tracker.register_target_backend(
+        portable_target_id(abs_uri, rootdir), urlparse(abs_uri).scheme, backend
+    )
 
     if request.config.getoption("--ditto-introspect", default=""):
         _introspect_backends.setdefault(abs_uri, backend)
