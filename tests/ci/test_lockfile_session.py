@@ -2,13 +2,13 @@ import json
 
 pytest_plugins = ["pytester"]
 
-TEST_MODULE = '''
+TEST_MODULE = """
 def test_alpha(snapshot):
     assert snapshot(1, key="a") == 1
 
 def test_beta(snapshot):
     assert snapshot(2, key="b") == 2
-'''
+"""
 
 
 def _nodeids_in_lockfile(pytester):
@@ -29,7 +29,7 @@ def test_creates_lockfile_entries_for_all_recorded_snapshots(pytester):
 
 
 def test_partial_run_appends_new_entry_while_keeping_existing(pytester):
-    """A later run that records a new snapshot merges it in without dropping prior entries."""
+    """A new snapshot in a later run is merged in without dropping prior entries."""
     pytester.makepyfile(test_mod=TEST_MODULE)
     pytester.runpytest_subprocess()  # records alpha and beta
 
@@ -37,10 +37,10 @@ def test_partial_run_appends_new_entry_while_keeping_existing(pytester):
     # existing ditto.lock (proving a real merge), and beta must survive.
     pytester.makepyfile(
         test_mod=TEST_MODULE
-        + '''
+        + """
 def test_gamma(snapshot):
     assert snapshot(3, key="c") == 3
-'''
+"""
     )
     pytester.runpytest_subprocess("-k", "test_gamma")
 
@@ -53,9 +53,11 @@ def _append_stale_entry(pytester):
     lock_path = pytester.path / "ditto.lock"
     data = json.loads(lock_path.read_text())
     target = next(iter(data["targets"].values()))
-    target["entries"].append(
-        {"nodeid": "test_mod.py::test_removed", "key": "z", "recorder": "pkl"}
-    )
+    target["entries"].append({
+        "nodeid": "test_mod.py::test_removed",
+        "key": "z",
+        "recorder": "pkl",
+    })
     lock_path.write_text(json.dumps(data))
 
 

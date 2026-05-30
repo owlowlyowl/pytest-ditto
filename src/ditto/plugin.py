@@ -628,7 +628,9 @@ def _append_lockfile(config: pytest.Config) -> None:
     lock = existing
     for (target_id, scheme), entries in grouped.items():
         lock = merge_append(lock, target_id, scheme, entries)
-    if lock != existing:
+    # `grouped` is non-empty (guarded above), so the loop runs and `lock` is a
+    # LockFile; the `is not None` keeps that explicit for the type checker.
+    if lock is not None and lock != existing:
         write_lockfile(path, lock)
 
 
@@ -651,7 +653,10 @@ def _is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
 
 
 def _rewrite_lockfile(config: pytest.Config) -> None:
-    """Rewrite each exercised target's entries to this session's accessed-or-created set."""
+    """Rewrite each exercised target's entries to this run's accessed-or-created set.
+
+    Targets present in the existing file but not exercised this run are preserved.
+    """
     grouped = _grouped(session_tracker.lock_accessed)
     path = config.rootpath / LOCKFILE_NAME
     existing = read_lockfile(path)
