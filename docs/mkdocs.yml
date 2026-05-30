@@ -1,0 +1,92 @@
+site_name: pytest-ditto
+site_description: Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
+site_url: https://owlowlyowl.github.io/pytest-ditto/
+repo_url: https://github.com/owlowlyowl/pytest-ditto
+repo_name: owlowlyowl/pytest-ditto
+
+docs_dir: src
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.expand
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Guides:
+    - Snapshot Fixture: guides/snapshot-fixture.md
+    - Recorders: guides/recorders.md
+    - Custom Recorders: guides/custom-recorders.md
+    - Storage Backends: guides/backends.md
+    - Custom Backends: guides/custom-backends.md
+    - unittest Support: guides/unittest.md
+    - Upgrading: guides/upgrading.md
+  - CLI Reference:
+    - Overview: cli/index.md
+    - ditto run: cli/run.md
+    - ditto update: cli/update.md
+    - ditto prune: cli/prune.md
+    - ditto list: cli/list.md
+    - ditto status: cli/status.md
+    - ditto clean: cli/clean.md
+    - ditto recorders: cli/recorders.md
+    - ditto doctor: cli/doctor.md
+    - ditto lint: cli/lint.md
+    - ditto stats: cli/stats.md
+  - API Reference:
+    - Overview: reference/index.md
+    - ditto (top-level): reference/ditto.md
+    - ditto.snapshot: reference/snapshot.md
+    - ditto.recorders: reference/recorders.md
+    - ditto.backends: reference/backends.md
+    - ditto.plugin: reference/plugin.md
+    - ditto.exceptions: reference/exceptions.md
+    - ditto.cli: reference/cli.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [../src]
+          options:
+            docstring_style: numpy
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            merge_init_into_class: true
+            members_order: source
+            show_if_no_docstring: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html

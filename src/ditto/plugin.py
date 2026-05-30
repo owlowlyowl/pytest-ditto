@@ -15,8 +15,19 @@ import fsspec
 import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.snapshot import SnapshotKey, session_tracker
+from ditto.snapshot import LockSeen, SnapshotKey, session_tracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
+from ditto._lockfile import (
+    LockEntry,
+    LockFile,
+    LockTarget,
+    LOCKFILE_NAME,
+    LOCKFILE_VERSION,
+    merge_append,
+    portable_target_id,
+    read_lockfile,
+    write_lockfile,
+)
 from ditto._report import render_session_report
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
 from ditto.exceptions import (
@@ -527,6 +538,8 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         _backend=backend,
         recorder=recorder,
         update=update,
+        nodeid=request.node.nodeid,
+        target_id=portable_target_id(abs_uri, rootdir),
     )
 
 
@@ -559,6 +572,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "to introspect backends. Combine with --setup-only."
         ),
     )
+    group.addoption(
+        "--ditto-lock",
+        action="store_true",
+        default=False,
+        help=(
+            "Rebuild ditto.lock from the snapshots exercised by this run, without "
+            "rewriting snapshot values. Requires a full (unfiltered, passing) run."
+        ),
+    )
     parser.addini(
         "ditto_target",
         help=(
@@ -579,6 +601,98 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
         default="",
     )
+
+
+def _is_xdist_worker(config: pytest.Config) -> bool:
+    """True when running inside an xdist worker subprocess."""
+    return hasattr(config, "workerinput")
+
+
+def _grouped(seen: set[LockSeen]) -> dict[tuple[str, str], list[LockEntry]]:
+    """Group lock observations by `(target_id, scheme)`."""
+    grouped: dict[tuple[str, str], list[LockEntry]] = {}
+    for obs in seen:
+        grouped.setdefault((obs.target_id, obs.scheme), []).append(
+            LockEntry(obs.nodeid, obs.key, obs.recorder)
+        )
+    return grouped
+
+
+def _append_lockfile(config: pytest.Config) -> None:
+    """Union this session's newly-created entries into `ditto.lock` (append-only)."""
+    grouped = _grouped(session_tracker.lock_created)
+    if not grouped:
+        return
+    path = config.rootpath / LOCKFILE_NAME
+    existing = read_lockfile(path)
+    lock = existing
+    for (target_id, scheme), entries in grouped.items():
+        lock = merge_append(lock, target_id, scheme, entries)
+    # `grouped` is non-empty (guarded above), so the loop runs and `lock` is a
+    # LockFile; the `is not None` keeps that explicit for the type checker.
+    if lock is not None and lock != existing:
+        write_lockfile(path, lock)
+
+
+def _is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
+    """True when this run is safe to rebuild the lock file from.
+
+    Refuses filtered runs (`-k`, `-m`, `--lf`/`--ff`), runs with failures, and
+    runs that did not exit cleanly. The `exitstatus` check catches collection
+    errors (a module that fails to import leaves `testsfailed == 0` yet a
+    non-zero exit), which would otherwise let a partial collection rebuild and
+    silently shrink the lock. Node-id / path narrowing is not detected here
+    (documented limitation).
+    """
+    opt = session.config.option
+    if getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""):
+        return False
+    if getattr(opt, "last_failed", False) or getattr(opt, "failed_first", False):
+        return False
+    return session.testsfailed == 0 and exitstatus == 0
+
+
+def _rewrite_lockfile(config: pytest.Config) -> None:
+    """Rewrite each exercised target's entries to this run's accessed-or-created set.
+
+    Targets present in the existing file but not exercised this run are preserved.
+    """
+    grouped = _grouped(session_tracker.lock_accessed)
+    path = config.rootpath / LOCKFILE_NAME
+    existing = read_lockfile(path)
+    targets = dict(existing.targets) if existing is not None else {}
+    for (target_id, scheme), entries in grouped.items():
+        # A target's scheme is intrinsic to its id; preserve the existing one
+        # (matching merge_append) and only use the observed scheme for a new target.
+        current = targets.get(target_id)
+        target_scheme = current.scheme if current is not None else scheme
+        targets[target_id] = LockTarget(
+            scheme=target_scheme, entries=tuple(sorted(set(entries)))
+        )
+    lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
+    if lock != existing:
+        write_lockfile(path, lock)
+
+
+def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
+    """Warn if ditto.lock matches a .gitignore pattern — it must be committed."""
+    gitignore = config.rootpath / ".gitignore"
+    if not gitignore.exists():
+        return
+    patterns = {
+        line.strip()
+        for line in gitignore.read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    # Exact-match only — a literal `ditto.lock` / `/ditto.lock` line. Broader
+    # globs (e.g. `*.lock`) are not detected; full gitignore semantics are out
+    # of scope for a best-effort warning.
+    if LOCKFILE_NAME in patterns or f"/{LOCKFILE_NAME}" in patterns:
+        warnings.warn(
+            f"{LOCKFILE_NAME} matches a .gitignore pattern but must be committed "
+            "to do its job; remove the ignore rule.",
+            stacklevel=1,
+        )
 
 
 def _validate_target_config(config: pytest.Config) -> None:
@@ -673,6 +787,25 @@ def _write_introspect_manifest(path: str) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
+
+    if not _is_xdist_worker(config) and not config.getoption(
+        "--ditto-introspect", default=""
+    ):
+        _warn_if_lockfile_ignored(config)
+        try:
+            if config.getoption("--ditto-lock", default=False):
+                if _is_authoritative_run(session, exitstatus):
+                    _rewrite_lockfile(config)
+                else:
+                    warnings.warn(
+                        "--ditto-lock requires a full run (no -k/-m/--lf and no "
+                        "failures); leaving ditto.lock unchanged.",
+                        stacklevel=1,
+                    )
+            else:
+                _append_lockfile(config)
+        except Exception as exc:  # never crash a run over a lock-file write
+            warnings.warn(f"Failed to write {LOCKFILE_NAME}: {exc}", stacklevel=1)
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:

@@ -7,6 +7,8 @@ __all__ = (
     "DittoUnknownProfileError",
     "DittoInvalidProfileError",
     "DittoDuplicateProfileError",
+    "DittoLockFileError",
+    "DittoLockFileVersionError",
 )
 
 
@@ -63,4 +65,17 @@ class DittoDuplicateProfileError(DittoException):
         super().__init__(
             f"Duplicate ditto target profile name(s) defined in both "
             f"ditto_target_profiles fixture and pyproject.toml: {duplicates}."
+        )
+
+
+class DittoLockFileError(DittoException):
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"Could not read ditto.lock: {detail}")
+
+
+class DittoLockFileVersionError(DittoLockFileError):
+    def __init__(self, expected: int, got: object) -> None:
+        super().__init__(
+            f"unsupported lock-file version {got!r}; expected {expected}. "
+            "Upgrade pytest-ditto."
         )

@@ -9,7 +9,7 @@ from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("Snapshot", "SnapshotKey", "session_tracker")
+__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "session_tracker")
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,32 @@ class SnapshotKey:
         return str(self)
 
 
+@dataclass(frozen=True)
+class LockSeen:
+    """A lock entry observed this session, plus where it lives.
+
+    Parameters
+    ----------
+    target_id : str
+        Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
+    scheme : str
+        The target's URI scheme, e.g. `file` or `s3`. Used to derive the storage
+        key for this entry later.
+    nodeid : str
+        Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
+    key : str
+        Per-snapshot identifier within the test.
+    recorder : str
+        Recorder extension string, e.g. `pkl`, `json`, `pandas.parquet`.
+    """
+
+    target_id: str
+    scheme: str
+    nodeid: str
+    key: str
+    recorder: str
+
+
 @dataclass
 class _BackendRecord:
     backend: MutableMapping[str, bytes]
@@ -86,6 +112,8 @@ class _SessionTracker:
     # so modules that request snapshot but make no calls are still tracked. Used by
     # Pass 1 prune to restrict enumeration to owned key prefixes only.
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
+    lock_created: set[LockSeen] = field(default_factory=set)
+    lock_accessed: set[LockSeen] = field(default_factory=set)
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -106,12 +134,20 @@ class _SessionTracker:
             self._records[backend_id] = _BackendRecord(backend=backend, key_of=key_of)
         self._records[backend_id].accessed.add(key)
 
+    def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
+        """Record a lock entry accessed this session; also as created on first write."""
+        self.lock_accessed.add(seen)
+        if created:
+            self.lock_created.add(seen)
+
     def reset(self) -> None:
         self._records.clear()
         self.created.clear()
         self.updated.clear()
         self.used_keys.clear()
         self.backend_modules.clear()
+        self.lock_created.clear()
+        self.lock_accessed.clear()
 
     @property
     def records(self) -> dict[int, _BackendRecord]:
@@ -171,6 +207,11 @@ class Snapshot:
         Serialisation strategy. Defaults to pickle.
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
+    nodeid : str
+        Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
+        Used to build lock-file entries. Empty when constructed outside the fixture.
+    target_id : str
+        Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
     """
 
     group_name: str
@@ -179,6 +220,8 @@ class Snapshot:
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
     update: bool = False
+    nodeid: str = ""
+    target_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.module:
@@ -261,6 +304,21 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     store = snapshot._store()
     exists = storage_key in store
 
+    # Build the lock observation up front (pure), but only record it AFTER the
+    # backend access succeeds — recording before the write would leave a phantom
+    # lock entry for a snapshot that failed to persist (see #84).
+    seen = (
+        LockSeen(
+            target_id=snapshot.target_id,
+            scheme=urlparse(snapshot.target).scheme,
+            nodeid=snapshot.nodeid,
+            key=key,
+            recorder=snapshot.recorder.extension,
+        )
+        if snapshot.target_id
+        else None
+    )
+
     if not exists or snapshot.update:
         store[storage_key] = data
         (
@@ -268,5 +326,11 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             if (snapshot.update and exists)
             else session_tracker.created
         ).append(sk)
+        if seen is not None:
+            session_tracker.record_lock_seen(seen, created=not exists)
         return data
-    return store[storage_key]
+
+    value = store[storage_key]
+    if seen is not None:
+        session_tracker.record_lock_seen(seen, created=False)
+    return value
