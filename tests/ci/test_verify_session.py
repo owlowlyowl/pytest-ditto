@@ -1,5 +1,9 @@
 import json
+import shutil
+import subprocess
 import types
+
+import pytest
 
 from ditto.exceptions import DittoWarning
 from ditto.plugin import _warn_if_lockfile_ignored
@@ -151,3 +155,18 @@ def test_verify_partial_run_warns_but_passes_when_clean(pytester):
     assert result.ret == 0
     # Match the warning text specifically (not the temp-dir name in the header).
     result.stdout.fnmatch_lines(["*partial verification*"])
+
+
+def test_ditto_verify_cli_fails_on_drift(pytester, monkeypatch):
+    """`ditto verify` shells out to pytest --ditto-verify and propagates failure."""
+    if shutil.which("ditto") is None:
+        pytest.skip("ditto console script not on PATH in this environment")
+    _seed_lock(pytester)
+    snap_dir = pytester.path / ".ditto"
+    next(p for p in snap_dir.iterdir() if "test_alpha" in p.name).unlink()
+
+    monkeypatch.chdir(pytester.path)
+    result = subprocess.run(["ditto", "verify"], capture_output=True)
+
+    assert result.returncode != 0
+    assert b"drift" in result.stdout  # a verify-specific failure, not a generic error
