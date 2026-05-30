@@ -127,6 +127,7 @@ preview = true
 src = ["src/ditto"]
 line-length = 88
 target-version = "py312"
+exclude = ["src/ditto/_version.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "PERF", "W"]
@@ -147,6 +148,7 @@ convention = "numpy"
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
+include = ["src"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -164,7 +166,8 @@ basedpyright = ">=1.29"
 
 [tool.pixi.feature.lint.tasks]
 lint = "pre-commit run --all"
-typecheck = "basedpyright src/"
+typecheck = "pre-commit run basedpyright --all-files"
+ruff-lint = "pre-commit run ruff-check --all-files"
 
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.3,<9"
