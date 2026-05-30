@@ -129,3 +129,25 @@ def test_verify_cannot_combine_with_update(pytester):
 
     assert result.ret != 0
     result.stderr.fnmatch_lines(["*read-only*"])
+
+
+def test_verify_fails_when_no_lockfile_exists(pytester):
+    """Verifying with no ditto.lock is an error, not a silent pass."""
+    pytester.makepyfile(test_mod=VERIFY_MODULE)
+    # no prior run, so no ditto.lock
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    assert result.ret != 0
+    result.stdout.fnmatch_lines(["*no ditto.lock*"])
+
+
+def test_verify_partial_run_warns_but_passes_when_clean(pytester):
+    """A clean partial verify passes but warns it was partial."""
+    _seed_lock(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-verify", "-k", "test_alpha")
+
+    assert result.ret == 0
+    # Match the warning text specifically (not the temp-dir name in the header).
+    result.stdout.fnmatch_lines(["*partial verification*"])

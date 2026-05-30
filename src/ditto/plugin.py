@@ -837,6 +837,16 @@ def _run_verify(session: pytest.Session) -> None:
             storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
         )
 
+    opt = session.config.option
+    is_partial = bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""))
+    if is_partial:
+        warnings.warn(
+            "ditto verify ran on a partial selection; only exercised targets "
+            "were checked (partial verification).",
+            category=DittoWarning,
+            stacklevel=1,
+        )
+
     all_missing: list[str] = []
     all_orphan: list[str] = []
     all_unsynced: list[str] = []
