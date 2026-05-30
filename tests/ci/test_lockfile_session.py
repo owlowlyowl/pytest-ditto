@@ -1,4 +1,7 @@
 import json
+import types
+
+from ditto.plugin import _xdist_is_distributing
 
 pytest_plugins = ["pytester"]
 
@@ -92,8 +95,9 @@ def test_ditto_lock_refuses_to_rebuild_on_filtered_run(pytester):
     pytester.runpytest_subprocess()
     _append_stale_entry(pytester)
 
-    pytester.runpytest_subprocess("--ditto-lock", "-k", "test_alpha")
+    result = pytester.runpytest_subprocess("--ditto-lock", "-k", "test_alpha")
 
+    assert result.ret != 0  # an explicit refusal fails the command
     assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
 
 
@@ -127,18 +131,65 @@ def test_warns_when_lockfile_is_gitignored(pytester):
     result.stdout.fnmatch_lines(["*ditto.lock*gitignore*"])
 
 
-PHANTOM_MODULE = '''
+PHANTOM_MODULE = """
 def test_phantom(snapshot):
     snapshot(lambda x: x, key="k")  # unpicklable -> write fails -> test errors
-'''
+"""
 
 
 def test_failed_snapshot_write_leaves_no_phantom_lock_entry(pytester):
     """A snapshot whose write fails must not leave an entry in ditto.lock."""
     pytester.makepyfile(test_mod=PHANTOM_MODULE)
 
-    pytester.runpytest_subprocess()  # the snapshot write raises; the test fails
+    result = pytester.runpytest_subprocess()
 
+    assert result.ret != 0  # the write raised, so the scenario actually triggered
     lock = pytester.path / "ditto.lock"
     if lock.exists():
         assert not any("test_phantom" in n for n in _nodeids_in_lockfile(pytester))
+
+
+def test_ditto_lock_refuses_path_narrowed_run(pytester):
+    """--ditto-lock with a positional path arg refuses and does not truncate."""
+    pytester.makepyfile(
+        test_a="def test_a(snapshot):\n    assert snapshot(1, key='a') == 1\n",
+        test_b="def test_b(snapshot):\n    assert snapshot(2, key='b') == 2\n",
+    )
+    pytester.runpytest_subprocess()  # full run records both test_a and test_b
+
+    result = pytester.runpytest_subprocess("--ditto-lock", "test_a.py")
+
+    assert result.ret != 0  # path-narrowed rebuild is refused
+    nodeids = _nodeids_in_lockfile(pytester)
+    assert any("test_a" in n for n in nodeids)
+    assert any("test_b" in n for n in nodeids)  # NOT truncated
+
+
+def test_ditto_lock_replaces_corrupt_lock_file(pytester):
+    """--ditto-lock rebuilds a corrupt ditto.lock instead of leaving it broken."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess()  # valid lock with alpha + beta
+    (pytester.path / "ditto.lock").write_text("{not json")  # corrupt it
+
+    result = pytester.runpytest_subprocess("--ditto-lock")
+
+    assert result.ret == 0
+    nodeids = _nodeids_in_lockfile(pytester)  # raises if still corrupt
+    assert any("test_alpha" in n for n in nodeids)
+    assert any("test_beta" in n for n in nodeids)
+
+
+def test_xdist_distribution_detected_when_numprocesses_set():
+    """A positive -n value marks the run as xdist-distributed."""
+    config = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=4))
+
+    assert _xdist_is_distributing(config) is True
+
+
+def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
+    """No -n (or -n0) is a single-process run."""
+    absent = types.SimpleNamespace(option=types.SimpleNamespace())
+    zero = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=0))
+
+    assert _xdist_is_distributing(absent) is False
+    assert _xdist_is_distributing(zero) is False
