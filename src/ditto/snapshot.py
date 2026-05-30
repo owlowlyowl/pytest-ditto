@@ -304,17 +304,20 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     store = snapshot._store()
     exists = storage_key in store
 
-    if snapshot.target_id:
-        session_tracker.record_lock_seen(
-            LockSeen(
-                target_id=snapshot.target_id,
-                scheme=urlparse(snapshot.target).scheme,
-                nodeid=snapshot.nodeid,
-                key=key,
-                recorder=snapshot.recorder.extension,
-            ),
-            created=not exists,
+    # Build the lock observation up front (pure), but only record it AFTER the
+    # backend access succeeds — recording before the write would leave a phantom
+    # lock entry for a snapshot that failed to persist (see #84).
+    seen = (
+        LockSeen(
+            target_id=snapshot.target_id,
+            scheme=urlparse(snapshot.target).scheme,
+            nodeid=snapshot.nodeid,
+            key=key,
+            recorder=snapshot.recorder.extension,
         )
+        if snapshot.target_id
+        else None
+    )
 
     if not exists or snapshot.update:
         store[storage_key] = data
@@ -323,5 +326,11 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             if (snapshot.update and exists)
             else session_tracker.created
         ).append(sk)
+        if seen is not None:
+            session_tracker.record_lock_seen(seen, created=not exists)
         return data
-    return store[storage_key]
+
+    value = store[storage_key]
+    if seen is not None:
+        session_tracker.record_lock_seen(seen, created=False)
+    return value
