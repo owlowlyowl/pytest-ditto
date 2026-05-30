@@ -889,10 +889,11 @@ def pytest_configure(config: pytest.Config) -> None:
     if config.getoption("--ditto-verify", default=False) and (
         config.getoption("--ditto-update", default=False)
         or config.getoption("--ditto-lock", default=False)
+        or config.getoption("--ditto-prune", default=False)
     ):
         raise pytest.UsageError(
             "--ditto-verify is read-only and cannot be combined with "
-            "--ditto-update or --ditto-lock."
+            "--ditto-update, --ditto-lock, or --ditto-prune."
         )
     try:
         _validate_target_config(config)
