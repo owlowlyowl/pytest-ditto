@@ -182,4 +182,3 @@ def _wait_for_postgres(target: str, *, user: str, password: str) -> None:
             connection.close()
             return
     raise RuntimeError(f"Postgres did not become ready: {last_error}")
-

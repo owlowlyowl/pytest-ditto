@@ -132,7 +132,9 @@ def assert_lock_verify_and_recover(
         env,
         workspace.artifacts / "07-backend-entries-recovered.txt",
     )
-    assert any(missing_fragment in entry for entry in recovered_entries), recovered_entries
+    assert any(
+        missing_fragment in entry for entry in recovered_entries
+    ), recovered_entries
 
     final_verify = run_ditto(workspace, "08-verify-final", "verify", env=env)
     _assert_ok(final_verify)

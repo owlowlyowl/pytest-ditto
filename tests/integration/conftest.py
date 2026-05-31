@@ -68,9 +68,8 @@ def redis_service() -> Iterator[RedisService]:
     except RuntimeError as exc:
         pytest.skip(str(exc))
 
-    print(
-        f"[integration:redis] container={service.container_name} target={service.target}"
-    )
+    print(f"[integration:redis] container={service.container_name}")
+    print(f"[integration:redis] target={service.target}")
     try:
         yield service
     finally:
@@ -92,4 +91,3 @@ def postgres_service() -> Iterator[PostgresService]:
         yield service
     finally:
         stop_container(service.container_name)
-

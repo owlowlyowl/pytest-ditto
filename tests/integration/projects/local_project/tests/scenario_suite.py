@@ -21,4 +21,3 @@ def test_alpha(snapshot):
 def test_beta(snapshot):
     expected = _payload("beta")
     assert snapshot(expected, key="beta") == expected
-
