@@ -99,6 +99,10 @@ addopts = [
   "--junit-xml=.pytest/test-results.xml",
 ]
 junit_family = "xunit2"
+markers = [
+    "docker: requires Docker-backed backend services",
+    "integration: standalone backend and CLI lifecycle coverage",
+]
 filterwarnings = [
     "ignore::UserWarning",
     "ignore::DeprecationWarning",
@@ -184,6 +188,11 @@ redis = ">=5.0"
 psycopg2-binary = ">=2.9"
 pytest-ditto-pandas = "==0.1.0"
 
+[tool.pixi.feature.integration.pypi-dependencies]
+duckdb = ">=1.2"
+redis = ">=5.0"
+psycopg2-binary = ">=2.9"
+
 [tool.pixi.feature.examples.tasks]
 examples-local = "pytest examples/local -q"
 examples-duckdb = "pytest examples/duckdb -q"
@@ -196,6 +205,10 @@ examples-redis-up = "docker container ls --filter name=^/pytest-ditto-examples-r
 examples-redis = { cmd = "pytest examples/redis -q", env = { DITTO_REDIS_TARGET = "redis://localhost:6380/0" } }
 examples-redis-down = "docker stop pytest-ditto-examples-redis"
 examples-redis-reset = "docker rm -f pytest-ditto-examples-redis >/dev/null 2>&1 || true && docker volume rm -f pytest-ditto-examples-redis >/dev/null 2>&1 || true"
+
+[tool.pixi.feature.integration.tasks]
+test-integration = "pytest tests/integration --capture=tee-sys -vv"
+test-integration-local = "pytest tests/integration -m 'not docker' --capture=tee-sys -vv"
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
@@ -256,6 +269,7 @@ docs-build = { cmd = "zensical build", cwd = "docs" }
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 examples = { features = ["examples", "py312", "test"], solve-group = "default" }
+integration = { features = ["integration", "py312", "test"], solve-group = "default" }
 pandas = { features = ["pandas", "py312", "test"] }
 pyarrow = { features = ["pyarrow", "py312", "test"] }
 lint = { features = ["lint"] }
