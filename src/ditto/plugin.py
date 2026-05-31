@@ -763,7 +763,7 @@ def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
         )
 
 
-def _verify_target(
+def _classify_target(
     target_id: str,
     scheme: str,
     backend: MutableMapping[str, bytes],
@@ -771,27 +771,34 @@ def _verify_target(
     session_modules: set[str],
     created_keys: set[str],
 ) -> tuple[list[str], list[str], list[str]]:
-    """Return (missing, orphan, unsynced) storage keys for one target.
+    """Classify one target's drift as (missing, orphan, unsynced) storage keys.
 
-    `unsynced` is every key produced this run that the lock does not record
-    (whether or not it reached the backend — read-only verify blocks the write,
-    so an intended new snapshot never lands on the backend). `orphan` is a backend
-    key, absent from the lock, that was not produced this run (e.g. a deleted
-    test's leftover). `missing` is a lock key absent from the backend.
+    Shared by verify (reports + fails) and prune (deletes orphans, warns on the
+    rest). `orphan` is safe to delete; `unsynced` (created this run, not in lock)
+    is not.
     """
     lock_target = lock.targets.get(target_id) if lock is not None else None
     entries = lock_target.entries if lock_target is not None else ()
     lock_keys = {storage_key(e, scheme) for e in entries}
     lock_modules = {_split_nodeid(e.nodeid)[0] for e in entries}
     owned = owned_prefixes(session_modules | lock_modules, scheme)
-    result = diff_backend(lock_keys, set(backend), owned)
-    # Orphans produced this run: in backend but not in lock, and created this run.
-    # Also catch intended creates that were blocked by read-only mode and never
-    # reached the backend (created this run, not in lock, not on backend).
-    unsynced_set = created_keys - lock_keys
-    unsynced = sorted(unsynced_set)
-    orphan = [k for k in result.orphan if k not in unsynced_set]
-    return list(result.missing), orphan, unsynced
+    result = diff_backend(lock_keys, set(backend), owned, created_keys)
+    return list(result.missing), list(result.orphan), list(result.unsynced)
+
+
+def _session_target_maps() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Return (modules_by_target, created_keys_by_target) from this session."""
+    modules_by_target: dict[str, set[str]] = {}
+    created_by_target: dict[str, set[str]] = {}
+    for seen in session_tracker.lock_accessed:
+        modules_by_target.setdefault(seen.target_id, set()).add(
+            _split_nodeid(seen.nodeid)[0]
+        )
+    for seen in session_tracker.lock_created:
+        created_by_target.setdefault(seen.target_id, set()).add(
+            storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
+        )
+    return modules_by_target, created_by_target
 
 
 def _verify_report_error(message: str) -> None:
@@ -826,16 +833,7 @@ def _run_verify(session: pytest.Session) -> None:
         _fail_session(session)
         return
 
-    modules_by_target: dict[str, set[str]] = {}
-    created_by_target: dict[str, set[str]] = {}
-    for seen in session_tracker.lock_accessed:
-        modules_by_target.setdefault(seen.target_id, set()).add(
-            _split_nodeid(seen.nodeid)[0]
-        )
-    for seen in session_tracker.lock_created:
-        created_by_target.setdefault(seen.target_id, set()).add(
-            storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
-        )
+    modules_by_target, created_by_target = _session_target_maps()
 
     opt = session.config.option
     is_partial = bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""))
@@ -852,7 +850,7 @@ def _run_verify(session: pytest.Session) -> None:
     all_unsynced: list[str] = []
     for target_id, (scheme, backend) in session_tracker.target_backends.items():
         try:
-            missing, orphan, unsynced = _verify_target(
+            missing, orphan, unsynced = _classify_target(
                 target_id,
                 scheme,
                 backend,
