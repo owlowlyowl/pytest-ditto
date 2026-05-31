@@ -570,7 +570,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--ditto-prune",
         action="store_true",
         default=False,
-        help="After the session, delete snapshot files not accessed during this run.",
+        help="After the session, delete backend snapshots not recorded in ditto.lock.",
     )
     group.addoption(
         "--ditto-prune-dry-run",
