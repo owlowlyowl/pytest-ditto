@@ -17,6 +17,7 @@ from ditto.cli import (
     _find_lint_issues,
     cmd_clean,
     cmd_list,
+    cmd_prune,
     cmd_recorders,
     cmd_status,
 )
@@ -259,3 +260,27 @@ def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
         result = CliRunner().invoke(cmd_recorders, [])
 
     assert result.exit_code == 1
+
+
+def test_prune_check_forwards_dry_run_flag() -> None:
+    """ditto prune --check forwards --ditto-prune-dry-run, not --ditto-prune."""
+    with patch("ditto.cli.subprocess.run") as run:
+        run.return_value.returncode = 0
+        result = CliRunner().invoke(cmd_prune, ["--check"])
+
+    assert result.exit_code == 0
+    cmd = run.call_args.args[0]
+    assert "--ditto-prune-dry-run" in cmd
+    assert "--ditto-prune" not in cmd
+
+
+def test_prune_without_check_forwards_delete_flag() -> None:
+    """Plain ditto prune forwards --ditto-prune (delete)."""
+    with patch("ditto.cli.subprocess.run") as run:
+        run.return_value.returncode = 0
+        result = CliRunner().invoke(cmd_prune, [])
+
+    assert result.exit_code == 0
+    cmd = run.call_args.args[0]
+    assert "--ditto-prune" in cmd
+    assert "--ditto-prune-dry-run" not in cmd

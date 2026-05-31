@@ -121,6 +121,29 @@ def test_ditto_lock_preserves_unexercised_targets(pytester):
     assert any("other/test_x.py::test_x" in n for n in _nodeids_in_lockfile(pytester))
 
 
+def test_ditto_update_full_run_reconciles_lock(pytester):
+    """A full --ditto-update drops a deleted test's stale entry from the lock."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess()  # records alpha + beta
+    _append_stale_entry(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-update")
+
+    result.assert_outcomes(passed=2)
+    assert not any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
+
+
+def test_ditto_update_filtered_run_appends_without_removing(pytester):
+    """A filtered --ditto-update appends only, so a stale entry survives."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess()
+    _append_stale_entry(pytester)
+
+    pytester.runpytest_subprocess("--ditto-update", "-k", "test_alpha")
+
+    assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
+
+
 def test_warns_when_lockfile_is_gitignored(pytester):
     """A gitignored ditto.lock is flagged because it must be committed."""
     pytester.makepyfile(test_mod=TEST_MODULE)

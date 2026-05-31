@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tomllib
 import warnings
-from collections.abc import Callable, Hashable, Mapping, MutableMapping
+from collections.abc import Hashable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
 from typing import cast
@@ -15,7 +15,7 @@ import fsspec
 import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.snapshot import LockSeen, SnapshotKey, session_tracker
+from ditto.snapshot import LockSeen, session_tracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
 from ditto._lockfile import (
     LockEntry,
@@ -570,7 +570,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--ditto-prune",
         action="store_true",
         default=False,
-        help="After the session, delete snapshot files not accessed during this run.",
+        help="After the session, delete backend snapshots not recorded in ditto.lock.",
+    )
+    group.addoption(
+        "--ditto-prune-dry-run",
+        action="store_true",
+        default=False,
+        help=(
+            "Report snapshots that --ditto-prune would delete (backend keys not in "
+            "ditto.lock), without deleting anything."
+        ),
     )
     group.addoption(
         "--ditto-introspect",
@@ -763,7 +772,7 @@ def _warn_if_lockfile_ignored(config: pytest.Config) -> None:
         )
 
 
-def _verify_target(
+def _classify_target(
     target_id: str,
     scheme: str,
     backend: MutableMapping[str, bytes],
@@ -771,27 +780,34 @@ def _verify_target(
     session_modules: set[str],
     created_keys: set[str],
 ) -> tuple[list[str], list[str], list[str]]:
-    """Return (missing, orphan, unsynced) storage keys for one target.
+    """Classify one target's drift as (missing, orphan, unsynced) storage keys.
 
-    `unsynced` is every key produced this run that the lock does not record
-    (whether or not it reached the backend — read-only verify blocks the write,
-    so an intended new snapshot never lands on the backend). `orphan` is a backend
-    key, absent from the lock, that was not produced this run (e.g. a deleted
-    test's leftover). `missing` is a lock key absent from the backend.
+    Shared by verify (reports + fails) and prune (deletes orphans, warns on the
+    rest). `orphan` is safe to delete; `unsynced` (created this run, not in lock)
+    is not.
     """
     lock_target = lock.targets.get(target_id) if lock is not None else None
     entries = lock_target.entries if lock_target is not None else ()
     lock_keys = {storage_key(e, scheme) for e in entries}
     lock_modules = {_split_nodeid(e.nodeid)[0] for e in entries}
     owned = owned_prefixes(session_modules | lock_modules, scheme)
-    result = diff_backend(lock_keys, set(backend), owned)
-    # Orphans produced this run: in backend but not in lock, and created this run.
-    # Also catch intended creates that were blocked by read-only mode and never
-    # reached the backend (created this run, not in lock, not on backend).
-    unsynced_set = created_keys - lock_keys
-    unsynced = sorted(unsynced_set)
-    orphan = [k for k in result.orphan if k not in unsynced_set]
-    return list(result.missing), orphan, unsynced
+    result = diff_backend(lock_keys, set(backend), owned, created_keys)
+    return list(result.missing), list(result.orphan), list(result.unsynced)
+
+
+def _session_target_maps() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Return (modules_by_target, created_keys_by_target) from this session."""
+    modules_by_target: dict[str, set[str]] = {}
+    created_by_target: dict[str, set[str]] = {}
+    for seen in session_tracker.lock_accessed:
+        modules_by_target.setdefault(seen.target_id, set()).add(
+            _split_nodeid(seen.nodeid)[0]
+        )
+    for seen in session_tracker.lock_created:
+        created_by_target.setdefault(seen.target_id, set()).add(
+            storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
+        )
+    return modules_by_target, created_by_target
 
 
 def _verify_report_error(message: str) -> None:
@@ -826,16 +842,7 @@ def _run_verify(session: pytest.Session) -> None:
         _fail_session(session)
         return
 
-    modules_by_target: dict[str, set[str]] = {}
-    created_by_target: dict[str, set[str]] = {}
-    for seen in session_tracker.lock_accessed:
-        modules_by_target.setdefault(seen.target_id, set()).add(
-            _split_nodeid(seen.nodeid)[0]
-        )
-    for seen in session_tracker.lock_created:
-        created_by_target.setdefault(seen.target_id, set()).add(
-            storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
-        )
+    modules_by_target, created_by_target = _session_target_maps()
 
     opt = session.config.option
     is_partial = bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""))
@@ -852,7 +859,7 @@ def _run_verify(session: pytest.Session) -> None:
     all_unsynced: list[str] = []
     for target_id, (scheme, backend) in session_tracker.target_backends.items():
         try:
-            missing, orphan, unsynced = _verify_target(
+            missing, orphan, unsynced = _classify_target(
                 target_id,
                 scheme,
                 backend,
@@ -873,6 +880,138 @@ def _run_verify(session: pytest.Session) -> None:
         _fail_session(session)
 
 
+def _prune_report_error(message: str) -> None:
+    print(f"ditto prune: {message}")
+
+
+def _write_session_lockfile(
+    session: pytest.Session,
+    exitstatus: int,
+    *,
+    is_lock: bool,
+    pruning: bool,
+) -> None:
+    """Rewrite, append, or leave ditto.lock unchanged for a single-process run.
+
+    A prune run (`pruning`) leaves the lock untouched so a snapshot created this
+    run stays `unsynced` (kept and warned) rather than being silently appended.
+    Never raises — a lock-write failure is downgraded to a `DittoWarning`.
+    """
+    config = session.config
+    try:
+        if is_lock:
+            if _is_authoritative_run(session, exitstatus):
+                _rewrite_lockfile(config)
+            else:
+                warnings.warn(
+                    "--ditto-lock requires a full run (no -k/-m/--lf, no "
+                    "path/nodeid args, and no failures); leaving "
+                    "ditto.lock unchanged.",
+                    category=DittoWarning,
+                    stacklevel=1,
+                )
+                _fail_session(session)
+        elif config.getoption(
+            "--ditto-update", default=False
+        ) and _is_authoritative_run(session, exitstatus):
+            _rewrite_lockfile(config)
+        elif pruning:
+            # A prune run does not write the lock (see docstring).
+            pass
+        else:
+            _append_lockfile(config)
+    except Exception as exc:  # never crash a run over a lock-file write
+        warnings.warn(
+            f"Failed to write {LOCKFILE_NAME}: {exc}",
+            category=DittoWarning,
+            stacklevel=1,
+        )
+
+
+def _run_prune(
+    session: pytest.Session, *, delete: bool
+) -> tuple[list[str], list[str]]:
+    """Lock-authoritative prune of exercised targets.
+
+    Deletes (or, in dry-run, lists) backend keys absent from the committed lock
+    (`orphan`); never touches keys created this run (`unsynced`). Requires a lock —
+    refuses (non-zero exit) when absent. Returns `(pruned, would_prune)`.
+    """
+    config = session.config
+    try:
+        lock = read_lockfile(config.rootpath / LOCKFILE_NAME)
+    except DittoLockFileError as exc:
+        _prune_report_error(str(exc))
+        _fail_session(session)
+        return [], []
+    if lock is None:
+        _prune_report_error(
+            f"no {LOCKFILE_NAME} to prune against; run `ditto lock` to create one."
+        )
+        _fail_session(session)
+        return [], []
+
+    modules_by_target, created_by_target = _session_target_maps()
+
+    opt = session.config.option
+    if getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""):
+        warnings.warn(
+            "ditto prune ran on a partial selection; only exercised targets were "
+            "considered (partial prune).",
+            category=DittoWarning,
+            stacklevel=1,
+        )
+
+    pruned: list[str] = []
+    would_prune: list[str] = []
+    for target_id, (scheme, backend) in session_tracker.target_backends.items():
+        try:
+            missing, orphan, unsynced = _classify_target(
+                target_id,
+                scheme,
+                backend,
+                lock,
+                modules_by_target.get(target_id, set()),
+                created_by_target.get(target_id, set()),
+            )
+        except Exception as exc:  # backend unreachable, etc. — skip, never abort
+            warnings.warn(
+                f"could not prune {target_id!r}: {exc}",
+                category=DittoWarning,
+                stacklevel=1,
+            )
+            continue
+        for key in unsynced:
+            warnings.warn(
+                f"ditto prune: {key} was produced this run but is not in the lock "
+                "— run `ditto lock`.",
+                category=DittoWarning,
+                stacklevel=1,
+            )
+        for key in missing:
+            warnings.warn(
+                f"ditto prune: {key} is recorded in the lock but absent from the "
+                "backend.",
+                category=DittoWarning,
+                stacklevel=1,
+            )
+        for key in orphan:
+            if not delete:
+                would_prune.append(key)
+                continue
+            try:
+                del backend[key]
+            except Exception as exc:
+                warnings.warn(
+                    f"Failed to prune snapshot {key!r}: {exc}",
+                    category=DittoWarning,
+                    stacklevel=1,
+                )
+            else:
+                pruned.append(key)
+    return pruned, would_prune
+
+
 def _validate_target_config(config: pytest.Config) -> None:
     """Raise if both ditto_target and ditto_target_profile are configured."""
     if config.getini("ditto_target") and config.getini("ditto_target_profile"):
@@ -890,10 +1029,18 @@ def pytest_configure(config: pytest.Config) -> None:
         config.getoption("--ditto-update", default=False)
         or config.getoption("--ditto-lock", default=False)
         or config.getoption("--ditto-prune", default=False)
+        or config.getoption("--ditto-prune-dry-run", default=False)
     ):
         raise pytest.UsageError(
             "--ditto-verify is read-only and cannot be combined with "
-            "--ditto-update, --ditto-lock, or --ditto-prune."
+            "--ditto-update, --ditto-lock, --ditto-prune, or "
+            "--ditto-prune-dry-run."
+        )
+    if config.getoption("--ditto-prune", default=False) and config.getoption(
+        "--ditto-prune-dry-run", default=False
+    ):
+        raise pytest.UsageError(
+            "--ditto-prune and --ditto-prune-dry-run cannot be combined."
         )
     try:
         _validate_target_config(config)
@@ -908,28 +1055,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _backend_cache.clear()
     _introspect_backends.clear()
     session_tracker.reset()
-
-
-def _keys_for_modules(
-    all_keys: set[str],
-    modules: set[str],
-    key_of: Callable[[SnapshotKey], str],
-) -> set[str]:
-    """Return the subset of `all_keys` that belong to any module in `modules`.
-
-    File backends (key_of is `_flat_key`) use a dotted prefix `module.stem + "."`.
-    All other backends use a slash-separated prefix `module + "/"`.
-    An empty `modules` set returns an empty set (no keys owned).
-    """
-    if not modules:
-        return set()
-    from .snapshot import _flat_key
-
-    if key_of is _flat_key:
-        prefixes = frozenset(m.replace("/", ".") + "." for m in modules)
-    else:
-        prefixes = frozenset(m + "/" for m in modules)
-    return {k for k in all_keys if any(k.startswith(p) for p in prefixes)}
 
 
 def _enumerate_entries(backend: MutableMapping[str, bytes]) -> list[ManifestEntry]:
@@ -975,6 +1100,8 @@ def _write_introspect_manifest(path: str) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
+    pruned: list[str] = []
+    would_prune: list[str] = []
 
     if not _is_xdist_worker(config) and not config.getoption(
         "--ditto-introspect", default=""
@@ -983,7 +1110,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             _run_verify(session)
             return
         _warn_if_lockfile_ignored(config)
-        is_lock = config.getoption("--ditto-lock", default=False)
+        is_lock: bool = bool(config.getoption("--ditto-lock", default=False))
+        do_prune: bool = bool(config.getoption("--ditto-prune", default=False))
+        dry_run: bool = bool(config.getoption("--ditto-prune-dry-run", default=False))
         if _xdist_is_distributing(config):
             # The controller saw no snapshots under distribution, so it cannot
             # write the lock correctly (see #83). Refuse an explicit rebuild;
@@ -1004,176 +1133,31 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     category=DittoWarning,
                     stacklevel=1,
                 )
-        else:
-            try:
-                if is_lock:
-                    if _is_authoritative_run(session, exitstatus):
-                        _rewrite_lockfile(config)
-                    else:
-                        warnings.warn(
-                            "--ditto-lock requires a full run (no -k/-m/--lf, no "
-                            "path/nodeid args, and no failures); leaving "
-                            "ditto.lock unchanged.",
-                            category=DittoWarning,
-                            stacklevel=1,
-                        )
-                        _fail_session(session)
-                else:
-                    _append_lockfile(config)
-            except Exception as exc:  # never crash a run over a lock-file write
+            if do_prune or dry_run:
                 warnings.warn(
-                    f"Failed to write {LOCKFILE_NAME}: {exc}",
+                    "ditto prune is not supported under pytest-xdist distribution "
+                    "(-n); run single-process.",
                     category=DittoWarning,
                     stacklevel=1,
                 )
+        else:
+            pruning = do_prune or dry_run
+            _write_session_lockfile(
+                session, exitstatus, is_lock=is_lock, pruning=pruning
+            )
+            if pruning:
+                pruned, would_prune = _run_prune(session, delete=do_prune)
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:
         _write_introspect_manifest(introspect_path)
         return
 
-    do_prune = config.getoption("--ditto-prune", default=False)
-
-    pruned: list[str] = []
-    unused: list[str] = []
-
-    # FIXME: The .root attribute is a brittle duck-typed contract for detecting
-    # filesystem-backed backends. Any custom backend that happens to expose a
-    # .root attribute (even a non-filesystem one) will be treated as a local
-    # directory and added to the registered_fs_roots set, potentially causing
-    # Pass 2 to skip stale-directory scanning for paths it shouldn't own.
-    # A typed protocol (e.g. SupportsRoot) or an explicit registry would make
-    # this contract visible and enforceable.
-    def _get_root(backend: object) -> Path | None:
-        root_attr = getattr(backend, "root", None)
-        if root_attr is not None:
-            return Path(root_attr).resolve()
-
-        # Unwrap PrefixedMapping and TransformMapping
-        inner = getattr(backend, "_store", getattr(backend, "_mapping", None))
-        if inner is not None:
-            return _get_root(inner)
-        return None
-
-    # Pass 1 — iterate backends registered in session_tracker.
-    # Connections are still alive here; ExitStack closes after this hook.
-    registered_fs_roots: set[Path] = set()
-    for record in session_tracker.records.values():
-        root = _get_root(record.backend)
-        if root is not None:
-            registered_fs_roots.add(root)
-
-        accessed_keys = {record.key_of(k) for k in record.accessed}
-        try:
-            all_keys = set(record.backend)
-        except NotImplementedError:
-            warnings.warn(
-                f"Backend {record.backend!r} does not support enumeration; "
-                "skipping unused-snapshot detection for this backend.",
-                category=DittoWarning,
-                stacklevel=1,
-            )
-            continue
-        except Exception as exc:
-            # Covers I/O errors from remote backends (FileNotFoundError,
-            # PermissionError, ConnectionError, etc.) raised by __iter__
-            # implementations such as FsspecMapping's fs.find() call.
-            warnings.warn(
-                f"Backend {record.backend!r} raised {type(exc).__name__} during "
-                f"enumeration: {exc}; skipping unused-snapshot "
-                "detection for this backend.",
-                category=DittoWarning,
-                stacklevel=1,
-            )
-            continue
-
-        backend_id = id(record.backend)
-        registered_modules = session_tracker.backend_modules.get(backend_id, set())
-        accessed_modules = {sk.module for sk in record.accessed}
-        owned_modules = registered_modules | accessed_modules
-        owned_keys = _keys_for_modules(all_keys, owned_modules, record.key_of)
-        not_accessed = owned_keys - accessed_keys
-        for raw_key in sorted(not_accessed):
-            if do_prune:
-                # Catch all backend errors so a single failed delete (e.g.
-                # PermissionError on a read-only mount, OSError from a dropped
-                # network share) does not abort the loop and leave the session
-                # report unrendered. Warn per failure and continue.
-                try:
-                    del record.backend[raw_key]
-                except Exception as exc:
-                    warnings.warn(
-                        f"Failed to prune snapshot {raw_key!r}: {exc}",
-                        category=DittoWarning,
-                        stacklevel=1,
-                    )
-                else:
-                    pruned.append(raw_key)
-            else:
-                unused.append(raw_key)
-
-    # Pass 2 — discover .ditto/ directories not touched this session.
-    # Catches stale snapshots from test files that were deleted or renamed.
-    #
-    # Gated on do_prune rather than "do_prune or session_tracker.records":
-    # the broader condition fires on any partial run (e.g. pytest tests/foo.py),
-    # where every .ditto/ directory belonging to un-run tests appears as a ghost
-    # and all their snapshots are falsely reported as unused. Ghost detection is
-    # a cleanup operation and only makes sense when the user has explicitly asked
-    # for it. If a non-destructive "unused" report for ghost directories is ever
-    # needed, add a dedicated --ditto-check-ghosts flag rather than coupling it
-    # to session_tracker.records.
-    if do_prune:
-        # Scope ghost detection to directories that were actually collected.
-        # Using rootdir.rglob(".ditto") would scan the entire project and treat
-        # every .ditto/ directory belonging to un-collected tests as a ghost,
-        # pruning their snapshots during a partial run (e.g. pytest examples/duckdb/).
-        # session.items is populated by this point; each item carries a .path
-        # pointing to its test file, so item.path.parent is the containing directory.
-        collected_dirs = {item.path.parent for item in session.items}
-        ghost_candidates = [
-            ditto_dir
-            for d in collected_dirs
-            for ditto_dir in d.rglob(".ditto")
-        ]
-        for ditto_dir in ghost_candidates:
-            if not ditto_dir.is_dir():
-                continue
-            if ditto_dir.resolve() in registered_fs_roots:
-                continue
-            ghost = FsspecMapping(fsspec.filesystem("file"), ditto_dir.as_posix())
-            try:
-                ghost_keys = sorted(ghost)
-            except Exception as exc:
-                warnings.warn(
-                    f"Failed to enumerate ghost directory {ditto_dir!r}: {exc}; "
-                    "skipping unused-snapshot detection for this directory.",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-                continue
-            for raw_key in ghost_keys:
-                if do_prune:
-                    # Same rationale as Pass 1: don't let a single delete
-                    # failure abort the loop or swallow the session report.
-                    try:
-                        del ghost[raw_key]
-                    except Exception as exc:
-                        warnings.warn(
-                            f"Failed to prune snapshot {raw_key!r}: {exc}",
-                            category=DittoWarning,
-                            stacklevel=1,
-                        )
-                    else:
-                        pruned.append(raw_key)
-                else:
-                    unused.append(raw_key)
-
     render_session_report(
         created=session_tracker.created,
         updated=session_tracker.updated,
         pruned=pruned,
-        unused=unused,
+        would_prune=would_prune,
     )
 
 

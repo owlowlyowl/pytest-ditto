@@ -38,7 +38,7 @@ from rich.text import Text
 from ._theme import (
     CREATED,
     UPDATED,
-    UNUSED,
+    WOULD_PRUNE,
     PRUNED,
     TITLE,
     HEADER,
@@ -62,7 +62,7 @@ _RECORDER_PALETTE = (
     ACCENT,  # peach
     UPDATED,  # blue
     CREATED,  # green
-    UNUSED,  # yellow
+    WOULD_PRUNE,  # yellow
     TEAL,
     SKY,
     MAUVE,
@@ -299,31 +299,28 @@ def cmd_update(pytest_args):
     name="prune",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
+@click.option(
+    "--check",
+    is_flag=True,
+    default=False,
+    help="Dry run: report what would be pruned, without deleting.",
+)
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_prune(pytest_args):
-    """Re-run pytest with --ditto-prune to remove stale snapshots.
+def cmd_prune(check, pytest_args):
+    """Re-run pytest to delete snapshots not in ditto.lock.
 
-    Any extra arguments are passed directly to pytest.
-
-    \b
-    Warning: using -k for a partial run may falsely classify snapshots for
-    un-run tests as unused.
+    With --check, report what would be pruned without deleting anything. Any
+    extra arguments are passed directly to pytest.
 
     \b
     Examples:
       ditto prune
+      ditto prune --check
       ditto prune tests/ci/
     """
-    if any(arg in ("-k", "--keyword") or arg.startswith("-k") for arg in pytest_args):
-        console.print(
-            f"[bold {ACCENT}]Warning:[/bold {ACCENT}] "
-            f"[{SUBTEXT1}]using -k with 'ditto prune' runs only a subset of tests. "
-            f"Snapshots for skipped tests will be treated as unused and"
-            f" deleted.[/{SUBTEXT1}]",
-            highlight=False,
-        )
+    flag = "--ditto-prune-dry-run" if check else "--ditto-prune"
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--ditto-prune", *pytest_args],
+        [sys.executable, "-m", "pytest", flag, *pytest_args],
         check=False,
     )
     sys.exit(result.returncode)

@@ -1,4 +1,8 @@
 .ditto
+ditto.lock
+.tmp/
+tmp.py
+ditto-tui.html
 
 # Python
 __pycache__

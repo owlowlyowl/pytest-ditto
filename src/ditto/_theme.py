@@ -39,7 +39,7 @@ CRUST = "#11111b"
 # ── Semantic aliases used across _report.py and cli.py ───────────────────────
 CREATED = GREEN  # new snapshot files
 UPDATED = BLUE  # overwritten snapshot files
-UNUSED = YELLOW  # on-disk files not accessed this session
+WOULD_PRUNE = YELLOW  # backend keys a --ditto-prune run would delete
 PRUNED = RED  # deleted files
 
 TITLE = MAUVE  # panel / table titles
