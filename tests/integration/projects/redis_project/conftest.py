@@ -46,11 +46,13 @@ class RedisMapping(AbstractContextManager, MutableMapping[str, bytes]):
 
 @pytest.fixture(scope="session", autouse=True)
 def _register_redis_backend() -> Iterator[None]:
-    def create_redis_backend(uri: str, **storage_options: object) -> MutableMapping[str, bytes]:
+    def create_redis_backend(
+        uri: str,
+        **storage_options: object,
+    ) -> MutableMapping[str, bytes]:
         client = redis.Redis.from_url(uri, **storage_options)
         return PrefixedMapping(RedisMapping(client), prefix="ditto:")
 
     BACKEND_REGISTRY["redis"] = create_redis_backend
     yield
     BACKEND_REGISTRY.pop("redis", None)
-

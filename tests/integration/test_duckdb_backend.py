@@ -12,10 +12,9 @@ pytestmark = [pytest.mark.integration]
 
 def test_duckdb_backend_record_replay_and_inventory(project_workspace) -> None:
     workspace = project_workspace("duckdb", "record-replay")
+    target = workspace.project / ".standalone-snapshots.duckdb"
     env = {
-        "DITTO_DUCKDB_TARGET": (
-            f"duckdb://{(workspace.project / '.standalone-snapshots.duckdb').as_posix()}"
-        ),
+        "DITTO_DUCKDB_TARGET": f"duckdb://{target.as_posix()}",
     }
     assert_record_replay_inventory(
         workspace,
@@ -28,10 +27,9 @@ def test_duckdb_backend_record_replay_and_inventory(project_workspace) -> None:
 
 def test_duckdb_backend_lock_verify_and_recover(project_workspace) -> None:
     workspace = project_workspace("duckdb", "lock-verify")
+    target = workspace.project / ".standalone-snapshots.duckdb"
     env = {
-        "DITTO_DUCKDB_TARGET": (
-            f"duckdb://{(workspace.project / '.standalone-snapshots.duckdb').as_posix()}"
-        ),
+        "DITTO_DUCKDB_TARGET": f"duckdb://{target.as_posix()}",
     }
     assert_lock_verify_and_recover(
         workspace,

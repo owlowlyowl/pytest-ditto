@@ -50,7 +50,9 @@ class DuckDBMapping(AbstractContextManager, MutableMapping[str, bytes]):
         return (str(row[0]) for row in rows)
 
     def __len__(self) -> int:
-        row = self._connection.execute("SELECT COUNT(*) FROM ditto_snapshots").fetchone()
+        row = self._connection.execute(
+            "SELECT COUNT(*) FROM ditto_snapshots"
+        ).fetchone()
         return int(row[0]) if row is not None else 0
 
     def __contains__(self, key: object) -> bool:
@@ -78,9 +80,13 @@ def _database_from_target(uri: str) -> str:
         return database[1:]
     return database
 
+
 @pytest.fixture(scope="session", autouse=True)
 def _register_duckdb_backend() -> Iterator[None]:
-    def create_duckdb_backend(uri: str, **storage_options: object) -> MutableMapping[str, bytes]:
+    def create_duckdb_backend(
+        uri: str,
+        **storage_options: object,
+    ) -> MutableMapping[str, bytes]:
         connection = duckdb.connect(
             _database_from_target(uri),
             **storage_options,

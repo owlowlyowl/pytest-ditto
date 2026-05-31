@@ -70,7 +70,9 @@ def remove_backend_entry(
             matched_path.unlink()
             return matches[0][0]
         case "duckdb":
-            database = _duckdb_database_from_target(_require_env(env, "DITTO_DUCKDB_TARGET"))
+            database = _duckdb_database_from_target(
+                _require_env(env, "DITTO_DUCKDB_TARGET")
+            )
             with duckdb.connect(database) as connection:
                 key = _matching_key(
                     [
@@ -136,7 +138,9 @@ def _list_backend_entries(
                 for path in _local_snapshot_files(project)
             )
         case "duckdb":
-            database = _duckdb_database_from_target(_require_env(env, "DITTO_DUCKDB_TARGET"))
+            database = _duckdb_database_from_target(
+                _require_env(env, "DITTO_DUCKDB_TARGET")
+            )
             with duckdb.connect(database) as connection:
                 return [
                     str(row[0])
