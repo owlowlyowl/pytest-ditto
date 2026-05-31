@@ -78,3 +78,13 @@ def test_prune_dry_run_reports_orphan_without_deleting(pytester):
     assert result.ret == 0
     assert any("test_beta" in f for f in _backend_files(pytester))  # NOT deleted
     result.stderr.fnmatch_lines(["*would prune*"])
+
+
+def test_prune_and_dry_run_are_mutually_exclusive(pytester):
+    """--ditto-prune and --ditto-prune-dry-run cannot be combined."""
+    pytester.makepyfile(test_mod=PRUNE_MODULE)
+
+    result = pytester.runpytest_subprocess("--ditto-prune", "--ditto-prune-dry-run")
+
+    assert result.ret != 0
+    result.stderr.fnmatch_lines(["*--ditto-prune*--ditto-prune-dry-run*"])

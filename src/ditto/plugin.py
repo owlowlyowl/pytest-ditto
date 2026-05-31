@@ -1029,10 +1029,18 @@ def pytest_configure(config: pytest.Config) -> None:
         config.getoption("--ditto-update", default=False)
         or config.getoption("--ditto-lock", default=False)
         or config.getoption("--ditto-prune", default=False)
+        or config.getoption("--ditto-prune-dry-run", default=False)
     ):
         raise pytest.UsageError(
             "--ditto-verify is read-only and cannot be combined with "
-            "--ditto-update, --ditto-lock, or --ditto-prune."
+            "--ditto-update, --ditto-lock, --ditto-prune, or "
+            "--ditto-prune-dry-run."
+        )
+    if config.getoption("--ditto-prune", default=False) and config.getoption(
+        "--ditto-prune-dry-run", default=False
+    ):
+        raise pytest.UsageError(
+            "--ditto-prune and --ditto-prune-dry-run cannot be combined."
         )
     try:
         _validate_target_config(config)
