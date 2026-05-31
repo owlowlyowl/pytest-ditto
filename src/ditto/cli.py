@@ -38,7 +38,7 @@ from rich.text import Text
 from ._theme import (
     CREATED,
     UPDATED,
-    UNUSED,
+    WOULD_PRUNE,
     PRUNED,
     TITLE,
     HEADER,
@@ -62,7 +62,7 @@ _RECORDER_PALETTE = (
     ACCENT,  # peach
     UPDATED,  # blue
     CREATED,  # green
-    UNUSED,  # yellow
+    WOULD_PRUNE,  # yellow
     TEAL,
     SKY,
     MAUVE,

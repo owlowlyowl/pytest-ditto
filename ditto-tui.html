@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ditto — snapshot manager</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:       #0d0f0e;
+    --bg1:      #121614;
+    --bg2:      #181c1a;
+    --bg3:      #1e2421;
+    --border:   #2a3330;
+    --border2:  #354540;
+    --fg:       #c8d5d1;
+    --fg2:      #8a9e99;
+    --fg3:      #4f6560;
+    --accent:   #3dffa0;
+    --accent2:  #1adc78;
+    --accent3:  #0d7a42;
+    --red:      #ff5f6d;
+    --red2:     #c43d4a;
+    --yellow:   #f5c842;
+    --yellow2:  #c9a02a;
+    --blue:     #5bc8ff;
+    --blue2:    #2a8ab5;
+    --purple:   #b388ff;
+    --pass:     #3dffa0;
+    --fail:     #ff5f6d;
+    --new:      #5bc8ff;
+    --obsolete: #f5c842;
+    --skip:     #8a9e99;
+    --font: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.5;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+  }
+
+  /* ─── HEADER ─────────────────────────────────────────────── */
+  #header {
+    height: 32px;
+    min-height: 32px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .logo-icon {
+    width: 18px; height: 18px;
+    background: var(--accent);
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    color: #000; font-size: 10px; font-weight: 900;
+  }
+
+  .header-sep { flex: 1; }
+
+  .stats-row {
+    display: flex; gap: 16px; align-items: center;
+  }
+  .stat {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11.5px; color: var(--fg2);
+  }
+  .stat-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .stat-n { color: var(--fg); font-weight: 500; }
+  .stat.pass .stat-dot { background: var(--pass); box-shadow: 0 0 6px var(--pass); }
+  .stat.fail .stat-dot { background: var(--fail); box-shadow: 0 0 6px var(--fail); }
+  .stat.new  .stat-dot { background: var(--new);  box-shadow: 0 0 6px var(--new); }
+  .stat.obs  .stat-dot { background: var(--obsolete); box-shadow: 0 0 6px var(--obsolete); }
+
+  .header-path { color: var(--fg3); font-size: 11px; }
+
+  /* ─── TOOLBAR ────────────────────────────────────────────── */
+  #toolbar {
+    height: 30px; min-height: 30px;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 10px; gap: 4px;
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 3px 12px;
+    border-radius: 3px;
+    font-size: 11.5px;
+    color: var(--fg3);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.12s;
+  }
+  .tab:hover { color: var(--fg); background: var(--bg3); }
+  .tab.active {
+    color: var(--accent);
+    border-color: var(--border2);
+    background: var(--bg2);
+  }
+  .tab .tab-badge {
+    display: inline-block; margin-left: 5px;
+    background: var(--fail); color: #000; font-weight: 700;
+    font-size: 9px; padding: 0 4px; border-radius: 2px; line-height: 14px;
+  }
+  .tab.new-tab .tab-badge { background: var(--new); }
+  .tab.obs-tab .tab-badge { background: var(--obsolete); }
+
+  .tb-sep { flex: 1; }
+
+  .search-box {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    height: 22px;
+  }
+  .search-box input {
+    background: none; border: none; outline: none;
+    color: var(--fg); font-family: var(--font);
+    font-size: 11.5px; width: 160px;
+  }
+  .search-box input::placeholder { color: var(--fg3); }
+  .search-icon { color: var(--fg3); font-size: 11px; }
+
+  /* ─── BODY ───────────────────────────────────────────────── */
+  #body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ─── SIDEBAR ────────────────────────────────────────────── */
+  #sidebar {
+    width: 310px; min-width: 310px;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    background: var(--bg1);
+  }
+
+  .sidebar-header {
+    padding: 8px 12px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px; font-weight: 500;
+    color: var(--fg3); letter-spacing: 0.1em;
+    text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sidebar-header-right { color: var(--fg3); font-size: 10px; }
+
+  .snapshot-list {
+    overflow-y: auto; flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .group-label {
+    padding: 10px 12px 4px;
+    font-size: 10px; font-weight: 600;
+    color: var(--fg3); letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+    position: sticky; top: 0; background: var(--bg1); z-index: 1;
+  }
+  .group-label::after {
+    content: '';
+    flex: 1; height: 1px; background: var(--border);
+  }
+
+  .snap-item {
+    padding: 6px 12px 6px 12px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    display: flex; align-items: flex-start;
+    gap: 8px;
+    transition: background 0.08s;
+    position: relative;
+  }
+  .snap-item:hover { background: var(--bg2); }
+  .snap-item.active {
+    background: var(--bg3);
+    border-left-color: var(--accent);
+  }
+  .snap-item.active.fail { border-left-color: var(--fail); }
+  .snap-item.active.new  { border-left-color: var(--new); }
+  .snap-item.active.obs  { border-left-color: var(--obsolete); }
+
+  .snap-status {
+    margin-top: 3px;
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+  .snap-status.pass    { background: var(--pass); }
+  .snap-status.fail    { background: var(--fail); box-shadow: 0 0 5px var(--fail); }
+  .snap-status.new     { background: var(--new);  box-shadow: 0 0 5px var(--new); }
+  .snap-status.obs     { background: var(--obsolete); }
+  .snap-status.skip    { background: var(--skip); }
+
+  .snap-info { flex: 1; min-width: 0; }
+  .snap-name {
+    font-size: 12px; color: var(--fg); font-weight: 400;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .snap-meta {
+    font-size: 10.5px; color: var(--fg3); margin-top: 1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .snap-check {
+    width: 14px; height: 14px; border-radius: 2px;
+    border: 1px solid var(--border2);
+    margin-top: 3px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; transition: all 0.1s;
+  }
+  .snap-check.checked {
+    background: var(--accent3); border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ─── MAIN ───────────────────────────────────────────────── */
+  #main {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  .main-header {
+    padding: 10px 16px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg1);
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .main-title { font-size: 13px; font-weight: 500; color: var(--fg); }
+  .main-sub { font-size: 11px; color: var(--fg3); margin-top: 2px; }
+
+  .action-strip {
+    display: flex; gap: 6px; align-items: center; margin-top: 2px;
+  }
+
+  .btn {
+    padding: 3px 10px;
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    font-family: var(--font);
+    font-size: 11.5px;
+    cursor: pointer;
+    background: var(--bg2);
+    color: var(--fg2);
+    display: flex; align-items: center; gap: 5px;
+    transition: all 0.1s;
+  }
+  .btn:hover { border-color: var(--fg3); color: var(--fg); }
+  .btn.primary {
+    background: var(--accent3); border-color: var(--accent);
+    color: var(--accent); font-weight: 500;
+  }
+  .btn.primary:hover { background: var(--accent2); border-color: var(--accent); color: #000; }
+  .btn.danger { border-color: var(--red2); color: var(--red); }
+  .btn.danger:hover { background: var(--red2); color: #fff; }
+  .btn .kbd {
+    display: inline-block;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 2px; padding: 0 3px;
+    font-size: 9px; color: var(--fg3);
+    line-height: 13px;
+  }
+  .btn.primary .kbd { background: var(--accent3); border-color: var(--accent2); color: var(--accent); }
+
+  .diff-status-bar {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 11px; color: var(--fg3); margin-top: 5px;
+  }
+  .diff-stat { display: flex; align-items: center; gap: 4px; }
+  .plus { color: var(--pass); }
+  .minus { color: var(--fail); }
+
+  /* ─── DIFF VIEW ──────────────────────────────────────────── */
+  #diff-view {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    font-size: 12px; line-height: 1.6;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+
+  .diff-segment {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .diff-seg-header {
+    padding: 4px 16px;
+    background: var(--bg2);
+    color: var(--fg3); font-size: 11px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 16px; align-items: center;
+  }
+  .diff-seg-header .hunk-info { color: var(--blue); }
+
+  .diff-line {
+    display: flex;
+    padding: 0 16px;
+    min-height: 20px;
+    align-items: stretch;
+  }
+  .diff-line:hover { background: rgba(255,255,255,0.025); }
+
+  .line-no {
+    width: 38px; flex-shrink: 0;
+    color: var(--fg3); font-size: 11px;
+    text-align: right; padding-right: 12px;
+    padding-top: 2px;
+    border-right: 1px solid var(--border);
+    margin-right: 12px;
+  }
+  .line-content { flex: 1; white-space: pre; overflow: hidden; padding-top: 2px; }
+
+  .diff-line.add { background: rgba(61,255,160,0.07); }
+  .diff-line.add .line-content { color: var(--pass); }
+  .diff-line.add .gutter { background: rgba(61,255,160,0.2); color: var(--pass); }
+  .diff-line.del { background: rgba(255,95,109,0.07); }
+  .diff-line.del .line-content { color: var(--fail); }
+  .diff-line.del .gutter { background: rgba(255,95,109,0.2); color: var(--fail); }
+  .diff-line.ctx .line-content { color: var(--fg2); }
+  .diff-line.ctx .gutter { color: var(--fg3); }
+
+  .gutter {
+    width: 18px; flex-shrink: 0;
+    text-align: center;
+    font-size: 11px; padding-top: 2px;
+    margin-right: 8px;
+  }
+
+  /* inline diff highlight */
+  .hl-add { background: rgba(61,255,160,0.25); border-radius: 2px; }
+  .hl-del { background: rgba(255,95,109,0.25); border-radius: 2px; }
+
+  /* ─── NEW SNAPSHOT PANEL ─────────────────────────────────── */
+  #new-panel {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .new-snap-view {
+    flex: 1; overflow-y: auto;
+    padding: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+  .new-snap-line {
+    display: flex; padding: 0 16px; min-height: 20px;
+  }
+  .new-snap-line .line-content { color: var(--new); }
+  .new-snap-line .gutter { color: var(--new2); }
+
+  /* ─── FOOTER ─────────────────────────────────────────────── */
+  #footer {
+    height: 26px; min-height: 26px;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 14px; gap: 18px;
+    flex-shrink: 0;
+  }
+  .kbd-hint {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 10.5px; color: var(--fg3);
+  }
+  .kbd-hint .k {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 2px; padding: 0 4px; min-width: 16px; height: 16px;
+    font-size: 9.5px; color: var(--fg2); font-weight: 600;
+  }
+  .footer-msg {
+    flex: 1; text-align: right;
+    font-size: 10.5px; color: var(--fg3);
+  }
+  .footer-msg .accent { color: var(--accent); }
+
+  /* ─── SCROLL NOTICE ──────────────────────────────────────── */
+  .context-notice {
+    padding: 4px 16px;
+    background: var(--bg2);
+    color: var(--fg3); font-size: 11px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .context-notice .tag {
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 2px; padding: 0 5px; font-size: 10px; color: var(--fg3);
+  }
+
+  /* ─── SELECTION ACTIONS (bottom of sidebar) ──────────────── */
+  #selection-bar {
+    border-top: 1px solid var(--border);
+    padding: 8px 12px;
+    background: var(--bg2);
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+  }
+  .sel-count { font-size: 11px; color: var(--fg3); flex: 1; }
+  .sel-count .n { color: var(--accent); font-weight: 600; }
+
+  /* ─── ANIMATIONS ─────────────────────────────────────────── */
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .snap-item { animation: fadeIn 0.2s ease; }
+
+  /* ─── SCROLLBAR STYLE ────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────────────── -->
+<div id="header">
+  <div class="logo">
+    <div class="logo-icon">d</div>
+    ditto
+  </div>
+  <div class="header-path">~/projects/myapp · tests/</div>
+  <div class="header-sep"></div>
+  <div class="stats-row">
+    <div class="stat pass"><div class="stat-dot"></div><span class="stat-n">41</span> passing</div>
+    <div class="stat fail"><div class="stat-dot"></div><span class="stat-n">5</span> failing</div>
+    <div class="stat new" ><div class="stat-dot"></div><span class="stat-n">3</span> new</div>
+    <div class="stat obs" ><div class="stat-dot"></div><span class="stat-n">2</span> obsolete</div>
+  </div>
+</div>
+
+<!-- ── TOOLBAR ────────────────────────────────────────────────── -->
+<div id="toolbar">
+  <div class="tab active" onclick="switchTab('fail')">Failing <span class="tab-badge">5</span></div>
+  <div class="tab new-tab" onclick="switchTab('new')">New <span class="tab-badge" style="background:var(--new)">3</span></div>
+  <div class="tab obs-tab" onclick="switchTab('obs')">Obsolete <span class="tab-badge" style="background:var(--obsolete);color:#000">2</span></div>
+  <div class="tab" onclick="switchTab('all')">All</div>
+  <div class="tb-sep"></div>
+  <div class="search-box">
+    <span class="search-icon">⌕</span>
+    <input type="text" placeholder="filter snapshots…" id="search-input">
+  </div>
+</div>
+
+<!-- ── BODY ───────────────────────────────────────────────────── -->
+<div id="body">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <span>Snapshots</span>
+      <span class="sidebar-header-right" id="sidebar-count">5 shown</span>
+    </div>
+
+    <div class="snapshot-list" id="snap-list">
+      <!-- Populated by JS -->
+    </div>
+
+    <div id="selection-bar">
+      <span class="sel-count"><span class="n" id="sel-n">0</span> selected</span>
+      <button class="btn" id="bulk-update-btn" onclick="bulkUpdate()" title="Update selected">↑ Update</button>
+      <button class="btn danger" id="bulk-delete-btn" onclick="bulkDelete()" title="Delete selected">✕ Delete</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <!-- Diff view (failing) -->
+    <div id="diff-pane" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="main-header">
+        <div>
+          <div class="main-title" id="main-title">test_user_profile_card[dark]</div>
+          <div class="main-sub" id="main-sub">tests/ui/test_cards.py · snapshot: <span style="color:var(--fg2)">user_profile_card_dark.txt</span></div>
+          <div class="diff-status-bar" id="diff-stats">
+            <div class="diff-stat"><span class="plus">+</span> 3 additions</div>
+            <div class="diff-stat"><span class="minus">−</span> 3 deletions</div>
+            <span style="color:var(--border2)">|</span>
+            <span>last captured: 2 days ago</span>
+          </div>
+        </div>
+        <div>
+          <div class="action-strip">
+            <button class="btn primary" onclick="updateSnap()" id="update-btn">
+              <span>↑ Update</span><span class="kbd">u</span>
+            </button>
+            <button class="btn" onclick="skipSnap()" id="skip-btn">
+              <span>Skip</span><span class="kbd">s</span>
+            </button>
+            <button class="btn danger" onclick="deleteSnap()" id="delete-btn">
+              <span>Delete</span><span class="kbd">d</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="diff-view"></div>
+    </div>
+
+    <!-- New snapshot view -->
+    <div id="new-pane" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="main-header">
+        <div>
+          <div class="main-title" id="new-title">new snapshot</div>
+          <div class="main-sub" id="new-sub">tests/ · no existing snapshot</div>
+          <div class="diff-status-bar">
+            <span style="color:var(--new)">● NEW</span>
+            <span style="color:var(--border2)">|</span>
+            <span>captured during last test run</span>
+          </div>
+        </div>
+        <div>
+          <div class="action-strip">
+            <button class="btn primary" onclick="acceptNew()">
+              <span>✓ Accept</span><span class="kbd">a</span>
+            </button>
+            <button class="btn danger" onclick="rejectNew()">
+              <span>✕ Reject</span><span class="kbd">r</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="new-view" class="new-snap-view"></div>
+    </div>
+
+    <!-- Obsolete view -->
+    <div id="obs-pane" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="main-header">
+        <div>
+          <div class="main-title" id="obs-title">obsolete snapshot</div>
+          <div class="main-sub" id="obs-sub">tests/ · no test references this snapshot</div>
+          <div class="diff-status-bar">
+            <span style="color:var(--obsolete)">◆ OBSOLETE</span>
+            <span style="color:var(--border2)">|</span>
+            <span>last test referencing this was removed</span>
+          </div>
+        </div>
+        <div>
+          <div class="action-strip">
+            <button class="btn danger" onclick="deleteSnap()">
+              <span>✕ Delete</span><span class="kbd">d</span>
+            </button>
+            <button class="btn" onclick="skipSnap()">
+              <span>Keep</span><span class="kbd">k</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="obs-view" class="new-snap-view"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── FOOTER ─────────────────────────────────────────────────── -->
+<div id="footer">
+  <div class="kbd-hint"><span class="k">↑↓</span> navigate</div>
+  <div class="kbd-hint"><span class="k">u</span> update</div>
+  <div class="kbd-hint"><span class="k">a</span> accept</div>
+  <div class="kbd-hint"><span class="k">d</span> delete</div>
+  <div class="kbd-hint"><span class="k">space</span> select</div>
+  <div class="kbd-hint"><span class="k">A</span> select all</div>
+  <div class="kbd-hint"><span class="k">q</span> quit</div>
+  <div class="footer-msg" id="footer-msg"><span class="accent">pytest-ditto</span> snapshot manager · v0.4.2</div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────
+const snapshots = [
+  // FAILING
+  {
+    id: 1, status: 'fail', name: 'test_user_profile_card[dark]',
+    file: 'tests/ui/test_cards.py', snap_file: 'user_profile_card_dark.txt',
+    age: '2 days ago', additions: 3, deletions: 3,
+    diff: [
+      { type: 'seg', hunk: '@@ -1,6 +1,6 @@', file_a: 'stored', file_b: 'actual' },
+      { type: 'ctx', a: 1, b: 1, text: '┌─────────────────────────┐' },
+      { type: 'ctx', a: 2, b: 2, text: '│ User Profile            │' },
+      { type: 'del', a: 3,       text: '│ ● John Doe              │', hl: [[4, 12]] },
+      { type: 'add',       b: 3, text: '│ ● Jane Doe              │', hl: [[4, 12]] },
+      { type: 'del', a: 4,       text: '│   john@example.com      │', hl: [[4, 23]] },
+      { type: 'add',       b: 4, text: '│   jane@example.com      │', hl: [[4, 23]] },
+      { type: 'ctx', a: 5, b: 5, text: '│   ✓ Verified account    │' },
+      { type: 'del', a: 6,       text: '│   Role: Editor          │', hl: [[10, 16]] },
+      { type: 'add',       b: 6, text: '│   Role: Admin           │',  hl: [[10, 15]] },
+      { type: 'ctx', a: 7, b: 7, text: '└─────────────────────────┘' },
+    ]
+  },
+  {
+    id: 2, status: 'fail', name: 'test_invoice_table[pdf_export]',
+    file: 'tests/billing/test_reports.py', snap_file: 'invoice_table_pdf_export.txt',
+    age: '5 hours ago', additions: 7, deletions: 4,
+    diff: [
+      { type: 'seg', hunk: '@@ -12,8 +12,11 @@', file_a: 'stored', file_b: 'actual' },
+      { type: 'ctx', a: 12, b: 12, text: '  INVOICE #2024-0091' },
+      { type: 'ctx', a: 13, b: 13, text: '  ─────────────────────────────' },
+      { type: 'del', a: 14,        text: '  Subtotal:      $1,240.00', hl: [[13, 25]] },
+      { type: 'add',        b: 14, text: '  Subtotal:      $1,480.00', hl: [[13, 25]] },
+      { type: 'del', a: 15,        text: '  Tax (8%):        $99.20', hl: [[12, 24]] },
+      { type: 'add',        b: 15, text: '  Tax (8%):       $118.40', hl: [[12, 24]] },
+      { type: 'del', a: 16,        text: '  ─────────────────────────────' },
+      { type: 'add',        b: 16, text: '  Discount:       -$50.00' },
+      { type: 'add',        b: 17, text: '  ─────────────────────────────' },
+      { type: 'del', a: 17,        text: '  TOTAL:         $1,339.20', hl: [[9, 25]] },
+      { type: 'add',        b: 18, text: '  TOTAL:         $1,548.40', hl: [[9, 25]] },
+    ]
+  },
+  {
+    id: 3, status: 'fail', name: 'test_nav_menu[collapsed]',
+    file: 'tests/ui/test_navigation.py', snap_file: 'nav_menu_collapsed.txt',
+    age: '1 hour ago', additions: 2, deletions: 2,
+    diff: [
+      { type: 'seg', hunk: '@@ -3,4 +3,4 @@', file_a: 'stored', file_b: 'actual' },
+      { type: 'ctx', a: 3, b: 3, text: '  ▸ Dashboard' },
+      { type: 'del', a: 4,       text: '  ▸ Analytics', hl: [[4, 13]] },
+      { type: 'add',       b: 4, text: '  ▸ Insights',  hl: [[4, 12]] },
+      { type: 'ctx', a: 5, b: 5, text: '  ▸ Settings' },
+      { type: 'del', a: 6,       text: '  ▸ Help',      hl: [[4, 8]] },
+      { type: 'add',       b: 6, text: '  ▸ Support',   hl: [[4, 11]] },
+    ]
+  },
+  {
+    id: 4, status: 'fail', name: 'test_error_page[404]',
+    file: 'tests/ui/test_errors.py', snap_file: 'error_page_404.txt',
+    age: '3 days ago', additions: 1, deletions: 1,
+    diff: [
+      { type: 'seg', hunk: '@@ -8,3 +8,3 @@', file_a: 'stored', file_b: 'actual' },
+      { type: 'ctx', a: 8,  b: 8,  text: '  404 — Page Not Found' },
+      { type: 'del', a: 9,         text: '  Contact support@app.com', hl: [[9, 25]] },
+      { type: 'add',         b: 9, text: '  Contact help@app.com',    hl: [[9, 22]] },
+      { type: 'ctx', a: 10, b: 10, text: '  ← Go back home' },
+    ]
+  },
+  {
+    id: 5, status: 'fail', name: 'test_data_grid[sort_asc]',
+    file: 'tests/components/test_grid.py', snap_file: 'data_grid_sort_asc.txt',
+    age: '6 hours ago', additions: 4, deletions: 3,
+    diff: [
+      { type: 'seg', hunk: '@@ -1,7 +1,8 @@', file_a: 'stored', file_b: 'actual' },
+      { type: 'ctx', a: 1, b: 1, text: '  Name ↑      | Score | Status' },
+      { type: 'ctx', a: 2, b: 2, text: '  ────────────┼───────┼────────' },
+      { type: 'del', a: 3,       text: '  Alice       |    92 | active', hl: [[16, 18]] },
+      { type: 'add',       b: 3, text: '  Alice       |    95 | active', hl: [[16, 18]] },
+      { type: 'ctx', a: 4, b: 4, text: '  Bob         |    78 | active' },
+      { type: 'del', a: 5,       text: '  Carol       |    85 | away',   hl: [[16, 18]] },
+      { type: 'del', a: 6,       text: '  Dave        |    71 | active', hl: [] },
+      { type: 'add',       b: 5, text: '  Carol       |    87 | active', hl: [[16, 18]] },
+      { type: 'add',       b: 6, text: '  Dave        |    71 | away',   hl: [] },
+      { type: 'add',       b: 7, text: '  Eve         |    68 | active'  },
+    ]
+  },
+  // NEW
+  {
+    id: 6, status: 'new', name: 'test_onboarding_flow[step_2]',
+    file: 'tests/flows/test_onboarding.py', snap_file: 'onboarding_flow_step_2.txt',
+    age: 'just now', additions: 0, deletions: 0,
+    content: [
+      '  ┌─────────────────────────────────┐',
+      '  │  Step 2 of 4 — Your preferences │',
+      '  │  ━━━━━━━━━━━━░░░░░░░░░░░░░░░░░  │',
+      '  │                                 │',
+      '  │  [✓] Email notifications        │',
+      '  │  [ ] Weekly digest              │',
+      '  │  [✓] Product updates            │',
+      '  │                                 │',
+      '  │       [ Back ]  [ Continue → ]  │',
+      '  └─────────────────────────────────┘',
+    ]
+  },
+  {
+    id: 7, status: 'new', name: 'test_sidebar_badge[unread_10]',
+    file: 'tests/ui/test_sidebar.py', snap_file: 'sidebar_badge_unread_10.txt',
+    age: 'just now', additions: 0, deletions: 0,
+    content: [
+      '  ● Inbox         (10)',
+      '  ○ Sent',
+      '  ○ Drafts         (3)',
+      '  ─────────────────────',
+      '  ○ Archive',
+      '  ○ Trash',
+    ]
+  },
+  {
+    id: 8, status: 'new', name: 'test_command_palette[empty]',
+    file: 'tests/ui/test_palette.py', snap_file: 'command_palette_empty.txt',
+    age: 'just now', additions: 0, deletions: 0,
+    content: [
+      '  ┌──────────────────────────────────────┐',
+      '  │ > _                                  │',
+      '  ├──────────────────────────────────────┤',
+      '  │  No recent commands                  │',
+      '  │                                      │',
+      '  │  Type to search…                     │',
+      '  └──────────────────────────────────────┘',
+    ]
+  },
+  // OBSOLETE
+  {
+    id: 9, status: 'obs', name: 'test_legacy_header[v1]',
+    file: '(test removed)', snap_file: 'legacy_header_v1.txt',
+    age: '14 days ago', additions: 0, deletions: 0,
+    content: [
+      '  ┌──── AppName v1.0 ─────────────┐',
+      '  │  Home  About  Contact  Login  │',
+      '  └───────────────────────────────┘',
+    ]
+  },
+  {
+    id: 10, status: 'obs', name: 'test_old_footer[minimal]',
+    file: '(test removed)', snap_file: 'old_footer_minimal.txt',
+    age: '10 days ago', additions: 0, deletions: 0,
+    content: [
+      '  © 2022 AppName Inc. All rights reserved.',
+      '  Privacy · Terms · Cookies',
+    ]
+  },
+];
+
+// ── STATE ─────────────────────────────────────────────────────────
+let currentTab = 'fail';
+let selectedId = 1;
+let checkedIds = new Set();
+let dismissed = new Set();
+
+// ── FILTER ────────────────────────────────────────────────────────
+function filteredSnaps() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  return snapshots.filter(s => {
+    if (dismissed.has(s.id)) return false;
+    const tabMatch = currentTab === 'all' || s.status === currentTab;
+    const qMatch = !q || s.name.toLowerCase().includes(q) || s.file.toLowerCase().includes(q);
+    return tabMatch && qMatch;
+  });
+}
+
+// ── RENDER SIDEBAR ────────────────────────────────────────────────
+function renderSidebar() {
+  const list = document.getElementById('snap-list');
+  const snaps = filteredSnaps();
+  document.getElementById('sidebar-count').textContent = snaps.length + ' shown';
+
+  const groups = { fail: [], new: [], obs: [] };
+  snaps.forEach(s => groups[s.status]?.push(s));
+
+  const labels = { fail: 'Failing', new: 'New', obs: 'Obsolete' };
+  let html = '';
+
+  ['fail', 'new', 'obs'].forEach(g => {
+    if (!groups[g].length) return;
+    html += `<div class="group-label">${labels[g]}</div>`;
+    groups[g].forEach(s => {
+      const active = s.id === selectedId ? 'active ' + s.status : '';
+      const checked = checkedIds.has(s.id);
+      html += `
+        <div class="snap-item ${active}" onclick="selectSnap(${s.id})" id="item-${s.id}">
+          <div class="snap-check ${checked ? 'checked' : ''}" onclick="toggleCheck(event, ${s.id})">${checked ? '✓' : ''}</div>
+          <div class="snap-status ${s.status}"></div>
+          <div class="snap-info">
+            <div class="snap-name">${s.name}</div>
+            <div class="snap-meta">${s.file.split('/').slice(-1)[0]} · ${s.age}</div>
+          </div>
+        </div>`;
+    });
+  });
+
+  if (!html) html = `<div style="padding:24px 16px;color:var(--fg3);font-size:12px;">No snapshots match.</div>`;
+  list.innerHTML = html;
+
+  const n = checkedIds.size;
+  document.getElementById('sel-n').textContent = n;
+}
+
+// ── RENDER MAIN ───────────────────────────────────────────────────
+function renderMain() {
+  const s = snapshots.find(x => x.id === selectedId);
+  if (!s) return;
+
+  // hide all panes
+  document.getElementById('diff-pane').style.display = 'none';
+  document.getElementById('new-pane').style.display = 'none';
+  document.getElementById('obs-pane').style.display = 'none';
+
+  if (s.status === 'fail') {
+    document.getElementById('diff-pane').style.display = 'flex';
+    document.getElementById('main-title').textContent = s.name;
+    document.getElementById('main-sub').innerHTML =
+      `${s.file} · snapshot: <span style="color:var(--fg2)">${s.snap_file}</span>`;
+    document.getElementById('diff-stats').innerHTML = `
+      <div class="diff-stat"><span class="plus">+</span> ${s.additions} additions</div>
+      <div class="diff-stat"><span class="minus">−</span> ${s.deletions} deletions</div>
+      <span style="color:var(--border2)">|</span>
+      <span>last captured: ${s.age}</span>`;
+    renderDiff(s.diff);
+
+  } else if (s.status === 'new') {
+    document.getElementById('new-pane').style.display = 'flex';
+    document.getElementById('new-title').textContent = s.name;
+    document.getElementById('new-sub').innerHTML = `${s.file} · no existing snapshot`;
+    renderNewView(s.content);
+
+  } else if (s.status === 'obs') {
+    document.getElementById('obs-pane').style.display = 'flex';
+    document.getElementById('obs-title').textContent = s.name;
+    document.getElementById('obs-sub').innerHTML = `${s.snap_file} · no test references this snapshot`;
+    renderObsView(s.content);
+  }
+}
+
+// ── RENDER DIFF ───────────────────────────────────────────────────
+function renderDiff(diff) {
+  const view = document.getElementById('diff-view');
+  let html = '';
+  let aLine = 1, bLine = 1;
+
+  diff.forEach(l => {
+    if (l.type === 'seg') {
+      html += `<div class="diff-segment"><div class="diff-seg-header">
+        <span class="hunk-info">${l.hunk}</span>
+        <span style="color:var(--fail)">─ ${l.file_a}</span>
+        <span style="color:var(--pass)">+ ${l.file_b}</span>
+      </div>`;
+      return;
+    }
+    const lineA = (l.type === 'del' || l.type === 'ctx') ? (l.a || aLine) : '';
+    const lineB = (l.type === 'add' || l.type === 'ctx') ? (l.b || bLine) : '';
+    const glyph = l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' ';
+    let text = escHtml(l.text);
+    if (l.hl && l.hl.length) {
+      l.hl.forEach(([s, e]) => {
+        const cls = l.type === 'add' ? 'hl-add' : 'hl-del';
+        text = text.slice(0,s) + `<span class="${cls}">` + text.slice(s,e) + '</span>' + text.slice(e);
+      });
+    }
+    html += `<div class="diff-line ${l.type}">
+      <div class="line-no">${lineA}</div>
+      <div class="gutter">${glyph}</div>
+      <div class="line-content">${text}</div>
+    </div>`;
+    if (l.type === 'ctx') { aLine++; bLine++; }
+    else if (l.type === 'del') aLine++;
+    else bLine++;
+  });
+  html += '</div>';
+  view.innerHTML = html;
+}
+
+function renderNewView(lines) {
+  const view = document.getElementById('new-view');
+  view.innerHTML = `<div style="padding:8px 0;">` +
+    lines.map((t, i) => `
+      <div class="diff-line" style="background:rgba(91,200,255,0.05)">
+        <div class="line-no" style="color:var(--blue2)">${i+1}</div>
+        <div class="gutter" style="color:var(--new)">+</div>
+        <div class="line-content" style="color:var(--new)">${escHtml(t)}</div>
+      </div>`).join('') + `</div>`;
+}
+
+function renderObsView(lines) {
+  const view = document.getElementById('obs-view');
+  view.innerHTML = `<div style="padding:8px 0;">` +
+    lines.map((t, i) => `
+      <div class="diff-line" style="background:rgba(245,200,66,0.04)">
+        <div class="line-no" style="color:var(--yellow2)">${i+1}</div>
+        <div class="gutter" style="color:var(--yellow)">?</div>
+        <div class="line-content" style="color:var(--fg3)">${escHtml(t)}</div>
+      </div>`).join('') + `</div>`;
+}
+
+function escHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── ACTIONS ───────────────────────────────────────────────────────
+function selectSnap(id) {
+  selectedId = id;
+  renderSidebar();
+  renderMain();
+  setMsg('');
+}
+
+function toggleCheck(e, id) {
+  e.stopPropagation();
+  checkedIds.has(id) ? checkedIds.delete(id) : checkedIds.add(id);
+  renderSidebar();
+}
+
+function dismiss(id, msg) {
+  dismissed.add(id);
+  const snaps = filteredSnaps();
+  const idx = snaps.findIndex(s => s.id === id);
+  const next = snaps[idx + 1] || snaps[idx - 1];
+  selectedId = next ? next.id : null;
+  checkedIds.delete(id);
+  setMsg(msg);
+  render();
+}
+
+function updateSnap() {
+  const s = snapshots.find(x => x.id === selectedId);
+  dismiss(selectedId, `↑ Updated snapshot for <span style="color:var(--accent)">${s?.name}</span>`);
+}
+
+function skipSnap() {
+  const s = snapshots.find(x => x.id === selectedId);
+  dismiss(selectedId, `⟳ Skipped <span style="color:var(--fg2)">${s?.name}</span>`);
+}
+
+function deleteSnap() {
+  const s = snapshots.find(x => x.id === selectedId);
+  dismiss(selectedId, `✕ Deleted <span style="color:var(--red)">${s?.name}</span>`);
+}
+
+function acceptNew() {
+  const s = snapshots.find(x => x.id === selectedId);
+  dismiss(selectedId, `✓ Accepted new snapshot for <span style="color:var(--new)">${s?.name}</span>`);
+}
+
+function rejectNew() {
+  const s = snapshots.find(x => x.id === selectedId);
+  dismiss(selectedId, `✕ Rejected <span style="color:var(--red)">${s?.name}</span>`);
+}
+
+function bulkUpdate() {
+  const ids = [...checkedIds];
+  ids.forEach(id => dismissed.add(id));
+  checkedIds.clear();
+  const next = filteredSnaps()[0];
+  selectedId = next ? next.id : null;
+  setMsg(`↑ Updated <span style="color:var(--accent)">${ids.length} snapshots</span>`);
+  render();
+}
+
+function bulkDelete() {
+  const ids = [...checkedIds];
+  ids.forEach(id => dismissed.add(id));
+  checkedIds.clear();
+  const next = filteredSnaps()[0];
+  selectedId = next ? next.id : null;
+  setMsg(`✕ Deleted <span style="color:var(--red)">${ids.length} snapshots</span>`);
+  render();
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  const tabMap = { fail: 0, new: 1, obs: 2, all: 3 };
+  document.querySelectorAll('.tab')[tabMap[tab]]?.classList.add('active');
+  const first = filteredSnaps()[0];
+  selectedId = first ? first.id : null;
+  render();
+}
+
+function setMsg(msg) {
+  document.getElementById('footer-msg').innerHTML = msg ||
+    '<span class="accent">pytest-ditto</span> snapshot manager · v0.4.2';
+}
+
+function render() { renderSidebar(); if (selectedId) renderMain(); }
+
+// ── KEYBOARD ──────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const snaps = filteredSnaps();
+  const idx = snaps.findIndex(s => s.id === selectedId);
+
+  if (e.key === 'ArrowDown' || e.key === 'j') {
+    const next = snaps[idx + 1];
+    if (next) { selectedId = next.id; render(); }
+  } else if (e.key === 'ArrowUp' || e.key === 'k') {
+    const prev = snaps[idx - 1];
+    if (prev) { selectedId = prev.id; render(); }
+  } else if (e.key === 'u') { updateSnap(); }
+  else if (e.key === 'a') { acceptNew(); }
+  else if (e.key === 'd') { deleteSnap(); }
+  else if (e.key === 's') { skipSnap(); }
+  else if (e.key === 'r') { rejectNew(); }
+  else if (e.key === ' ') { e.preventDefault(); toggleCheck(e, selectedId); }
+  else if (e.key === 'A') {
+    snaps.forEach(s => checkedIds.add(s.id));
+    renderSidebar();
+  }
+});
+
+document.getElementById('search-input').addEventListener('input', () => {
+  const first = filteredSnaps()[0];
+  selectedId = first ? first.id : null;
+  render();
+});
+
+// ── INIT ──────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>

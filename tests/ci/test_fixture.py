@@ -84,12 +84,9 @@ def test_user_defined_ditto_backend_raises_migration_error(pytester) -> None:
 def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     """--ditto-prune must not delete snapshots written by sibling tests.
 
-    Regression: the fallback fixture created a fresh FsspecMapping per test, giving
-    each test its own _BackendRecord. Pass 1 of pytest_sessionfinish enumerated the
-    entire shared .ditto/ directory for each record and subtracted only that one
-    test's accessed keys, marking every sibling's snapshot as "not accessed" and
-    deleting it. The fix caches the FsspecMapping by resolved root path so all
-    tests in the same directory share one backend instance and one record.
+    The first run seeds ditto.lock with both alpha and beta. A subsequent
+    --ditto-prune finds both keys recorded in the lock, so neither is an orphan
+    and nothing is pruned.
     """
     pytester.makepyfile(
         test_alpha="""
@@ -111,8 +108,9 @@ def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     result.stdout.no_fnmatch_line("*pruned*")
 
 
-def test_shared_memory_target_does_not_report_false_unused(pytester) -> None:
-    """Two tests sharing one memory target should not flag each other as unused."""
+def test_shared_memory_target_does_not_report_false_prune_candidates(pytester) -> None:
+    """A normal run on a shared memory target reports no spurious deletion
+    candidates."""
     pytester.makepyfile(
         test_alpha="""
             import ditto
@@ -133,7 +131,7 @@ def test_shared_memory_target_does_not_report_false_unused(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=2)
-    result.stderr.no_fnmatch_line("*│   unused*")
+    result.stderr.no_fnmatch_line("*would prune*")
 
 
 def test_module_field_uses_forward_slashes(pytester) -> None:
@@ -199,8 +197,11 @@ _ITER_RAISING_CONFTEST = """
 
 
 def test_session_completes_when_backend_iter_raises_not_implemented(pytester) -> None:
-    """A backend that raises NotImplementedError from __iter__ emits a warning and
-    does not crash pytest_sessionfinish."""
+    """A prune backend that raises NotImplementedError from __iter__ is skipped.
+
+    Enumeration only happens under --ditto-prune now. A backend whose __iter__
+    raises is warned about and skipped, so the prune run still completes.
+    """
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
             cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
@@ -213,20 +214,23 @@ def test_session_completes_when_backend_iter_raises_not_implemented(pytester) ->
         "    snapshot('v', key='k')\n"
     )
 
-    result = pytester.runpytest("-W", "always")
+    # First run seeds the lock; the broken __iter__ does not affect writing the
+    # snapshot or appending the lock.
+    pytester.runpytest().assert_outcomes(passed=1)
+
+    result = pytester.runpytest("--ditto-prune", "-W", "always")
 
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*does not support enumeration*"])
+    result.stdout.fnmatch_lines(["*could not prune*"])
+    result.stdout.fnmatch_lines(["*no iteration*"])
 
 
 def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
-    """A backend that raises a non-NotImplementedError (e.g. ConnectionError) from
-    __iter__ emits a warning and does not crash pytest_sessionfinish.
+    """A prune backend that raises ConnectionError from __iter__ is skipped.
 
-    Regression: the original except clause only caught NotImplementedError.
-    ConnectionError, PermissionError, and other I/O errors from remote backends
-    (e.g. FsspecMapping's fs.find() call) propagated uncaught, preventing the
-    session report from rendering.
+    Regression: enumeration under prune must tolerate non-NotImplementedError
+    I/O errors (e.g. ConnectionError, PermissionError) from remote backends,
+    warning and skipping the target rather than aborting the prune.
     """
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
@@ -240,10 +244,15 @@ def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
         "    snapshot('v', key='k')\n"
     )
 
-    result = pytester.runpytest("-W", "always")
+    # First run seeds the lock; the broken __iter__ does not affect writing the
+    # snapshot or appending the lock.
+    pytester.runpytest().assert_outcomes(passed=1)
+
+    result = pytester.runpytest("--ditto-prune", "-W", "always")
 
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*raised ConnectionError*"])
+    result.stdout.fnmatch_lines(["*could not prune*"])
+    result.stdout.fnmatch_lines(["*network gone*"])
 
 
 def test_accepts_integer_as_key(pytester) -> None:
@@ -260,13 +269,11 @@ def test_accepts_integer_as_key(pytester) -> None:
 
 
 def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:
-    """--ditto-prune must not prune .ditto/ directories outside the collected paths.
+    """--ditto-prune must not touch targets outside the collected paths.
 
-    Regression: Pass 2 of pytest_sessionfinish used rootdir.rglob(".ditto") which
-    scans the entire project. Running --ditto-prune scoped to a subdirectory would
-    find all .ditto/ directories under rootdir and prune every snapshot in ones not
-    opened this session, destroying snapshots from unrelated test directories.
-    The fix scopes the rglob to directories of actually-collected test items.
+    Prune only enumerates targets exercised this run. Running --ditto-prune
+    scoped to dir_a never resolves dir_b's target, so dir_b's snapshots are left
+    untouched.
     """
     dir_a = pytester.mkpydir("dir_a")
     dir_b = pytester.mkpydir("dir_b")
@@ -375,9 +382,9 @@ def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> N
     """--ditto-prune on a partial run must not prune snapshots from uncollected
     modules sharing the same backend.
 
-    When two test files write to the same file:// target, running --ditto-prune
-    scoped to one file must leave the other file's snapshots intact. Only keys
-    that belong to modules in the current run are candidates for pruning.
+    When two test files write to the same file:// target, both keys are recorded
+    in the seeded lock. Running --ditto-prune scoped to one file finds no orphans
+    (every backend key is in the lock), so the other file's snapshot survives.
     """
     shared_target = pytester.path / "shared_ditto"
     pytester.makepyfile(

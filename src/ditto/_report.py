@@ -5,7 +5,7 @@ from rich.text import Text
 from ._theme import (
     CREATED,
     UPDATED,
-    UNUSED,
+    WOULD_PRUNE,
     PRUNED,
     TITLE,
     MUTED,
@@ -41,7 +41,7 @@ def render_session_report(
     created: list[SnapshotKey],
     updated: list[SnapshotKey],
     pruned: list[str],
-    unused: list[str],
+    would_prune: list[str],
     console: Console | None = None,
 ) -> None:
     """Render the end-of-session ditto snapshot report via Rich.
@@ -56,12 +56,13 @@ def render_session_report(
         Existing snapshots overwritten via `--ditto-update`.
     pruned : list[str]
         Raw backend keys deleted via `--ditto-prune`.
-    unused : list[str]
-        Raw backend keys on disk not accessed this session.
+    would_prune : list[str]
+        Backend keys a `--ditto-prune` run would delete (shown under
+        `--ditto-prune-dry-run`).
     console : Console, optional
         Rich Console to write to. Defaults to stderr.
     """
-    if not any([created, updated, pruned, unused]):
+    if not any([created, updated, pruned, would_prune]):
         return
 
     if console is None:
@@ -78,9 +79,12 @@ def render_session_report(
         lines.append(_label_block(updated, UPDATED, "updated"))
     if pruned:
         lines.append(_label_block(pruned, PRUNED, "pruned"))
-    if unused:
+    if would_prune:
         lines.append(
-            _label_block(unused, UNUSED, "unused", suffix="(use --ditto-prune)")
+            _label_block(
+                would_prune, WOULD_PRUNE, "would prune",
+                suffix="(use --ditto-prune to delete)",
+            )
         )
 
     body = Text("\n").join(lines)

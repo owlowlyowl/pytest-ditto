@@ -6,6 +6,7 @@ backend via `redis://` plus a registered factory.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
 
@@ -124,12 +125,14 @@ def test_snapshot_multiple_keys_in_one_test(snapshot) -> None:
     assert b == "hello"
 
 
-def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
-    """Snapshots written to Redis but not accessed in a session appear as unused.
+def test_dry_run_reports_orphan_redis_key_absent_from_lock(pytester) -> None:
+    """A Redis backend key absent from ditto.lock is reported by a dry-run prune.
 
     Runs two pytester sessions sharing the same FakeRedis instance:
-      1. First session writes two keys (alpha, beta).
-      2. Second session reads only alpha — beta should appear as unused.
+      1. First session writes two keys (alpha, beta) and seeds ditto.lock.
+      2. Beta's lock entry is removed, making it an orphan on the backend.
+      3. Second session with --ditto-prune-dry-run reports beta as a would-prune
+         orphan without deleting it.
     """
     pytester.makeconftest("""
         from collections.abc import Iterator, MutableMapping
@@ -167,7 +170,14 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
                 # lifetime is managed by the outer test, not by ditto.
                 pass
 
-        _shared_client = fakeredis.FakeRedis()
+        # Key the FakeServer by a fixed name so the same in-memory store is
+        # reused across both in-process pytester runs, even though the conftest
+        # module is re-imported between them. A bare FakeRedis() would give each
+        # run a fresh, empty server and the orphan would never be seen.
+        _server = fakeredis.FakeServer.get_server(
+            "ditto-prune-test", version=(7,), server_type="redis"
+        )
+        _shared_client = fakeredis.FakeRedis(server=_server)
 
         def create_redis_backend(uri: str, **kwargs):
             return PrefixedMapping(RedisMapping(_shared_client), prefix="ditto:")
@@ -186,21 +196,23 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
             def test_write_beta(snapshot):
                 snapshot("beta-value", key="beta")
         """,
-        test_read="""
-            import ditto
-
-            @ditto.record("pickle", target="redis://localhost:6379/0")
-            def test_read_alpha_only(snapshot):
-                result = snapshot("alpha-value", key="alpha")
-                assert result == "alpha-value"
-        """,
     )
 
-    # First run: create both snapshots
+    # First run: create both snapshots and seed ditto.lock.
     result = pytester.runpytest("test_write.py")
     result.assert_outcomes(passed=2)
 
-    # Second run: only access alpha — beta is unused
-    result = pytester.runpytest("test_read.py")
-    result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*unused*"])
+    # Drop beta's entry from the lock so its backend key becomes an orphan.
+    lock_path = pytester.path / "ditto.lock"
+    data = json.loads(lock_path.read_text())
+    target = next(iter(data["targets"].values()))
+    target["entries"] = [
+        e for e in target["entries"] if "test_write_beta" not in e["nodeid"]
+    ]
+    lock_path.write_text(json.dumps(data))
+
+    # Second run with dry-run prune: beta is reported as a would-prune orphan
+    # but left in the backend. In-process so the shared FakeRedis client survives.
+    result = pytester.runpytest("test_write.py", "--ditto-prune-dry-run")
+    result.assert_outcomes(passed=2)
+    result.stderr.fnmatch_lines(["*would prune*"])
