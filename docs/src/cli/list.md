@@ -34,3 +34,17 @@ Displays a table with columns:
 | Recorder | Format used (pkl, yaml, json, etc.) |
 | Size | File size |
 | Modified | Last-modified date |
+
+## Data source
+
+By default this command is **credential-free**: local snapshots are read from the
+filesystem (real size and modified date, including on-disk orphans) and remote
+snapshots are read from `ditto.lock` (shown with `—` for size and modified, since
+physical metadata needs a live connection). No test modules are imported and no
+credentials are needed.
+
+Pass `--live` to read the live backends instead, via an internal
+`pytest --setup-only` pass — authoritative physical state for every target, at the
+cost of importing your tests and needing their credentials.
+
+See [The Lock File](../guides/lock-file.md#declared-vs-physical-state-and-the-inventory-trade-off).

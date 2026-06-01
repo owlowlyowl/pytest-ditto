@@ -9,6 +9,7 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto run`](run.md) | Run pytest with snapshot reporting |
 | [`ditto update`](update.md) | Regenerate all snapshots |
 | [`ditto prune`](prune.md) | Remove stale snapshots |
+| [`ditto verify`](verify.md) | Fail if the backend drifted from `ditto.lock` |
 | [`ditto list`](list.md) | List all snapshot files |
 | [`ditto status`](status.md) | Show aggregate statistics |
 | [`ditto clean`](clean.md) | Delete all `.ditto/` directories |
@@ -17,20 +18,19 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto lint`](lint.md) | Check snapshots for issues |
 | [`ditto stats`](stats.md) | Per-directory usage breakdown |
 
-## CLI and Remote Backends
+## CLI and remote backends
 
-`ditto list`, `status`, `stats`, and `lint` work with remote and registered
-backends, not just local `file://` snapshots.
+`ditto list`, `status`, `stats`, and `lint` are **credential-free by default**.
+Local snapshots are read straight from the filesystem; remote snapshots are read
+from the committed `ditto.lock`. No test modules are imported and no backend
+credentials are needed — even for projects with remote or fixture-defined
+targets, because the lock already records every resolved target from past runs.
 
-To stay correct in the presence of per-test `record(target=...)` marks and
-fixture-defined profiles, these commands always run an internal
-`pytest --setup-only` pass. The real `ditto_target_profiles` /
-`ditto_storage_options` fixtures resolve each backend.
+Pass `--live` to read the live backends instead (an internal `pytest --setup-only`
+pass that resolves real fixtures and per-test `record(target=…)` marks). `--live`
+imports your test modules and needs the same credentials your test run needs.
 
-This means these commands:
-
-- Import your test modules
-- Need the same runtime credentials your test run needs
-- Are slower than a plain directory listing even for local-only projects
+Remote snapshots read from the lock have no physical size or modified date (shown
+as `—`); use `--live` for those. See [The Lock File](../guides/lock-file.md).
 
 `ditto clean` remains local-only and never touches remote snapshots.
