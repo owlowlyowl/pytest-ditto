@@ -53,7 +53,8 @@ from ._theme import (
     FLAMINGO,
 )
 from ._manifest import Manifest, ManifestEntry
-from ._cli_introspect import IntrospectError, run_introspect
+from ._cli_introspect import IntrospectError
+from ._inventory import build_inventory, lock_present
 
 
 console = Console()
@@ -97,18 +98,33 @@ def _find_ditto_dirs(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto") if p.is_dir())
 
 
-def _inventory_or_exit(path: Path) -> Manifest:
-    """Run the introspection pass for PATH, or print the error and exit(1).
-
-    Always introspects: the pytest pass resolves real fixtures and per-test
-    record(target=...) marks, so the inventory covers local file://, remote, and
-    fixture-defined backends with nothing inferred from static config.
-    """
+def _inventory_or_exit(path: Path, *, live: bool) -> Manifest:
+    """Build the inventory for PATH, or print the error and exit(1)."""
     try:
-        return run_introspect(path)
+        return build_inventory(path, live=live)
     except IntrospectError as exc:
         console.print(f"[bold {PRUNED}]Introspection failed:[/bold {PRUNED}] {exc}")
         sys.exit(1)
+
+
+def _print_inventory_notes(
+    path: Path, entries: list[ManifestEntry], *, live: bool
+) -> None:
+    """Print muted hints about unknown remote sizes and a missing lock file."""
+    if live:
+        return
+    unknown = sum(1 for entry in entries if entry.size_bytes is None)
+    if unknown:
+        plural = "s" if unknown != 1 else ""
+        console.print(
+            f"[{MUTED}]remote: {unknown} snapshot{plural}, "
+            f"size unknown (use --live).[/{MUTED}]"
+        )
+    if not lock_present(path):
+        console.print(
+            f"[{MUTED}]no ditto.lock found — remote snapshots are not shown; "
+            f"use --live.[/{MUTED}]"
+        )
 
 
 def _entries(manifest: Manifest) -> list[ManifestEntry]:
@@ -374,18 +390,28 @@ def cmd_verify(pytest_args):
 
 
 @cli.command(name="list")
+@click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_list(path: Path):
+def cmd_list(path: Path, live: bool):
     """List all snapshot files under PATH (default: current directory).
+
+    By default reads local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto list
       ditto list tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
@@ -424,6 +450,7 @@ def cmd_list(path: Path):
         )
 
     console.print(table)
+    _print_inventory_notes(path, entries, live=live)
 
 
 @cli.command(name="clean")
@@ -473,24 +500,35 @@ def cmd_clean(path: Path, yes: bool):
 
 
 @cli.command(name="status")
+@click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_status(path: Path):
+def cmd_status(path: Path, live: bool):
     """Show aggregate statistics for snapshots under PATH.
+
+    By default aggregates local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto status
       ditto status tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)
 
     render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
+    _print_inventory_notes(path, entries, live=live)
 
 
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
@@ -722,42 +760,66 @@ def cmd_doctor():
 
 
 @cli.command(name="lint")
+@click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_lint(path: Path):
+def cmd_lint(path: Path, live: bool):
     """Check snapshot files for naming issues, unknown formats, and empty files.
+
+    By default lints local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto lint
       ditto lint tests/ci/
     """
-    manifest = _inventory_or_exit(path)
-    issues = _find_lint_issues(_entries(manifest), _ext_map(_load_recorder_infos()))
-    if not issues:
+    manifest = _inventory_or_exit(path, live=live)
+    entries = _entries(manifest)
+    issues = _find_lint_issues(entries, _ext_map(_load_recorder_infos()))
+    if issues:
+        _render_lint_issues(issues, console)
+    else:
         console.print(f"[{MUTED}]All snapshots are valid.[/{MUTED}]")
-        return
-    _render_lint_issues(issues, console)
-    sys.exit(1)
+    _print_inventory_notes(path, entries, live=live)
+    if issues:
+        sys.exit(1)
 
 
 @cli.command(name="stats")
+@click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_stats(path: Path):
+def cmd_stats(path: Path, live: bool):
     """Show per-directory snapshot usage breakdown.
+
+    By default breaks down local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto stats
       ditto stats tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     if not manifest:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
         sys.exit(1)
     em = _ext_map(_load_recorder_infos())
     dir_stats = [(b.location, gather_stats(b.entries, em)) for b in manifest]
     _render_stats_table(dir_stats, console)
+    _print_inventory_notes(path, _entries(manifest), live=live)

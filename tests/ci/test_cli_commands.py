@@ -3,13 +3,14 @@ consistency fixes on list/status/clean/recorders."""
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from ditto import cli as cli_mod
-from ditto._manifest import ManifestEntry
+from ditto._lockfile import LOCKFILE_VERSION
+from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
     RecorderInfo,
     _doctor_checks,
@@ -228,19 +229,15 @@ def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
 # ── exit code consistency ─────────────────────────────────────────────────────
 
 
-def test_list_exits_one_when_no_snapshots_exist(tmp_path, monkeypatch) -> None:
-    """ditto list exits 1 when the inventory is empty."""
-    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: [])
-
+def test_list_exits_one_when_no_snapshots_exist(tmp_path) -> None:
+    """ditto list exits 1 when the credential-free inventory is empty."""
     result = CliRunner().invoke(cmd_list, [str(tmp_path)])
 
     assert result.exit_code == 1
 
 
-def test_status_exits_one_when_no_snapshots_exist(tmp_path, monkeypatch) -> None:
-    """ditto status exits 1 when the inventory is empty."""
-    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: [])
-
+def test_status_exits_one_when_no_snapshots_exist(tmp_path) -> None:
+    """ditto status exits 1 when the credential-free inventory is empty."""
     result = CliRunner().invoke(cmd_status, [str(tmp_path)])
 
     assert result.exit_code == 1
@@ -284,3 +281,63 @@ def test_prune_without_check_forwards_delete_flag() -> None:
     cmd = run.call_args.args[0]
     assert "--ditto-prune" in cmd
     assert "--ditto-prune-dry-run" not in cmd
+
+
+# ── credential-free default + --live opt-in ───────────────────────────────────
+
+
+def _make_local_snapshot(tmp_path) -> None:
+    ditto = tmp_path / ".ditto"
+    ditto.mkdir()
+    (ditto / "mod.test_a@k.pkl").write_bytes(b"abcd")
+
+
+def test_list_default_does_not_run_introspect(tmp_path) -> None:
+    """The credential-free default `ditto list` never spawns the pytest pass."""
+    _make_local_snapshot(tmp_path)
+    with patch(
+        "ditto._inventory.run_introspect",
+        side_effect=AssertionError("must not introspect"),
+    ):
+        result = CliRunner().invoke(cmd_list, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "test_a" in result.output
+
+
+def test_list_live_runs_introspect(tmp_path) -> None:
+    """`ditto list --live` delegates to the introspection pass."""
+    manifest = [
+        BackendManifest(
+            location="redis://h/0",
+            entries=[ManifestEntry("mod.test_live@k.pkl", size_bytes=7, modified=None)],
+        )
+    ]
+    with patch("ditto._inventory.run_introspect", return_value=manifest) as run:
+        result = CliRunner().invoke(cmd_list, [str(tmp_path), "--live"])
+
+    run.assert_called_once()
+    assert result.exit_code == 0
+    assert "test_live" in result.output
+
+
+def test_list_renders_remote_lock_entry_with_dash(tmp_path) -> None:
+    """A remote lock entry shows credential-free with an em-dash size."""
+    lock = {
+        "version": LOCKFILE_VERSION,
+        "targets": {
+            "redis://localhost:6379/0": {
+                "scheme": "redis",
+                "entries": [
+                    {"nodeid": "test_x.py::test_remote", "key": "k", "recorder": "pkl"}
+                ],
+            }
+        },
+    }
+    (tmp_path / "ditto.lock").write_text(json.dumps(lock))
+
+    result = CliRunner().invoke(cmd_list, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "test_remote" in result.output
+    assert "—" in result.output

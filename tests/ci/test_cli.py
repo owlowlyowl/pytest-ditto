@@ -246,11 +246,14 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
 
 
 def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
-    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: manifest)
+    monkeypatch.setattr(
+        "ditto._inventory.run_introspect", lambda path: manifest
+    )
 
 
 def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:
-    """`ditto list` renders the storage keys the introspection pass enumerated."""
+    """`ditto list --live` renders the storage keys the introspection pass
+    enumerated."""
     manifest = [
         BackendManifest(
             "file:///x/.ditto",
@@ -259,7 +262,7 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
     ]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "test_y" in result.output
@@ -268,12 +271,12 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
 def test_stats_shows_a_configured_backend_even_with_no_snapshots(
     tmp_path, monkeypatch
 ) -> None:
-    """An empty-but-resolved backend still appears in `ditto stats`, flagging it to
-    the user as removable or misconfigured."""
+    """An empty-but-resolved backend still appears in `ditto stats --live`, flagging
+    it to the user as removable or misconfigured."""
     manifest = [BackendManifest("redis://h/0", [])]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["stats", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["stats", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "redis://h/0" in result.output
@@ -287,9 +290,9 @@ def test_list_reports_failure_and_exits_one_when_introspection_errors(
     def _boom(path):
         raise cli_mod.IntrospectError("pytest blew up")
 
-    monkeypatch.setattr(cli_mod, "run_introspect", _boom)
+    monkeypatch.setattr("ditto._inventory.run_introspect", _boom)
 
-    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
 
     assert result.exit_code == 1
     assert "Introspection failed" in result.output
