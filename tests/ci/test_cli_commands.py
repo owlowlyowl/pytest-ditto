@@ -341,3 +341,14 @@ def test_list_renders_remote_lock_entry_with_dash(tmp_path) -> None:
     assert result.exit_code == 0
     assert "test_remote" in result.output
     assert "—" in result.output
+    assert "size unknown" in result.output  # the remote-unknown note
+
+
+def test_list_hints_when_no_lockfile(tmp_path) -> None:
+    """With local snapshots but no ditto.lock, list hints that remotes are hidden."""
+    _make_local_snapshot(tmp_path)
+
+    result = CliRunner().invoke(cmd_list, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "no ditto.lock found" in result.output
