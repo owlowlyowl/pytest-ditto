@@ -12,11 +12,16 @@ from dataclasses import asdict, dataclass
 
 @dataclass(frozen=True)
 class ManifestEntry:
-    """One stored snapshot. `modified` is a POSIX timestamp when the backend's
-    filesystem reports one (local files, S3), else None (e.g. Redis)."""
+    """One stored snapshot.
+
+    `size_bytes` is the byte size when known, or `None` when the inventory was
+    read credential-free from `ditto.lock` (a remote snapshot whose physical size
+    needs `--live`). `modified` is a POSIX timestamp when the backend reports one
+    (local files, S3), else `None`.
+    """
 
     storage_key: str
-    size_bytes: int
+    size_bytes: int | None
     modified: float | None
 
 

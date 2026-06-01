@@ -149,7 +149,9 @@ def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
     return ext.lstrip(".")
 
 
-def _human_size(n: int) -> str:
+def _human_size(n: int | None) -> str:
+    if n is None:
+        return "—"
     value: float = n
     for unit in ("B", "KB", "MB", "GB"):
         if value < 1024:
@@ -180,11 +182,12 @@ def gather_stats(
     newest: tuple[float, str] | None = None
 
     for entry in entries:
-        total_size += entry.size_bytes
+        size = entry.size_bytes if entry.size_bytes is not None else 0
+        total_size += size
         _, _, ext = _parse_snapshot_name(entry.storage_key)
         recorder_name = _recorder_name(ext, ext_map)
         count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + entry.size_bytes)
+        by_recorder[recorder_name] = (count + 1, total + size)
 
         if entry.modified is not None:
             if oldest is None or entry.modified < oldest[0]:

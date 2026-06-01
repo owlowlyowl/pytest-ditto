@@ -97,6 +97,24 @@ def test_formats_fractional_kilobytes() -> None:
     assert _human_size(1536) == "1.5 KB"
 
 
+def test_human_size_renders_none_as_dash():
+    """An unknown size renders as an em dash, not a crash."""
+    assert _human_size(None) == "—"
+
+
+def test_gather_stats_excludes_unknown_sizes_from_total_but_counts_entries():
+    """Entries with unknown size are counted but contribute no bytes."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=100, modified=None),
+        ManifestEntry(storage_key="m.test_b@k.pkl", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    assert stats.total_count == 2
+    assert stats.total_size == 100
+
+
 # ── _build_colour_map ─────────────────────────────────────────────────────────
 
 
