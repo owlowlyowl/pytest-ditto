@@ -78,3 +78,40 @@ jobs:
           name: test-results-py3${{ matrix.python-version }}
           path: .pytest/test-results.xml
           retention-days: 30
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.69.0
+          cache: true
+          environments: integration
+
+      - name: Run standalone integration suite
+        env:
+          DITTO_INTEGRATION_ARTIFACTS_DIR: .pytest/integration-artifacts
+        run: pixi run -e integration test-integration
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-integration
+          path: .pytest/test-results.xml
+          retention-days: 30
+
+      - name: Upload integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-artifacts
+          path: .pytest/integration-artifacts
+          retention-days: 30

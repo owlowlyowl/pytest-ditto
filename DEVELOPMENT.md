@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [pixi](https://pixi.sh/) (v0.69+) — environment and task management
-- [Docker](https://www.docker.com/) — only for running backend examples (PostgreSQL, Redis)
+- [Docker](https://www.docker.com/) — for backend examples and Docker-backed integration tests
 
 ## Setup
 
@@ -33,6 +33,7 @@ pixi manages multiple isolated environments for different tasks:
 | `docs` | Documentation | zensical, mkdocstrings-python |
 | `build` | Package building | uv |
 | `examples` | Run backend examples | duckdb, redis, psycopg2 |
+| `integration` | Standalone backend integration tests | duckdb, redis, psycopg2 |
 
 Install a specific environment:
 
@@ -65,6 +66,29 @@ Coverage reports are generated in HTML, terminal, and XML formats.
 pixi run -e pandas test       # pandas recorder tests
 pixi run -e pyarrow test      # PyArrow recorder tests
 ```
+
+### Standalone integration tests
+
+Run the non-Docker integration coverage:
+
+```bash
+pixi run -e integration test-integration-local
+```
+
+Run the full standalone CLI/backend lifecycle suite:
+
+```bash
+pixi run -e integration test-integration
+```
+
+Preserve CLI output, lock files, and backend-state artifacts in a stable directory:
+
+```bash
+DITTO_INTEGRATION_ARTIFACTS_DIR=.pytest/integration-artifacts pixi run -e integration test-integration
+```
+
+The suite lives under `tests/integration/`, uses standalone test-owned fixture
+projects, and stays intentionally separate from `examples/`.
 
 ## Linting & Type Checking
 
@@ -183,8 +207,10 @@ pixi run -e examples examples-redis-reset      # remove container + volume
 
 ## CI
 
-GitHub Actions runs tests on Python 3.12, 3.13, and 3.14 on every push to
-`main` and on pull requests. See `.github/workflows/ci.yml`.
+GitHub Actions runs tests on Python 3.12, 3.13, and 3.14 plus the standalone
+integration job on every push to `main` and on pull requests. The integration
+job uploads `.pytest/integration-artifacts` for inspection. See
+`.github/workflows/ci.yml`.
 
 Documentation is built and deployed to GitHub Pages on push to `main`.
 See `.github/workflows/docs.yml`.
@@ -200,7 +226,8 @@ See `.github/workflows/docs.yml`.
 │   ├── recorders/        # Built-in recorders (pickle, yaml, json)
 │   ├── backends/         # Storage backends (fsspec, transforms)
 │   └── exceptions.py     # Exception hierarchy
-├── tests/ci/             # Test suite
+├── tests/ci/             # Fast test suite
+├── tests/integration/    # Standalone CLI/backend lifecycle coverage
 ├── examples/             # Backend examples (local, postgres, redis, duckdb)
 ├── docs/                 # Documentation source
 ├── pyproject.toml        # Package metadata + pixi config
