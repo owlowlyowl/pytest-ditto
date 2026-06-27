@@ -56,8 +56,16 @@ from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
 from ._inventory import build_inventory, lock_present
 
-
 console = Console()
+
+_live_option = click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
+
 
 _RECORDER_PALETTE = (
     ACCENT,  # peach
@@ -390,13 +398,7 @@ def cmd_verify(pytest_args):
 
 
 @cli.command(name="list")
-@click.option(
-    "--live",
-    is_flag=True,
-    default=False,
-    help="Read live backends via a pytest pass (needs credentials) instead of "
-    "the credential-free filesystem + ditto.lock inventory.",
-)
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
@@ -500,13 +502,7 @@ def cmd_clean(path: Path, yes: bool):
 
 
 @cli.command(name="status")
-@click.option(
-    "--live",
-    is_flag=True,
-    default=False,
-    help="Read live backends via a pytest pass (needs credentials) instead of "
-    "the credential-free filesystem + ditto.lock inventory.",
-)
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
@@ -760,13 +756,7 @@ def cmd_doctor():
 
 
 @cli.command(name="lint")
-@click.option(
-    "--live",
-    is_flag=True,
-    default=False,
-    help="Read live backends via a pytest pass (needs credentials) instead of "
-    "the credential-free filesystem + ditto.lock inventory.",
-)
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
@@ -794,13 +784,7 @@ def cmd_lint(path: Path, live: bool):
 
 
 @cli.command(name="stats")
-@click.option(
-    "--live",
-    is_flag=True,
-    default=False,
-    help="Read live backends via a pytest pass (needs credentials) instead of "
-    "the credential-free filesystem + ditto.lock inventory.",
-)
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )

@@ -78,17 +78,16 @@ def _local_ditto_dirs(
         Distinct `.ditto` directories to read, in insertion order.
     """
     base = path.resolve()
-    dirs: dict[Path, None] = {}
-    for ditto_dir in base.rglob(".ditto"):
-        if ditto_dir.is_dir():
-            dirs[ditto_dir.resolve()] = None
+    dirs: dict[Path, None] = dict.fromkeys(
+        d.resolve() for d in base.rglob(".ditto") if d.is_dir()
+    )
     if lock is not None and rootdir is not None:
         for target_id, target in lock.targets.items():
             if target.scheme != "file":
                 continue
             resolved = (rootdir / target_id).resolve()
             if resolved.is_dir() and _is_within(resolved, base):
-                dirs[resolved] = None
+                dirs.setdefault(resolved)
     return list(dirs)
 
 
