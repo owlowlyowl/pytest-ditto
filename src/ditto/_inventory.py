@@ -53,13 +53,14 @@ def _nodeid_under(nodeid: str, rootdir: Path, base: Path) -> bool:
     return _is_within(resolved, base)
 
 
-def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Manifest:
-    """Inventory local `file` snapshots from disk under `path`.
+def _local_ditto_dirs(
+    path: Path, lock: LockFile | None, rootdir: Path | None
+) -> list[Path]:
+    """Locate every `.ditto` directory to inventory under `path`.
 
-    Walks every `.ditto/` directory under `path`, plus any `file`-scheme target
+    Walks `path` for `.ditto` directories and adds any `file`-scheme target
     directory recorded in `lock` that falls under `path` (deduplicated by
-    resolved path). Each file is stat'd for real size and mtime, so on-disk
-    orphans absent from the lock still appear.
+    resolved path, insertion-ordered for stable output).
 
     Parameters
     ----------
@@ -73,8 +74,8 @@ def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Mani
 
     Returns
     -------
-    Manifest
-        One `BackendManifest` per non-empty `.ditto/` directory.
+    list[Path]
+        Distinct `.ditto` directories to read, in insertion order.
     """
     base = path.resolve()
     dirs: dict[Path, None] = {}
@@ -88,24 +89,44 @@ def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Mani
             resolved = (rootdir / target_id).resolve()
             if resolved.is_dir() and _is_within(resolved, base):
                 dirs[resolved] = None
+    return list(dirs)
 
-    backends: Manifest = []
-    for directory in dirs:
-        entries: list[ManifestEntry] = []
-        for child in sorted(directory.iterdir()):
-            if not child.is_file():
-                continue
-            try:
-                stat = child.stat()
-            except OSError:
-                continue  # vanished between listing and stat (e.g. concurrent prune)
-            entries.append(
-                ManifestEntry(
-                    storage_key=child.name,
-                    size_bytes=stat.st_size,
-                    modified=stat.st_mtime,
-                )
+
+def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
+    """Stat each file in `directory` into a manifest entry (real size + mtime).
+
+    Files that vanish between listing and stat are skipped rather than raising.
+    """
+    entries: list[ManifestEntry] = []
+    for child in sorted(directory.iterdir()):
+        if not child.is_file():
+            continue
+        try:
+            stat = child.stat()
+        except OSError:
+            continue  # vanished between listing and stat (e.g. concurrent prune)
+        entries.append(
+            ManifestEntry(
+                storage_key=child.name,
+                size_bytes=stat.st_size,
+                modified=stat.st_mtime,
             )
+        )
+    return entries
+
+
+def _walk_local(
+    path: Path, lock: LockFile | None, rootdir: Path | None
+) -> Manifest:
+    """Inventory local `file` snapshots from disk under `path`.
+
+    One `BackendManifest` per non-empty `.ditto/` directory located by
+    `_local_ditto_dirs`; each file is stat'd for real size and mtime, so
+    on-disk orphans absent from the lock still appear.
+    """
+    backends: Manifest = []
+    for directory in _local_ditto_dirs(path, lock, rootdir):
+        entries = _read_ditto_dir(directory)
         if entries:
             backends.append(BackendManifest(location=str(directory), entries=entries))
     return backends
@@ -154,28 +175,15 @@ def _lock_remote(lock: LockFile | None, path: Path, rootdir: Path | None) -> Man
     return backends
 
 
-def build_inventory(path: Path, *, live: bool) -> Manifest:
-    """Assemble the snapshot inventory for `path`.
+def _build_credential_free_inventory(path: Path) -> Manifest:
+    """Assemble the inventory for `path` without importing tests.
 
-    By default reads credential-free from the filesystem (local) and `ditto.lock`
-    (remote). With `live=True`, runs the pytest introspection pass for
-    authoritative physical state across every target.
-
-    Parameters
-    ----------
-    path
-        The directory to inventory.
-    live
-        When `True`, delegate to the live introspection pass; otherwise build the
-        credential-free inventory from disk and the lock file.
-
-    Returns
-    -------
-    Manifest
-        The assembled inventory.
+    Reads local `file` snapshots from the filesystem (real size and mtime,
+    including on-disk orphans) and remote (non-`file`) snapshots from the
+    committed `ditto.lock` (declared entries; size and mtime unknown). A
+    missing lock yields a local-only inventory; a corrupt lock warns
+    (`DittoWarning`) and degrades to local-only rather than failing.
     """
-    if live:
-        return run_introspect(path)
     lock_path = _find_lock(path)
     rootdir = lock_path.parent if lock_path is not None else None
     lock: LockFile | None = None
@@ -191,3 +199,15 @@ def build_inventory(path: Path, *, live: bool) -> Manifest:
             )
             lock = None
     return _walk_local(path, lock, rootdir) + _lock_remote(lock, path, rootdir)
+
+
+def build_inventory(path: Path, *, live: bool) -> Manifest:
+    """Assemble the snapshot inventory for `path`.
+
+    By default reads credential-free from the filesystem (local) and `ditto.lock`
+    (remote). With `live=True`, runs the pytest introspection pass for
+    authoritative physical state across every target.
+    """
+    if live:
+        return run_introspect(path)
+    return _build_credential_free_inventory(path)
