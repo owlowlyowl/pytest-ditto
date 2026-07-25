@@ -188,30 +188,73 @@ def _human_size(n: int | None) -> str:
 
 
 @dataclass(frozen=True)
+class SizeSummary:
+    known_bytes: int = 0
+    unknown_count: int = 0
+
+
+@dataclass(frozen=True)
+class RecorderStats:
+    count: int
+    size: SizeSummary
+
+
+@dataclass(frozen=True)
 class SnapshotStats:
     total_count: int
-    total_size: int
-    by_recorder: Mapping[str, tuple[int, int]]  # name → (count, bytes)
+    total_size: SizeSummary
+    by_recorder: Mapping[str, RecorderStats]
     oldest: tuple[float, str] | None
     newest: tuple[float, str] | None
+
+
+def _add_size(summary: SizeSummary, size_bytes: int | None) -> SizeSummary:
+    """Return `summary` with one known or unknown snapshot size added."""
+    if size_bytes is None:
+        return SizeSummary(summary.known_bytes, summary.unknown_count + 1)
+    return SizeSummary(summary.known_bytes + size_bytes, summary.unknown_count)
+
+
+def _sum_sizes(summaries: Iterable[SizeSummary]) -> SizeSummary:
+    """Combine size summaries without discarding unknown-size counts."""
+    known_bytes = 0
+    unknown_count = 0
+    for summary in summaries:
+        known_bytes += summary.known_bytes
+        unknown_count += summary.unknown_count
+    return SizeSummary(known_bytes=known_bytes, unknown_count=unknown_count)
+
+
+def _format_size_summary(summary: SizeSummary) -> str:
+    """Render a complete, partial, or entirely unknown size total."""
+    if summary.unknown_count == 0:
+        return _human_size(summary.known_bytes)
+    if summary.known_bytes == 0:
+        return "—"
+    return f"{_human_size(summary.known_bytes)} known"
 
 
 def gather_stats(
     entries: list[ManifestEntry], ext_map: Mapping[str, RecorderInfo]
 ) -> SnapshotStats:
     """Aggregate snapshot statistics from a list of ManifestEntry items."""
-    total_size = 0
-    by_recorder: dict[str, tuple[int, int]] = {}
+    total_size = SizeSummary()
+    by_recorder: dict[str, RecorderStats] = {}
     oldest: tuple[float, str] | None = None
     newest: tuple[float, str] | None = None
 
     for entry in entries:
-        size = entry.size_bytes if entry.size_bytes is not None else 0
-        total_size += size
+        total_size = _add_size(total_size, entry.size_bytes)
         _, _, ext = _parse_snapshot_name(entry.storage_key)
         recorder_name = _recorder_name(ext, ext_map)
-        count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + size)
+        current = by_recorder.get(
+            recorder_name,
+            RecorderStats(count=0, size=SizeSummary()),
+        )
+        by_recorder[recorder_name] = RecorderStats(
+            count=current.count + 1,
+            size=_add_size(current.size, entry.size_bytes),
+        )
 
         if entry.modified is not None:
             if oldest is None or entry.modified < oldest[0]:
@@ -236,16 +279,22 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
     lines.append("  Total snapshots  ", style=MUTED)
     lines.append(f"{stats.total_count}\n", style=f"bold {TEXT}")
     lines.append("  Total size       ", style=MUTED)
-    lines.append(f"{_human_size(stats.total_size)}\n", style=f"bold {TEXT}")
+    lines.append(f"{_format_size_summary(stats.total_size)}\n", style=f"bold {TEXT}")
     lines.append("\n")
     lines.append("  By recorder:\n", style=f"bold {HEADER}")
     name_w = max(len(name) for name in stats.by_recorder.keys())
-    count_w = max(len(str(c)) for c, _ in stats.by_recorder.values())
-    size_w = max(len(_human_size(s)) for _, s in stats.by_recorder.values())
-    for name, (count, sz) in sorted(stats.by_recorder.items()):
+    count_w = max(len(str(recorder.count)) for recorder in stats.by_recorder.values())
+    size_w = max(
+        len(_format_size_summary(recorder.size))
+        for recorder in stats.by_recorder.values()
+    )
+    for name, recorder in sorted(stats.by_recorder.items()):
         lines.append(f"    {name:<{name_w}}", style=colour_map.get(name, MUTED))
-        lines.append(f"  {count:>{count_w}}  ", style=TEXT)
-        lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
+        lines.append(f"  {recorder.count:>{count_w}}  ", style=TEXT)
+        lines.append(
+            f"{_format_size_summary(recorder.size):>{size_w}}\n",
+            style=MUTED,
+        )
 
     if stats.oldest and stats.newest:
         lines.append("\n")
@@ -720,20 +769,26 @@ def _render_stats_table(
     table.add_column("Recorders", footer_style=MUTED)
 
     total_count = sum(s.total_count for _, s in dir_stats)
-    total_size = sum(s.total_size for _, s in dir_stats)
+    total_size = _sum_sizes(s.total_size for _, s in dir_stats)
 
     for d, s in dir_stats:
         recorder_text = Text()
-        for i, (name, (cnt, _sz)) in enumerate(sorted(s.by_recorder.items())):
+        for i, (name, recorder) in enumerate(sorted(s.by_recorder.items())):
             if i:
                 recorder_text.append("  ")
-            recorder_text.append(f"{name}×{cnt}", style=colour_map.get(name, MUTED))
+            recorder_text.append(
+                f"{name}×{recorder.count}",
+                style=colour_map.get(name, MUTED),
+            )
         table.add_row(
-            d, str(s.total_count), _human_size(s.total_size), recorder_text
+            d,
+            str(s.total_count),
+            _format_size_summary(s.total_size),
+            recorder_text,
         )
 
     table.columns[1].footer = str(total_count)
-    table.columns[2].footer = _human_size(total_size)
+    table.columns[2].footer = _format_size_summary(total_size)
 
     console.print(table)
 

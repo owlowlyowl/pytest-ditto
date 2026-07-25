@@ -9,8 +9,11 @@ from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
     _RECORDER_PALETTE,
     RecorderInfo,
+    RecorderStats,
+    SizeSummary,
     _build_colour_map,
     _ext_map,
+    _format_size_summary,
     _human_size,
     _parse_snapshot_name,
     cli,
@@ -102,8 +105,19 @@ def test_human_size_renders_none_as_dash():
     assert _human_size(None) == "—"
 
 
-def test_gather_stats_excludes_unknown_sizes_from_total_but_counts_entries():
-    """Entries with unknown size are counted but contribute no bytes."""
+def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
+    """An unknown byte size does not remove a snapshot from the total count."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    assert stats.total_count == 1
+
+
+def test_gather_stats_preserves_known_and_unknown_size_components() -> None:
+    """Known bytes and unknown snapshot counts remain distinct when aggregated."""
     entries = [
         ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=100, modified=None),
         ManifestEntry(storage_key="m.test_b@k.pkl", size_bytes=None, modified=None),
@@ -111,8 +125,30 @@ def test_gather_stats_excludes_unknown_sizes_from_total_but_counts_entries():
 
     stats = gather_stats(entries, {})
 
-    assert stats.total_count == 2
-    assert stats.total_size == 100
+    actual = stats.total_size
+
+    expected = SizeSummary(known_bytes=100, unknown_count=1)
+    assert actual == expected
+
+
+def test_formats_entirely_unknown_size_summary_as_dash() -> None:
+    """An aggregate with no known sizes renders as unknown rather than zero."""
+    summary = SizeSummary(known_bytes=0, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "—"
+    assert actual == expected
+
+
+def test_labels_known_bytes_when_size_summary_is_partial() -> None:
+    """A mixed aggregate identifies its byte total as only the known portion."""
+    summary = SizeSummary(known_bytes=100, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "100 B known"
+    assert actual == expected
 
 
 # ── _build_colour_map ─────────────────────────────────────────────────────────
@@ -181,8 +217,11 @@ def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 1
-    assert stats.total_size == 100
-    assert stats.by_recorder["pickle"] == (1, 100)
+    assert stats.total_size == SizeSummary(known_bytes=100)
+    assert stats.by_recorder["pickle"] == RecorderStats(
+        count=1,
+        size=SizeSummary(known_bytes=100),
+    )
 
 
 def test_attributes_unknown_extension_to_its_raw_name() -> None:
@@ -238,17 +277,18 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 3
-    assert stats.total_size == 600
-    assert stats.by_recorder["pickle"] == (3, 600)
+    assert stats.total_size == SizeSummary(known_bytes=600)
+    assert stats.by_recorder["pickle"] == RecorderStats(
+        count=3,
+        size=SizeSummary(known_bytes=600),
+    )
 
 
 # ── command inventory dispatch ─────────────────────────────────────────────────
 
 
 def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
-    monkeypatch.setattr(
-        "ditto._inventory.run_introspect", lambda path: manifest
-    )
+    monkeypatch.setattr("ditto._inventory.run_introspect", lambda path: manifest)
 
 
 def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:

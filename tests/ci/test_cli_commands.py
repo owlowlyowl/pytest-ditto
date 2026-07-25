@@ -20,6 +20,7 @@ from ditto.cli import (
     cmd_list,
     cmd_prune,
     cmd_recorders,
+    cmd_stats,
     cmd_status,
 )
 
@@ -342,6 +343,29 @@ def test_list_renders_remote_lock_entry_with_dash(tmp_path) -> None:
     assert "test_remote" in result.output
     assert "—" in result.output
     assert "size unknown" in result.output  # the remote-unknown note
+
+
+@pytest.mark.parametrize("command", [cmd_status, cmd_stats])
+def test_remote_only_aggregate_renders_unknown_size_as_dash(command, tmp_path) -> None:
+    """Remote-only aggregate commands never report unknown bytes as zero."""
+    lock = {
+        "version": LOCKFILE_VERSION,
+        "targets": {
+            "redis://localhost:6379/0": {
+                "scheme": "redis",
+                "entries": [
+                    {"nodeid": "test_x.py::test_remote", "key": "k", "recorder": "pkl"}
+                ],
+            }
+        },
+    }
+    (tmp_path / "ditto.lock").write_text(json.dumps(lock))
+
+    result = CliRunner().invoke(command, [str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "—" in result.output
+    assert "0 B" not in result.output
 
 
 def test_list_hints_when_no_lockfile(tmp_path) -> None:
