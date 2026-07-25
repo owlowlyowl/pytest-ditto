@@ -54,7 +54,7 @@ from ._theme import (
 )
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
-from ._inventory import build_inventory, lock_present
+from ._inventory import InventoryError, build_inventory, lock_present
 
 console = Console()
 
@@ -112,6 +112,9 @@ def _inventory_or_exit(path: Path, *, live: bool) -> Manifest:
         return build_inventory(path, live=live)
     except IntrospectError as exc:
         console.print(f"[bold {PRUNED}]Introspection failed:[/bold {PRUNED}] {exc}")
+        sys.exit(1)
+    except InventoryError as exc:
+        console.print(f"[bold {PRUNED}]Inventory failed:[/bold {PRUNED}] {exc}")
         sys.exit(1)
 
 

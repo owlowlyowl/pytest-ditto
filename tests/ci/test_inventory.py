@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from ditto._inventory import (
+    InventoryError,
     _find_lock,
     _lock_remote,
     _walk_local,
@@ -34,6 +37,45 @@ def test_walk_local_reads_real_sizes_including_orphans(tmp_path):
     assert entries[0].storage_key == "mod.test_a@k.pkl"
     assert entries[0].size_bytes == 4
     assert entries[0].modified is not None
+
+
+def test_build_inventory_skips_snapshot_that_disappears_before_stat(
+    tmp_path, monkeypatch
+) -> None:
+    """A concurrent snapshot deletion does not fail the remaining inventory."""
+    snapshot = tmp_path / ".ditto" / "mod.test_a@k.pkl"
+    _write_snapshot(snapshot.parent, snapshot.name)
+    original_stat = Path.stat
+
+    def stat_with_disappearing_snapshot(path, *args, **kwargs):
+        if path == snapshot:
+            raise FileNotFoundError(snapshot)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat_with_disappearing_snapshot)
+
+    actual = build_inventory(tmp_path, live=False)
+
+    assert actual == []
+
+
+def test_build_inventory_fails_when_snapshot_metadata_is_unreadable(
+    tmp_path, monkeypatch
+) -> None:
+    """A permission failure is reported instead of yielding a partial inventory."""
+    snapshot = tmp_path / ".ditto" / "mod.test_a@k.pkl"
+    _write_snapshot(snapshot.parent, snapshot.name)
+    original_stat = Path.stat
+
+    def stat_with_unreadable_snapshot(path, *args, **kwargs):
+        if path == snapshot:
+            raise PermissionError("permission denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat_with_unreadable_snapshot)
+
+    with pytest.raises(InventoryError, match=str(snapshot)):
+        build_inventory(tmp_path, live=False)
 
 
 def test_build_inventory_reads_absolute_file_target_owned_by_scoped_test(

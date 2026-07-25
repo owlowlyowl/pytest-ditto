@@ -5,6 +5,7 @@ from __future__ import annotations
 from click.testing import CliRunner
 
 from ditto import cli as cli_mod
+from ditto._inventory import InventoryError
 from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
     _RECORDER_PALETTE,
@@ -336,3 +337,20 @@ def test_list_reports_failure_and_exits_one_when_introspection_errors(
 
     assert result.exit_code == 1
     assert "Introspection failed" in result.output
+
+
+def test_list_reports_failure_and_exits_one_when_inventory_is_unreadable(
+    tmp_path, monkeypatch
+) -> None:
+    """A filesystem inventory failure is shown without an uncaught traceback."""
+
+    def fail_inventory(path, *, live):
+        raise InventoryError("permission denied")
+
+    monkeypatch.setattr(cli_mod, "build_inventory", fail_inventory)
+
+    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Inventory failed" in result.output
+    assert "permission denied" in result.output

@@ -14,6 +14,7 @@ physical state across every target.
 
 from __future__ import annotations
 
+import stat
 import warnings
 from pathlib import Path
 from urllib.parse import urlparse
@@ -24,7 +25,11 @@ from ._manifest import BackendManifest, Manifest, ManifestEntry
 from .exceptions import DittoLockFileError, DittoWarning
 
 
-__all__ = ("build_inventory", "lock_present")
+__all__ = ("InventoryError", "build_inventory", "lock_present")
+
+
+class InventoryError(RuntimeError):
+    """Raised when a credential-free inventory cannot be read completely."""
 
 
 def _find_lock(path: Path) -> Path | None:
@@ -107,20 +112,30 @@ def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
     """Stat each file in `directory` into a manifest entry (real size + mtime).
 
     Files that vanish between listing and stat are skipped rather than raising.
+    Other filesystem errors fail the inventory rather than hiding snapshots.
     """
     entries: list[ManifestEntry] = []
-    for child in sorted(directory.iterdir()):
-        if not child.is_file():
-            continue
+    try:
+        children = sorted(directory.iterdir())
+    except OSError as exc:
+        raise InventoryError(
+            f"Could not read snapshot directory {directory}: {exc}"
+        ) from exc
+
+    for child in children:
         try:
-            stat = child.stat()
-        except OSError:
+            child_stat = child.stat()
+        except FileNotFoundError:
             continue  # vanished between listing and stat (e.g. concurrent prune)
+        except OSError as exc:
+            raise InventoryError(f"Could not inspect snapshot {child}: {exc}") from exc
+        if not stat.S_ISREG(child_stat.st_mode):
+            continue
         entries.append(
             ManifestEntry(
                 storage_key=child.name,
-                size_bytes=stat.st_size,
-                modified=stat.st_mtime,
+                size_bytes=child_stat.st_size,
+                modified=child_stat.st_mtime,
             )
         )
     return entries
