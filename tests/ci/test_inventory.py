@@ -5,7 +5,14 @@ from ditto._inventory import (
     build_inventory,
     lock_present,
 )
-from ditto._lockfile import LOCKFILE_VERSION, LockEntry, LockFile, LockTarget
+from ditto._lockfile import (
+    LOCKFILE_VERSION,
+    LockEntry,
+    LockFile,
+    LockTarget,
+    storage_key,
+    write_lockfile,
+)
 from ditto.exceptions import DittoWarning
 
 import pytest
@@ -27,6 +34,65 @@ def test_walk_local_reads_real_sizes_including_orphans(tmp_path):
     assert entries[0].storage_key == "mod.test_a@k.pkl"
     assert entries[0].size_bytes == 4
     assert entries[0].modified is not None
+
+
+def test_build_inventory_reads_absolute_file_target_owned_by_scoped_test(
+    tmp_path,
+) -> None:
+    """A scoped inventory includes an owning test's absolute external target."""
+    project = tmp_path / "project"
+    project.mkdir()
+    target = tmp_path / "external-snapshots"
+    entry = LockEntry(
+        nodeid="test_external.py::test_external",
+        key="value",
+        recorder="pkl",
+    )
+    _write_snapshot(target, storage_key(entry, "file"), b"external")
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={
+            target.as_uri(): LockTarget(scheme="file", entries=(entry,)),
+        },
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    manifest = build_inventory(project, live=False)
+
+    assert [backend.location for backend in manifest] == [str(target)]
+    assert [item.storage_key for backend in manifest for item in backend.entries] == [
+        storage_key(entry, "file")
+    ]
+
+
+def test_build_inventory_reads_file_target_outside_requested_test_path(
+    tmp_path,
+) -> None:
+    """A test-scoped inventory includes its project-level shared file target."""
+    project = tmp_path / "project"
+    test_path = project / "tests" / "unit"
+    test_path.mkdir(parents=True)
+    target = project / "snapshots"
+    entry = LockEntry(
+        nodeid="tests/unit/test_example.py::test_example",
+        key="value",
+        recorder="pkl",
+    )
+    _write_snapshot(target, storage_key(entry, "file"))
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={
+            "snapshots": LockTarget(scheme="file", entries=(entry,)),
+        },
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    manifest = build_inventory(test_path, live=False)
+
+    assert [backend.location for backend in manifest] == [str(target)]
+    assert [item.storage_key for backend in manifest for item in backend.entries] == [
+        storage_key(entry, "file")
+    ]
 
 
 def test_lock_remote_yields_unknown_size_entries(tmp_path):

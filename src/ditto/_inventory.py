@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ._cli_introspect import run_introspect
 from ._lockfile import LOCKFILE_NAME, LockFile, read_lockfile, storage_key
@@ -53,14 +54,22 @@ def _nodeid_under(nodeid: str, rootdir: Path, base: Path) -> bool:
     return _is_within(resolved, base)
 
 
+def _file_target_path(target_id: str, rootdir: Path) -> Path:
+    """Resolve a portable lock target id to its local filesystem path."""
+    parsed = urlparse(target_id)
+    if parsed.scheme == "file":
+        return Path(parsed.netloc + parsed.path).resolve()
+    return (rootdir / target_id).resolve()
+
+
 def _local_ditto_dirs(
     path: Path, lock: LockFile | None, rootdir: Path | None
 ) -> list[Path]:
     """Locate every `.ditto` directory to inventory under `path`.
 
     Walks `path` for `.ditto` directories and adds any `file`-scheme target
-    directory recorded in `lock` that falls under `path` (deduplicated by
-    resolved path, insertion-ordered for stable output).
+    directory recorded in `lock` whose directory or owning tests fall under
+    `path` (deduplicated by resolved path, insertion-ordered for stable output).
 
     Parameters
     ----------
@@ -85,8 +94,11 @@ def _local_ditto_dirs(
         for target_id, target in lock.targets.items():
             if target.scheme != "file":
                 continue
-            resolved = (rootdir / target_id).resolve()
-            if resolved.is_dir() and _is_within(resolved, base):
+            resolved = _file_target_path(target_id, rootdir)
+            tests_in_scope = any(
+                _nodeid_under(entry.nodeid, rootdir, base) for entry in target.entries
+            )
+            if resolved.is_dir() and (_is_within(resolved, base) or tests_in_scope):
                 dirs.setdefault(resolved)
     return list(dirs)
 
@@ -114,9 +126,7 @@ def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
     return entries
 
 
-def _walk_local(
-    path: Path, lock: LockFile | None, rootdir: Path | None
-) -> Manifest:
+def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Manifest:
     """Inventory local `file` snapshots from disk under `path`.
 
     One `BackendManifest` per non-empty `.ditto/` directory located by
