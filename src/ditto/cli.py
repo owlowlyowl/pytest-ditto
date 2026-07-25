@@ -53,10 +53,19 @@ from ._theme import (
     FLAMINGO,
 )
 from ._manifest import Manifest, ManifestEntry
-from ._cli_introspect import IntrospectError, run_introspect
-
+from ._cli_introspect import IntrospectError
+from ._inventory import InventoryError, build_inventory, lock_present
 
 console = Console()
+
+_live_option = click.option(
+    "--live",
+    is_flag=True,
+    default=False,
+    help="Read live backends via a pytest pass (needs credentials) instead of "
+    "the credential-free filesystem + ditto.lock inventory.",
+)
+
 
 _RECORDER_PALETTE = (
     ACCENT,  # peach
@@ -97,18 +106,36 @@ def _find_ditto_dirs(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob(".ditto") if p.is_dir())
 
 
-def _inventory_or_exit(path: Path) -> Manifest:
-    """Run the introspection pass for PATH, or print the error and exit(1).
-
-    Always introspects: the pytest pass resolves real fixtures and per-test
-    record(target=...) marks, so the inventory covers local file://, remote, and
-    fixture-defined backends with nothing inferred from static config.
-    """
+def _inventory_or_exit(path: Path, *, live: bool) -> Manifest:
+    """Build the inventory for PATH, or print the error and exit(1)."""
     try:
-        return run_introspect(path)
+        return build_inventory(path, live=live)
     except IntrospectError as exc:
         console.print(f"[bold {PRUNED}]Introspection failed:[/bold {PRUNED}] {exc}")
         sys.exit(1)
+    except InventoryError as exc:
+        console.print(f"[bold {PRUNED}]Inventory failed:[/bold {PRUNED}] {exc}")
+        sys.exit(1)
+
+
+def _print_inventory_notes(
+    path: Path, entries: list[ManifestEntry], *, live: bool
+) -> None:
+    """Print muted hints about unknown remote sizes and a missing lock file."""
+    if live:
+        return
+    unknown = sum(1 for entry in entries if entry.size_bytes is None)
+    if unknown:
+        plural = "s" if unknown != 1 else ""
+        console.print(
+            f"[{MUTED}]remote: {unknown} snapshot{plural}, "
+            f"size unknown (use --live).[/{MUTED}]"
+        )
+    if not lock_present(path):
+        console.print(
+            f"[{MUTED}]no ditto.lock found — remote snapshots are not shown; "
+            f"use --live.[/{MUTED}]"
+        )
 
 
 def _entries(manifest: Manifest) -> list[ManifestEntry]:
@@ -149,7 +176,9 @@ def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
     return ext.lstrip(".")
 
 
-def _human_size(n: int) -> str:
+def _human_size(n: int | None) -> str:
+    if n is None:
+        return "—"
     value: float = n
     for unit in ("B", "KB", "MB", "GB"):
         if value < 1024:
@@ -162,29 +191,73 @@ def _human_size(n: int) -> str:
 
 
 @dataclass(frozen=True)
+class SizeSummary:
+    known_bytes: int = 0
+    unknown_count: int = 0
+
+
+@dataclass(frozen=True)
+class RecorderStats:
+    count: int
+    size: SizeSummary
+
+
+@dataclass(frozen=True)
 class SnapshotStats:
     total_count: int
-    total_size: int
-    by_recorder: Mapping[str, tuple[int, int]]  # name → (count, bytes)
+    total_size: SizeSummary
+    by_recorder: Mapping[str, RecorderStats]
     oldest: tuple[float, str] | None
     newest: tuple[float, str] | None
+
+
+def _add_size(summary: SizeSummary, size_bytes: int | None) -> SizeSummary:
+    """Return `summary` with one known or unknown snapshot size added."""
+    if size_bytes is None:
+        return SizeSummary(summary.known_bytes, summary.unknown_count + 1)
+    return SizeSummary(summary.known_bytes + size_bytes, summary.unknown_count)
+
+
+def _sum_sizes(summaries: Iterable[SizeSummary]) -> SizeSummary:
+    """Combine size summaries without discarding unknown-size counts."""
+    known_bytes = 0
+    unknown_count = 0
+    for summary in summaries:
+        known_bytes += summary.known_bytes
+        unknown_count += summary.unknown_count
+    return SizeSummary(known_bytes=known_bytes, unknown_count=unknown_count)
+
+
+def _format_size_summary(summary: SizeSummary) -> str:
+    """Render a complete, partial, or entirely unknown size total."""
+    if summary.unknown_count == 0:
+        return _human_size(summary.known_bytes)
+    if summary.known_bytes == 0:
+        return "—"
+    return f"{_human_size(summary.known_bytes)} known"
 
 
 def gather_stats(
     entries: list[ManifestEntry], ext_map: Mapping[str, RecorderInfo]
 ) -> SnapshotStats:
     """Aggregate snapshot statistics from a list of ManifestEntry items."""
-    total_size = 0
-    by_recorder: dict[str, tuple[int, int]] = {}
+    total_size = SizeSummary()
+    by_recorder: dict[str, RecorderStats] = {}
     oldest: tuple[float, str] | None = None
     newest: tuple[float, str] | None = None
 
     for entry in entries:
-        total_size += entry.size_bytes
+        total_size = _add_size(total_size, entry.size_bytes)
         _, _, ext = _parse_snapshot_name(entry.storage_key)
         recorder_name = _recorder_name(ext, ext_map)
-        count, total = by_recorder.get(recorder_name, (0, 0))
-        by_recorder[recorder_name] = (count + 1, total + entry.size_bytes)
+        current = by_recorder.get(
+            recorder_name,
+            RecorderStats(count=0, size=SizeSummary()),
+        )
+        by_recorder[recorder_name] = RecorderStats(
+            count=current.count + 1,
+            size=_add_size(current.size, entry.size_bytes),
+        )
 
         if entry.modified is not None:
             if oldest is None or entry.modified < oldest[0]:
@@ -209,16 +282,22 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
     lines.append("  Total snapshots  ", style=MUTED)
     lines.append(f"{stats.total_count}\n", style=f"bold {TEXT}")
     lines.append("  Total size       ", style=MUTED)
-    lines.append(f"{_human_size(stats.total_size)}\n", style=f"bold {TEXT}")
+    lines.append(f"{_format_size_summary(stats.total_size)}\n", style=f"bold {TEXT}")
     lines.append("\n")
     lines.append("  By recorder:\n", style=f"bold {HEADER}")
     name_w = max(len(name) for name in stats.by_recorder.keys())
-    count_w = max(len(str(c)) for c, _ in stats.by_recorder.values())
-    size_w = max(len(_human_size(s)) for _, s in stats.by_recorder.values())
-    for name, (count, sz) in sorted(stats.by_recorder.items()):
+    count_w = max(len(str(recorder.count)) for recorder in stats.by_recorder.values())
+    size_w = max(
+        len(_format_size_summary(recorder.size))
+        for recorder in stats.by_recorder.values()
+    )
+    for name, recorder in sorted(stats.by_recorder.items()):
         lines.append(f"    {name:<{name_w}}", style=colour_map.get(name, MUTED))
-        lines.append(f"  {count:>{count_w}}  ", style=TEXT)
-        lines.append(f"{_human_size(sz):>{size_w}}\n", style=MUTED)
+        lines.append(f"  {recorder.count:>{count_w}}  ", style=TEXT)
+        lines.append(
+            f"{_format_size_summary(recorder.size):>{size_w}}\n",
+            style=MUTED,
+        )
 
     if stats.oldest and stats.newest:
         lines.append("\n")
@@ -371,21 +450,26 @@ def cmd_verify(pytest_args):
 
 
 @cli.command(name="list")
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_list(path: Path):
+def cmd_list(path: Path, live: bool):
     """List all snapshot files under PATH (default: current directory).
+
+    By default reads local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto list
       ditto list tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, entries, live=live)
         sys.exit(1)
 
     infos = _load_recorder_infos()
@@ -421,6 +505,7 @@ def cmd_list(path: Path):
         )
 
     console.print(table)
+    _print_inventory_notes(path, entries, live=live)
 
 
 @cli.command(name="clean")
@@ -470,24 +555,30 @@ def cmd_clean(path: Path, yes: bool):
 
 
 @cli.command(name="status")
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_status(path: Path):
+def cmd_status(path: Path, live: bool):
     """Show aggregate statistics for snapshots under PATH.
+
+    By default aggregates local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto status
       ditto status tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, entries, live=live)
         sys.exit(1)
 
     render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
+    _print_inventory_notes(path, entries, live=live)
 
 
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
@@ -683,20 +774,26 @@ def _render_stats_table(
     table.add_column("Recorders", footer_style=MUTED)
 
     total_count = sum(s.total_count for _, s in dir_stats)
-    total_size = sum(s.total_size for _, s in dir_stats)
+    total_size = _sum_sizes(s.total_size for _, s in dir_stats)
 
     for d, s in dir_stats:
         recorder_text = Text()
-        for i, (name, (cnt, _sz)) in enumerate(sorted(s.by_recorder.items())):
+        for i, (name, recorder) in enumerate(sorted(s.by_recorder.items())):
             if i:
                 recorder_text.append("  ")
-            recorder_text.append(f"{name}×{cnt}", style=colour_map.get(name, MUTED))
+            recorder_text.append(
+                f"{name}×{recorder.count}",
+                style=colour_map.get(name, MUTED),
+            )
         table.add_row(
-            d, str(s.total_count), _human_size(s.total_size), recorder_text
+            d,
+            str(s.total_count),
+            _format_size_summary(s.total_size),
+            recorder_text,
         )
 
     table.columns[1].footer = str(total_count)
-    table.columns[2].footer = _human_size(total_size)
+    table.columns[2].footer = _format_size_summary(total_size)
 
     console.print(table)
 
@@ -719,42 +816,55 @@ def cmd_doctor():
 
 
 @cli.command(name="lint")
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_lint(path: Path):
+def cmd_lint(path: Path, live: bool):
     """Check snapshot files for naming issues, unknown formats, and empty files.
+
+    By default lints local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto lint
       ditto lint tests/ci/
     """
-    manifest = _inventory_or_exit(path)
-    issues = _find_lint_issues(_entries(manifest), _ext_map(_load_recorder_infos()))
-    if not issues:
+    manifest = _inventory_or_exit(path, live=live)
+    entries = _entries(manifest)
+    issues = _find_lint_issues(entries, _ext_map(_load_recorder_infos()))
+    if issues:
+        _render_lint_issues(issues, console)
+    else:
         console.print(f"[{MUTED}]All snapshots are valid.[/{MUTED}]")
-        return
-    _render_lint_issues(issues, console)
-    sys.exit(1)
+    _print_inventory_notes(path, entries, live=live)
+    if issues:
+        sys.exit(1)
 
 
 @cli.command(name="stats")
+@_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-def cmd_stats(path: Path):
+def cmd_stats(path: Path, live: bool):
     """Show per-directory snapshot usage breakdown.
+
+    By default breaks down local snapshots from disk and remote snapshots from
+    ditto.lock (credential-free); pass --live to read live backends.
 
     \b
     Examples:
       ditto stats
       ditto stats tests/ci/
     """
-    manifest = _inventory_or_exit(path)
+    manifest = _inventory_or_exit(path, live=live)
     if not manifest:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, [], live=live)
         sys.exit(1)
     em = _ext_map(_load_recorder_infos())
     dir_stats = [(b.location, gather_stats(b.entries, em)) for b in manifest]
     _render_stats_table(dir_stats, console)
+    _print_inventory_notes(path, _entries(manifest), live=live)

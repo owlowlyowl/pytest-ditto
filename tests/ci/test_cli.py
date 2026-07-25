@@ -5,12 +5,16 @@ from __future__ import annotations
 from click.testing import CliRunner
 
 from ditto import cli as cli_mod
+from ditto._inventory import InventoryError
 from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
     _RECORDER_PALETTE,
     RecorderInfo,
+    RecorderStats,
+    SizeSummary,
     _build_colour_map,
     _ext_map,
+    _format_size_summary,
     _human_size,
     _parse_snapshot_name,
     cli,
@@ -97,6 +101,57 @@ def test_formats_fractional_kilobytes() -> None:
     assert _human_size(1536) == "1.5 KB"
 
 
+def test_human_size_renders_none_as_dash():
+    """An unknown size renders as an em dash, not a crash."""
+    assert _human_size(None) == "—"
+
+
+def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
+    """An unknown byte size does not remove a snapshot from the total count."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    assert stats.total_count == 1
+
+
+def test_gather_stats_preserves_known_and_unknown_size_components() -> None:
+    """Known bytes and unknown snapshot counts remain distinct when aggregated."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=100, modified=None),
+        ManifestEntry(storage_key="m.test_b@k.pkl", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    actual = stats.total_size
+
+    expected = SizeSummary(known_bytes=100, unknown_count=1)
+    assert actual == expected
+
+
+def test_formats_entirely_unknown_size_summary_as_dash() -> None:
+    """An aggregate with no known sizes renders as unknown rather than zero."""
+    summary = SizeSummary(known_bytes=0, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "—"
+    assert actual == expected
+
+
+def test_labels_known_bytes_when_size_summary_is_partial() -> None:
+    """A mixed aggregate identifies its byte total as only the known portion."""
+    summary = SizeSummary(known_bytes=100, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "100 B known"
+    assert actual == expected
+
+
 # ── _build_colour_map ─────────────────────────────────────────────────────────
 
 
@@ -163,8 +218,11 @@ def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 1
-    assert stats.total_size == 100
-    assert stats.by_recorder["pickle"] == (1, 100)
+    assert stats.total_size == SizeSummary(known_bytes=100)
+    assert stats.by_recorder["pickle"] == RecorderStats(
+        count=1,
+        size=SizeSummary(known_bytes=100),
+    )
 
 
 def test_attributes_unknown_extension_to_its_raw_name() -> None:
@@ -220,19 +278,23 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 3
-    assert stats.total_size == 600
-    assert stats.by_recorder["pickle"] == (3, 600)
+    assert stats.total_size == SizeSummary(known_bytes=600)
+    assert stats.by_recorder["pickle"] == RecorderStats(
+        count=3,
+        size=SizeSummary(known_bytes=600),
+    )
 
 
 # ── command inventory dispatch ─────────────────────────────────────────────────
 
 
 def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
-    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: manifest)
+    monkeypatch.setattr("ditto._inventory.run_introspect", lambda path: manifest)
 
 
 def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:
-    """`ditto list` renders the storage keys the introspection pass enumerated."""
+    """`ditto list --live` renders the storage keys the introspection pass
+    enumerated."""
     manifest = [
         BackendManifest(
             "file:///x/.ditto",
@@ -241,7 +303,7 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
     ]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "test_y" in result.output
@@ -250,12 +312,12 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
 def test_stats_shows_a_configured_backend_even_with_no_snapshots(
     tmp_path, monkeypatch
 ) -> None:
-    """An empty-but-resolved backend still appears in `ditto stats`, flagging it to
-    the user as removable or misconfigured."""
+    """An empty-but-resolved backend still appears in `ditto stats --live`, flagging
+    it to the user as removable or misconfigured."""
     manifest = [BackendManifest("redis://h/0", [])]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["stats", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["stats", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "redis://h/0" in result.output
@@ -269,9 +331,26 @@ def test_list_reports_failure_and_exits_one_when_introspection_errors(
     def _boom(path):
         raise cli_mod.IntrospectError("pytest blew up")
 
-    monkeypatch.setattr(cli_mod, "run_introspect", _boom)
+    monkeypatch.setattr("ditto._inventory.run_introspect", _boom)
+
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Introspection failed" in result.output
+
+
+def test_list_reports_failure_and_exits_one_when_inventory_is_unreadable(
+    tmp_path, monkeypatch
+) -> None:
+    """A filesystem inventory failure is shown without an uncaught traceback."""
+
+    def fail_inventory(path, *, live):
+        raise InventoryError("permission denied")
+
+    monkeypatch.setattr(cli_mod, "build_inventory", fail_inventory)
 
     result = CliRunner().invoke(cli, ["list", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "Introspection failed" in result.output
+    assert "Inventory failed" in result.output
+    assert "permission denied" in result.output
