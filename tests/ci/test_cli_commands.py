@@ -368,6 +368,19 @@ def test_remote_only_aggregate_renders_unknown_size_as_dash(command, tmp_path) -
     assert "0 B" not in result.output
 
 
+@pytest.mark.parametrize("command", [cmd_list, cmd_status, cmd_stats])
+def test_empty_inventory_explains_that_remote_snapshots_need_a_lock(
+    command, tmp_path
+) -> None:
+    """An empty credential-free result directs remote-only users to live mode."""
+    result = CliRunner().invoke(command, [str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "No snapshot files found" in result.output
+    assert "no ditto.lock found" in result.output
+    assert "use --live" in result.output
+
+
 def test_list_hints_when_no_lockfile(tmp_path) -> None:
     """With local snapshots but no ditto.lock, list hints that remotes are hidden."""
     _make_local_snapshot(tmp_path)

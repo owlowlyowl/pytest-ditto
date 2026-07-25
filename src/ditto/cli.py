@@ -466,6 +466,7 @@ def cmd_list(path: Path, live: bool):
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, entries, live=live)
         sys.exit(1)
 
     infos = _load_recorder_infos()
@@ -570,6 +571,7 @@ def cmd_status(path: Path, live: bool):
     entries = _entries(manifest)
     if not entries:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, entries, live=live)
         sys.exit(1)
 
     render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
@@ -857,6 +859,7 @@ def cmd_stats(path: Path, live: bool):
     manifest = _inventory_or_exit(path, live=live)
     if not manifest:
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, [], live=live)
         sys.exit(1)
     em = _ext_map(_load_recorder_infos())
     dir_stats = [(b.location, gather_stats(b.entries, em)) for b in manifest]
