@@ -1,7 +1,10 @@
 from collections.abc import Mapping
+from typing import Final, cast
+
+from ditto.exceptions import DittoUnknownRecorderError
 
 from ._protocol import Recorder
-from ._pickle import pickle as _default
+from ._json import json as _default
 from ._plugins import (
     RECORDER_REGISTRY,
     MARK_REGISTRY,
@@ -39,13 +42,16 @@ def register(name: str, recorder: Recorder, registry: dict = RECORDER_REGISTRY) 
     registry[name] = recorder
 
 
+_MISSING: Final = object()
+
+
 def get(
     name: str,
     registry: Mapping[str, Recorder] = RECORDER_REGISTRY,
-    fallback: Recorder = _default,
+    fallback: Recorder | object = _MISSING,
 ) -> Recorder:
     """
-    Look up a recorder by name, falling back to a default.
+    Look up a recorder by name.
 
     Parameters
     ----------
@@ -55,14 +61,19 @@ def get(
         Registry to query. Defaults to the shared `RECORDER_REGISTRY`.
         Pass an isolated dict in tests to avoid depending on shared state.
     fallback : Recorder, optional
-        Recorder to return when `name` is not found. Defaults to `pickle`.
+        Recorder to return when `name` is not found. If omitted, an unknown
+        recorder raises `DittoUnknownRecorderError`.
 
     Returns
     -------
     Recorder
-        The registered recorder, or `fallback` if not found.
+        The registered recorder, or an explicitly supplied `fallback`.
     """
-    return registry.get(name, fallback)
+    if name in registry:
+        return registry[name]
+    if fallback is not _MISSING:
+        return cast(Recorder, fallback)
+    raise DittoUnknownRecorderError(name, list(registry))
 
 
 def default() -> Recorder:
@@ -72,6 +83,6 @@ def default() -> Recorder:
     Returns
     -------
     Recorder
-        The pickle recorder.
+        The strict JSON recorder.
     """
     return _default

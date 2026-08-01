@@ -123,7 +123,7 @@ def test_storage_key_matches_the_key_the_fixture_actually_stores(tmp_path):
 
     stored_keys = set(backend)  # the actual storage keys on the backend
     derived = storage_key(
-        LockEntry("tests/test_api.py::TestX::test_foo", "k", "pkl"), "file"
+        LockEntry("tests/test_api.py::TestX::test_foo", "k", "json"), "file"
     )
 
     assert derived in stored_keys

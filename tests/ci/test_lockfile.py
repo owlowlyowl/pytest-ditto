@@ -243,7 +243,7 @@ def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
         scheme="file",
         nodeid="tests/test_foo.py::test_foo",
         key="k",
-        recorder="pkl",
+        recorder="json",
     )
     assert expected in session_tracker.lock_created
     session_tracker.reset()
@@ -272,7 +272,7 @@ def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
         scheme="file",
         nodeid="tests/test_foo.py::test_foo",
         key="k",
-        recorder="pkl",
+        recorder="json",
     )
     assert seen in session_tracker.lock_accessed
     assert seen not in session_tracker.lock_created

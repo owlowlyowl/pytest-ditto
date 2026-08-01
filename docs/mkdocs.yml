@@ -39,7 +39,6 @@ nav:
     - Storage Backends: guides/backends.md
     - Custom Backends: guides/custom-backends.md
     - The Lock File: guides/lock-file.md
-    - unittest Support: guides/unittest.md
     - Upgrading: guides/upgrading.md
   - CLI Reference:
     - Overview: cli/index.md

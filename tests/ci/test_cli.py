@@ -186,11 +186,11 @@ def test_assigns_palette_colours_in_alphabetical_order() -> None:
 def test_maps_extension_to_recorder_info() -> None:
     """Each RecorderInfo is keyed by its extension."""
     infos = [
-        RecorderInfo(name="pickle", extension=".pickle", package="pytest-ditto"),
+        RecorderInfo(name="json", extension=".json", package="pytest-ditto"),
         RecorderInfo(name="yaml", extension=".yaml", package="pytest-ditto"),
     ]
     result = _ext_map(infos)
-    assert result[".pickle"].name == "pickle"
+    assert result[".json"].name == "json"
     assert result[".yaml"].name == "yaml"
 
 
@@ -212,14 +212,14 @@ def test_later_entry_wins_on_duplicate_extension() -> None:
 
 def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     """An entry with a mapped extension is attributed to its recorder."""
-    em = {".pickle": RecorderInfo("pickle", ".pickle", "pytest-ditto")}
-    entries = [ManifestEntry("test_foo@snap.pickle", size_bytes=100, modified=1000.0)]
+    em = {".json": RecorderInfo("json", ".json", "pytest-ditto")}
+    entries = [ManifestEntry("test_foo@snap.json", size_bytes=100, modified=1000.0)]
 
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 1
     assert stats.total_size == SizeSummary(known_bytes=100)
-    assert stats.by_recorder["pickle"] == RecorderStats(
+    assert stats.by_recorder["json"] == RecorderStats(
         count=1,
         size=SizeSummary(known_bytes=100),
     )

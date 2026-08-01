@@ -14,6 +14,7 @@ from ditto.exceptions import (
     DittoDuplicateProfileError,
     DittoInvalidProfileError,
     DittoMarkHasNoIOType,
+    DittoUnknownRecorderError,
     DittoUnknownProfileError,
 )
 from ditto.plugin import (
@@ -31,7 +32,6 @@ from ditto.plugin import (
 )
 
 json_recorder = recorders.get("json")
-pickle_recorder = recorders.get("pickle")
 yaml_recorder = recorders.get("yaml")
 
 
@@ -54,18 +54,11 @@ def _mark(*args):
 # --- _resolve_recorder ---
 
 
-def test_resolves_to_pickle_when_no_marks_present() -> None:
-    """No record marks defaults to the pickle recorder."""
+def test_resolves_to_json_when_no_marks_present() -> None:
+    """No record marks defaults to the strict JSON recorder."""
     actual = _resolve_recorder([])
 
-    assert actual is pickle_recorder
-
-
-def test_resolves_to_pickle_when_pickle_mark_is_present() -> None:
-    """A record mark naming 'pickle' resolves to the pickle recorder."""
-    actual = _resolve_recorder([_mark("pickle")])
-
-    assert actual is pickle_recorder
+    assert actual is json_recorder
 
 
 def test_resolves_to_yaml_when_yaml_mark_is_present() -> None:
@@ -82,6 +75,22 @@ def test_resolves_to_json_when_json_mark_is_present() -> None:
     assert actual is json_recorder
 
 
+def test_resolves_synthetic_external_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw marks continue to resolve recorders installed through the registry."""
+    external = recorders.Recorder(
+        extension="external",
+        save=json_recorder.save,
+        load=json_recorder.load,
+    )
+    monkeypatch.setitem(recorders.RECORDER_REGISTRY, "external", external)
+
+    actual = _resolve_recorder([_mark("external")])
+
+    assert actual is external
+
+
 def test_raises_when_mark_carries_no_args() -> None:
     """A bare record mark with no arguments raises DittoMarkHasNoIOType."""
     with pytest.raises(DittoMarkHasNoIOType):
@@ -89,15 +98,18 @@ def test_raises_when_mark_carries_no_args() -> None:
 
 
 def test_raises_when_mark_names_unregistered_recorder() -> None:
-    """An unrecognised recorder name raises DittoMarkHasNoIOType, not a fallback."""
-    with pytest.raises(DittoMarkHasNoIOType):
+    """An unrecognised recorder name raises a generic unknown-recorder error."""
+    with pytest.raises(
+        DittoUnknownRecorderError,
+        match="Unknown ditto recorder 'nonexistent'.*json.*yaml",
+    ):
         _resolve_recorder([_mark("nonexistent")])
 
 
 def test_raises_when_multiple_marks_are_present() -> None:
     """More than one record mark raises AdditionalMarkError."""
     with pytest.raises(AdditionalMarkError):
-        _resolve_recorder([_mark("pickle"), _mark("json")])
+        _resolve_recorder([_mark("yaml"), _mark("json")])
 
 
 # --- _maybe_enter ---

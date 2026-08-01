@@ -40,6 +40,7 @@ from ditto.exceptions import (
     DittoInvalidProfileError,
     DittoLockFileError,
     DittoMarkHasNoIOType,
+    DittoUnknownRecorderError,
     DittoUnknownProfileError,
     DittoWarning,
 )
@@ -105,15 +106,20 @@ def _resolve_recorder(marks: list) -> Recorder:
     AdditionalMarkError
         If more than one `record` mark is present on the test.
     DittoMarkHasNoIOType
-        If the mark carries no arguments or names an unregistered recorder.
+        If the mark carries no recorder argument.
+    DittoUnknownRecorderError
+        If the mark names an unregistered recorder.
     """
     match len(marks):
         case 0:
             return _default_recorder()
         case 1:
-            if not marks[0].args or marks[0].args[0] not in RECORDER_REGISTRY:
+            if not marks[0].args:
                 raise DittoMarkHasNoIOType()
-            return RECORDER_REGISTRY[marks[0].args[0]]
+            name = marks[0].args[0]
+            if name not in RECORDER_REGISTRY:
+                raise DittoUnknownRecorderError(name, list(RECORDER_REGISTRY))
+            return RECORDER_REGISTRY[name]
         case _:
             raise AdditionalMarkError()
 

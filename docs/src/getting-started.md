@@ -61,8 +61,9 @@ ditto update tests/ -k test_fn
 
 ## Choosing a Recorder
 
-By default, snapshots are persisted using `pickle`. Use marks to select a
-different format:
+By default, snapshots are persisted as deterministic strict JSON. No mark is
+needed; `@ditto.json` is available when being explicit is clearer. Use a mark to
+select a different installed format:
 
 ```python
 import ditto
@@ -84,9 +85,12 @@ The built-in recorders are:
 
 | Mark | Format | File Extension |
 |------|--------|---------------|
-| `@ditto.pickle` | pickle | `.pkl` |
+| no mark / `@ditto.json` | strict JSON (default) | `.json` |
 | `@ditto.yaml` | YAML | `.yaml` |
-| `@ditto.json` | JSON | `.json` |
+
+Strict JSON accepts exact built-in `None`, `bool`, `int`, finite `float`,
+`str`, `list`, and `dict` values recursively; dictionary keys must be exact
+built-in strings. Choose an installed external recorder for other values.
 
 ## What's Next?
 

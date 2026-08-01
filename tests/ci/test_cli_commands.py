@@ -50,9 +50,9 @@ def _entry_points(*, pytest11=(), recorders=(), marks=()):
 
 
 @pytest.fixture()
-def pickle_ext_map():
+def json_ext_map():
     return _ext_map([
-        RecorderInfo(name="pickle", extension=".pkl", package="pytest-ditto")
+        RecorderInfo(name="json", extension=".json", package="pytest-ditto")
     ])
 
 
@@ -145,7 +145,7 @@ def test_returns_failing_check_with_error_detail_when_mark_load_raises() -> None
 
 def test_returns_one_result_per_recorder_entry_point() -> None:
     """Each registered recorder entry point produces exactly one CheckResult."""
-    eps = [_ep("pickle"), _ep("yaml"), _ep("json")]
+    eps = [_ep("custom"), _ep("yaml"), _ep("json")]
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
         side_effect=_entry_points(recorders=eps),
@@ -158,7 +158,7 @@ def test_returns_one_result_per_recorder_entry_point() -> None:
 
 def test_returns_one_result_per_mark_entry_point() -> None:
     """Each registered mark entry point produces exactly one CheckResult."""
-    eps = [_ep("pickle"), _ep("yaml")]
+    eps = [_ep("custom"), _ep("yaml")]
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
         side_effect=_entry_points(marks=eps),
@@ -172,29 +172,29 @@ def test_returns_one_result_per_mark_entry_point() -> None:
 # ── _find_lint_issues: clean inputs ───────────────────────────────────────────
 
 
-def test_returns_no_issues_for_empty_entry_list(pickle_ext_map) -> None:
+def test_returns_no_issues_for_empty_entry_list(json_ext_map) -> None:
     """No entries means no issues."""
-    assert _find_lint_issues([], pickle_ext_map) == []
+    assert _find_lint_issues([], json_ext_map) == []
 
 
-def test_returns_no_issues_for_valid_entry(pickle_ext_map) -> None:
+def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
     """A well-named, non-empty entry with a known extension produces no issues."""
-    entry = ManifestEntry("test_foo@result.pkl", size_bytes=4, modified=None)
+    entry = ManifestEntry("test_foo@result.json", size_bytes=4, modified=None)
 
-    assert _find_lint_issues([entry], pickle_ext_map) == []
+    assert _find_lint_issues([entry], json_ext_map) == []
 
 
 # ── _find_lint_issues: issue detection ────────────────────────────────────────
 
 
-def test_reports_malformed_name_when_key_has_no_at_sign(pickle_ext_map) -> None:
+def test_reports_malformed_name_when_key_has_no_at_sign(json_ext_map) -> None:
     """A storage key without '@' is flagged as malformed."""
-    entry = ManifestEntry("no_at_sign.pkl", size_bytes=4, modified=None)
+    entry = ManifestEntry("no_at_sign.json", size_bytes=4, modified=None)
 
-    issues = _find_lint_issues([entry], pickle_ext_map)
+    issues = _find_lint_issues([entry], json_ext_map)
 
     assert len(issues) == 1
-    assert issues[0].filename == "no_at_sign.pkl"
+    assert issues[0].filename == "no_at_sign.json"
     assert "Malformed" in issues[0].issue
 
 
@@ -208,11 +208,11 @@ def test_reports_unknown_extension_when_ext_not_in_ext_map() -> None:
     assert "Unknown extension" in issues[0].issue
 
 
-def test_reports_empty_file_when_size_is_zero(pickle_ext_map) -> None:
+def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
     """A zero-byte entry is flagged as empty."""
-    entry = ManifestEntry("test_foo@result.pkl", size_bytes=0, modified=None)
+    entry = ManifestEntry("test_foo@result.json", size_bytes=0, modified=None)
 
-    issues = _find_lint_issues([entry], pickle_ext_map)
+    issues = _find_lint_issues([entry], json_ext_map)
 
     assert any(i.issue == "Empty file" for i in issues)
 

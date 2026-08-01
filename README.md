@@ -11,11 +11,10 @@ Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
 ## Features
 
 - **Snapshot fixture** — record test outputs once, assert they don't change
-- **Flexible recorders** — built-in pickle, YAML, JSON; plugin recorders for pandas and PyArrow
+- **Flexible recorders** — strict JSON by default, built-in YAML, and external recorders for specialised data
 - **Remote backends** — store snapshots locally, on S3, in PostgreSQL, Redis, DuckDB, or anywhere via fsspec
 - **Named profiles** — reusable, named backend targets with isolated credentials
 - **CLI tools** — list, update, prune, lint, and manage snapshots from the command line
-- **unittest support** — `DittoTestCase` for `unittest.TestCase`-based tests
 
 ## Quick Start
 
@@ -42,11 +41,15 @@ First run records the result. Subsequent runs assert it hasn't changed.
 
 | Mark | Format | Extension |
 |------|--------|-----------|
-| `@ditto.pickle` | pickle (default) | `.pkl` |
+| no mark / `@ditto.json` | strict JSON (default) | `.json` |
 | `@ditto.yaml` | YAML | `.yaml` |
-| `@ditto.json` | JSON | `.json` |
 | `@ditto.pandas.parquet` | pandas DataFrame | `.pandas.parquet` |
 | `@ditto.pyarrow.parquet` | PyArrow Table | `.pyarrow.parquet` |
+
+Strict JSON accepts only exact built-in `None`, `bool`, `int`, finite `float`,
+`str`, `list`, and string-keyed `dict` values, recursively. Install external
+recorders explicitly for other data models. See the recorder and upgrading
+guides before migrating snapshots from pytest-ditto 1.x.
 
 ## Documentation
 

@@ -91,7 +91,7 @@ def _register_redis_backend(_redis_client: fakeredis.FakeRedis):
 # ---------------------------------------------------------------------------
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     """Snapshot stores and retrieves a value via the Redis backend."""
     result = snapshot({"answer": 42}, key="data")
@@ -99,7 +99,7 @@ def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     assert result == {"answer": 42}
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     """Keys stored in Redis use the full module/group@key.ext namespaced form.
 
@@ -109,13 +109,13 @@ def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     snapshot(1, key="n")
 
     raw_keys = [k.decode() for k in _redis_client.keys("*")]
-    # Expect something like: ditto:tests/ci/test_redis_backend/test_..._format@n.pkl
+    # Expect something like: ditto:tests/ci/test_redis_backend/test_..._format@n.json
     assert any(k.startswith("ditto:") and "/" in k for k in raw_keys), (
         f"expected a namespaced key in Redis, got: {raw_keys}"
     )
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_multiple_keys_in_one_test(snapshot) -> None:
     """Multiple snapshot calls with unique keys in one test all round-trip."""
     a = snapshot([1, 2, 3], key="list")
@@ -188,11 +188,11 @@ def test_dry_run_reports_orphan_redis_key_absent_from_lock(pytester) -> None:
         test_write="""
             import ditto
 
-            @ditto.record("pickle", target="redis://localhost:6379/0")
+            @ditto.record("json", target="redis://localhost:6379/0")
             def test_write_alpha(snapshot):
                 snapshot("alpha-value", key="alpha")
 
-            @ditto.record("pickle", target="redis://localhost:6379/0")
+            @ditto.record("json", target="redis://localhost:6379/0")
             def test_write_beta(snapshot):
                 snapshot("beta-value", key="beta")
         """,

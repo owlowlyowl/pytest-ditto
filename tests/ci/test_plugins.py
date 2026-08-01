@@ -4,12 +4,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ditto import recorders
+from ditto.exceptions import DittoUnknownRecorderError
 from ditto.recorders._plugins import load_recorders, load_mark_plugins
 
-pickle_recorder = recorders.default()
+json_recorder = recorders.default()
 
 
-@pytest.mark.parametrize("recorder_name", ("pickle", "yaml", "json"))
+@pytest.mark.parametrize("recorder_name", ("yaml", "json"))
 def test_builtin_recorder_is_present_in_registry_after_import(
     recorder_name: str,
 ) -> None:
@@ -18,17 +19,18 @@ def test_builtin_recorder_is_present_in_registry_after_import(
 
 
 def test_load_recorders_discovers_all_builtin_handlers() -> None:
-    """load_recorders returns a registry containing all three built-in recorders."""
+    """load_recorders returns both built-in recorders."""
     registry = recorders.load_recorders()
 
-    assert set(registry.keys()) >= {"pickle", "yaml", "json"}
+    assert set(registry.keys()) >= {"yaml", "json"}
+    assert "pickle" not in registry
 
 
 def test_mutating_loaded_recorders_does_not_affect_shared_registry() -> None:
     """Mutating a load_recorders result leaves RECORDER_REGISTRY unchanged."""
     registry = recorders.load_recorders()
 
-    registry["custom"] = pickle_recorder
+    registry["custom"] = json_recorder
 
     assert "custom" not in recorders.RECORDER_REGISTRY
 
@@ -44,25 +46,31 @@ def test_mutating_loaded_mark_plugins_does_not_affect_shared_registry() -> None:
 
 def test_get_resolves_recorder_from_supplied_registry() -> None:
     """recorders.get looks up a recorder in a caller-supplied registry."""
-    actual = recorders.get("custom", registry={"custom": pickle_recorder})
+    actual = recorders.get("custom", registry={"custom": json_recorder})
 
-    assert actual is pickle_recorder
+    assert actual is json_recorder
 
 
-def test_get_returns_default_when_name_absent_from_registry() -> None:
-    """recorders.get falls back to the default when the name is absent."""
-    actual = recorders.get("nonexistent", registry={}, fallback=pickle_recorder)
+def test_get_returns_explicit_fallback_when_name_absent_from_registry() -> None:
+    """recorders.get returns a deliberately supplied fallback when absent."""
+    actual = recorders.get("nonexistent", registry={}, fallback=json_recorder)
 
-    assert actual is pickle_recorder
+    assert actual is json_recorder
+
+
+def test_get_raises_when_name_absent_without_explicit_fallback() -> None:
+    """recorders.get never silently selects the default for an unknown name."""
+    with pytest.raises(DittoUnknownRecorderError, match="nonexistent"):
+        recorders.get("nonexistent", registry={})
 
 
 def test_register_adds_recorder_to_supplied_registry_only() -> None:
     """recorders.register writes to the supplied registry, not the global one."""
     isolated = {}
 
-    recorders.register("custom", pickle_recorder, registry=isolated)
+    recorders.register("custom", json_recorder, registry=isolated)
 
-    assert isolated["custom"] is pickle_recorder
+    assert isolated["custom"] is json_recorder
     assert "custom" not in recorders.RECORDER_REGISTRY
 
 
@@ -72,6 +80,18 @@ def test_raises_when_accessing_nonexistent_plugin_mark() -> None:
 
     with pytest.raises(AttributeError):
         _ = ditto.nonexistent_mark_xyz
+
+
+def test_dynamic_external_mark_resolves_from_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Marks installed through the generic registry remain available on ditto."""
+    import ditto
+
+    external_mark = object()
+    monkeypatch.setitem(recorders.MARK_REGISTRY, "external", external_mark)
+
+    assert ditto.external is external_mark
 
 
 # ── Broken entry point resilience ─────────────────────────────────────────────
@@ -112,7 +132,7 @@ def test_load_mark_plugins_skips_broken_entry_point_and_warns() -> None:
     load."""
     import ditto
 
-    good_marks = ditto.pickle  # any real marks object
+    good_marks = ditto.json  # any real marks object
 
     good_factory = MagicMock(return_value=good_marks)
     good_ep = _make_ep("good", load_return=good_factory)

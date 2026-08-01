@@ -30,17 +30,21 @@ def test_returns_value_on_first_call(pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
-    """snapshot returns the stored value, not the argument, when the file exists."""
-    key = "read"
+def test_returns_stored_value_on_subsequent_calls(pytester) -> None:
+    """A second run returns stored JSON rather than its new argument."""
+    test_file = pytester.path / "test_inner.py"
+    test_file.write_text(
+        "def test_inner(snapshot):\n"
+        "    assert snapshot('read-value', key='read') == 'read-value'\n"
+    )
+    pytester.runpytest().assert_outcomes(passed=1)
 
-    # tests/ci/.ditto/tests.ci.test_fixture\
-    #   .test_returns_stored_value_on_subsequent_calls@read.pkl
-    # is committed and contains "read-value". Passing a different argument proves the
-    # stored value is returned rather than the argument.
-    actual = snapshot("different-value", key=key)
+    test_file.write_text(
+        "def test_inner(snapshot):\n"
+        "    assert snapshot('different-value', key='read') == 'read-value'\n"
+    )
 
-    assert actual == "read-value"
+    pytester.runpytest().assert_outcomes(passed=1)
 
 
 def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
@@ -162,7 +166,7 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     subdir = pytester.mkdir("sub")
     subdir.joinpath("test_inner.py").write_text(
         "import ditto\n\n"
-        "@ditto.record('pickle', target='test://shared')\n"
+        "@ditto.record('json', target='test://shared')\n"
         "def test_inner(snapshot, stored_keys):\n"
         "    snapshot('v', key='k')\n"
         "    key = next(iter(stored_keys))\n"
@@ -209,7 +213,7 @@ def test_session_completes_when_backend_iter_raises_not_implemented(pytester) ->
     )
     pytester.makepyfile(
         "import ditto\n\n"
-        "@ditto.record('pickle', target='testiter://shared')\n"
+        "@ditto.record('json', target='testiter://shared')\n"
         "def test_inner(snapshot):\n"
         "    snapshot('v', key='k')\n"
     )
@@ -239,7 +243,7 @@ def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
     )
     pytester.makepyfile(
         "import ditto\n\n"
-        "@ditto.record('pickle', target='testiter://shared')\n"
+        "@ditto.record('json', target='testiter://shared')\n"
         "def test_inner(snapshot):\n"
         "    snapshot('v', key='k')\n"
     )
@@ -290,14 +294,14 @@ def test_b(snapshot):
     # First run: record snapshots in both directories.
     pytester.runpytest().assert_outcomes(passed=2)
 
-    snapshots_b_before = list((dir_b / ".ditto").rglob("*.pkl"))
+    snapshots_b_before = list((dir_b / ".ditto").rglob("*.json"))
     assert snapshots_b_before, "dir_b snapshots must exist before partial prune"
 
     # Second run: prune scoped to dir_a only — dir_b must be untouched.
     result = pytester.runpytest("dir_a", "--ditto-prune")
     result.assert_outcomes(passed=1)
 
-    snapshots_b_after = list((dir_b / ".ditto").rglob("*.pkl"))
+    snapshots_b_after = list((dir_b / ".ditto").rglob("*.json"))
     assert snapshots_b_after == snapshots_b_before
 
 
@@ -356,14 +360,14 @@ def test_shared_file_target_does_not_collide_across_files(pytester) -> None:
         test_alpha=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_roundtrip(snapshot):
                 assert snapshot("alpha", key="v") == "alpha"
         """,
         test_beta=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_roundtrip(snapshot):
                 assert snapshot("beta", key="v") == "beta"
         """,
@@ -391,14 +395,14 @@ def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> N
         test_alpha=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_alpha(snapshot):
                 assert snapshot("alpha", key="v") == "alpha"
         """,
         test_beta=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_beta(snapshot):
                 assert snapshot("beta", key="v") == "beta"
         """,
@@ -407,12 +411,12 @@ def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> N
     # First run: create both snapshots in the shared backend.
     pytester.runpytest().assert_outcomes(passed=2)
 
-    snapshots_before = list(shared_target.rglob("*.pkl"))
+    snapshots_before = list(shared_target.rglob("*.json"))
     assert len(snapshots_before) == 2, "both snapshots must exist before partial prune"
 
     # Second run: prune scoped to test_alpha only — test_beta's snapshot must survive.
     result = pytester.runpytest("test_alpha.py", "--ditto-prune")
     result.assert_outcomes(passed=1)
 
-    snapshots_after = list(shared_target.rglob("*.pkl"))
+    snapshots_after = list(shared_target.rglob("*.json"))
     assert len(snapshots_after) == 2, "test_beta snapshot must not be pruned"

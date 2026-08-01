@@ -3,6 +3,8 @@ __all__ = (
     "DittoWarning",
     "AdditionalMarkError",
     "DittoMarkHasNoIOType",
+    "DittoUnknownRecorderError",
+    "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
     "DittoAmbiguousTargetError",
     "DittoUnknownProfileError",
@@ -39,6 +41,27 @@ class DittoMarkHasNoIOType(DittoException):
             "The IO type is assumed to be the first argument of the `mark.args`."
         )
         super().__init__(_msg)
+
+
+class DittoUnknownRecorderError(DittoException):
+    """Raised when a requested recorder is not installed."""
+
+    def __init__(self, name: str, available: list[str]) -> None:
+        available_str = ", ".join(sorted(available)) if available else "(none)"
+        super().__init__(
+            f"Unknown ditto recorder {name!r}. Available recorders: {available_str}."
+        )
+
+
+class DittoJSONSerializationError(DittoException):
+    """Raised for values outside ditto's strict JSON data model."""
+
+    def __init__(self, path: str, detail: str) -> None:
+        super().__init__(
+            f"Strict JSON rejected the value at {path}: {detail}. "
+            "Use only exact built-in None, bool, int, finite float, str, list, "
+            "and dict values with exact string keys, or select another recorder."
+        )
 
 
 class DuplicateSnapshotKeyError(DittoException):
