@@ -55,7 +55,9 @@ def test_uses_yaml_when_raw_record_mark_specifies_yaml(snapshot) -> None:
 
 
 @pytest.mark.xfail(
-    reason="multiple record markers", raises=ditto.exceptions.AdditionalMarkError
+    reason="multiple record markers",
+    raises=ditto.exceptions.AdditionalMarkError,
+    strict=True,
 )
 @ditto.record("yaml")
 @ditto.record("json")
@@ -67,6 +69,7 @@ def test_raises_when_multiple_record_marks_are_applied(snapshot) -> None:
 @pytest.mark.xfail(
     reason="unregistered recorder name",
     raises=ditto.exceptions.DittoUnknownRecorderError,
+    strict=True,
 )
 @ditto.record("nonexistent-format")
 def test_raises_when_record_mark_specifies_unknown_recorder(snapshot) -> None:

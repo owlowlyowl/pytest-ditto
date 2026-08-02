@@ -290,7 +290,7 @@ def test_prune_without_check_forwards_delete_flag() -> None:
 def _make_local_snapshot(tmp_path) -> None:
     ditto = tmp_path / ".ditto"
     ditto.mkdir()
-    (ditto / "mod.test_a@k.pkl").write_bytes(b"abcd")
+    (ditto / "mod.test_a@k.json").write_bytes(b"abcd")
 
 
 def test_list_default_does_not_run_introspect(tmp_path) -> None:
@@ -311,7 +311,9 @@ def test_list_live_runs_introspect(tmp_path) -> None:
     manifest = [
         BackendManifest(
             location="redis://h/0",
-            entries=[ManifestEntry("mod.test_live@k.pkl", size_bytes=7, modified=None)],
+            entries=[
+                ManifestEntry("mod.test_live@k.json", size_bytes=7, modified=None)
+            ],
         )
     ]
     with patch("ditto._inventory.run_introspect", return_value=manifest) as run:
@@ -330,7 +332,11 @@ def test_list_renders_remote_lock_entry_with_dash(tmp_path) -> None:
             "redis://localhost:6379/0": {
                 "scheme": "redis",
                 "entries": [
-                    {"nodeid": "test_x.py::test_remote", "key": "k", "recorder": "pkl"}
+                    {
+                        "nodeid": "test_x.py::test_remote",
+                        "key": "k",
+                        "recorder": "json",
+                    }
                 ],
             }
         },
@@ -354,7 +360,11 @@ def test_remote_only_aggregate_renders_unknown_size_as_dash(command, tmp_path) -
             "redis://localhost:6379/0": {
                 "scheme": "redis",
                 "entries": [
-                    {"nodeid": "test_x.py::test_remote", "key": "k", "recorder": "pkl"}
+                    {
+                        "nodeid": "test_x.py::test_remote",
+                        "key": "k",
+                        "recorder": "json",
+                    }
                 ],
             }
         },

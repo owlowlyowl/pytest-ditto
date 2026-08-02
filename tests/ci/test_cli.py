@@ -27,10 +27,10 @@ from ditto.cli import (
 
 def test_splits_group_key_and_extension() -> None:
     """Standard {group}@{key}.{ext} filename is split correctly."""
-    group, key, ext = _parse_snapshot_name("test_foo@result.pickle")
+    group, key, ext = _parse_snapshot_name("test_foo@result.yaml")
     assert group == "test_foo"
     assert key == "result"
-    assert ext == ".pickle"
+    assert ext == ".yaml"
 
 
 def test_preserves_multi_dot_extension() -> None:
@@ -109,7 +109,7 @@ def test_human_size_renders_none_as_dash():
 def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
     """An unknown byte size does not remove a snapshot from the total count."""
     entries = [
-        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=None, modified=None),
+        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=None, modified=None),
     ]
 
     stats = gather_stats(entries, {})
@@ -120,8 +120,8 @@ def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
 def test_gather_stats_preserves_known_and_unknown_size_components() -> None:
     """Known bytes and unknown snapshot counts remain distinct when aggregated."""
     entries = [
-        ManifestEntry(storage_key="m.test_a@k.pkl", size_bytes=100, modified=None),
-        ManifestEntry(storage_key="m.test_b@k.pkl", size_bytes=None, modified=None),
+        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=100, modified=None),
+        ManifestEntry(storage_key="m.test_b@k.json", size_bytes=None, modified=None),
     ]
 
     stats = gather_stats(entries, {})
@@ -162,14 +162,14 @@ def test_colour_map_is_empty_for_no_names() -> None:
 
 def test_single_name_gets_a_palette_colour() -> None:
     """A single name is assigned a string palette colour."""
-    result = _build_colour_map(["pickle"])
-    assert "pickle" in result
-    assert isinstance(result["pickle"], str)
+    result = _build_colour_map(["json"])
+    assert "json" in result
+    assert isinstance(result["json"], str)
 
 
 def test_colour_assignment_is_independent_of_input_order() -> None:
     """The same names yield the same colour assignment regardless of order."""
-    names = ["yaml", "pickle", "json"]
+    names = ["yaml", "external", "json"]
     assert _build_colour_map(names) == _build_colour_map(list(reversed(names)))
 
 
@@ -201,10 +201,10 @@ def test_ext_map_is_empty_for_no_infos() -> None:
 
 def test_later_entry_wins_on_duplicate_extension() -> None:
     """Last info with a given extension is kept (dict overwrite semantics)."""
-    a = RecorderInfo(name="first", extension=".pkl", package="pkg-a")
-    b = RecorderInfo(name="second", extension=".pkl", package="pkg-b")
+    a = RecorderInfo(name="first", extension=".custom", package="pkg-a")
+    b = RecorderInfo(name="second", extension=".custom", package="pkg-b")
     result = _ext_map([a, b])
-    assert result[".pkl"].name == "second"
+    assert result[".custom"].name == "second"
 
 
 # ── gather_stats ──────────────────────────────────────────────────────────────
@@ -246,8 +246,8 @@ def test_buckets_entry_with_no_extension_under_empty_string() -> None:
 def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
     """oldest and newest are the entries with the min/max modified timestamp."""
     entries = [
-        ManifestEntry("test_a@x.pickle", size_bytes=10, modified=100.0),
-        ManifestEntry("test_b@y.pickle", size_bytes=20, modified=999.0),
+        ManifestEntry("test_a@x.yaml", size_bytes=10, modified=100.0),
+        ManifestEntry("test_b@y.yaml", size_bytes=20, modified=999.0),
     ]
 
     stats = gather_stats(entries, ext_map={})
@@ -258,7 +258,7 @@ def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
 
 def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
     """Remote entries (modified=None) leave oldest/newest as None."""
-    entries = [ManifestEntry("test_a@x.pickle", size_bytes=10, modified=None)]
+    entries = [ManifestEntry("test_a@x.yaml", size_bytes=10, modified=None)]
 
     stats = gather_stats(entries, ext_map={})
 
@@ -268,18 +268,18 @@ def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
 
 def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     """Multiple entries of the same recorder type are summed correctly."""
-    em = {".pickle": RecorderInfo("pickle", ".pickle", "pytest-ditto")}
+    em = {".yaml": RecorderInfo("yaml", ".yaml", "pytest-ditto")}
     entries = [
-        ManifestEntry("test_a@s.pickle", size_bytes=100, modified=1.0),
-        ManifestEntry("test_b@s.pickle", size_bytes=200, modified=2.0),
-        ManifestEntry("test_c@s.pickle", size_bytes=300, modified=3.0),
+        ManifestEntry("test_a@s.yaml", size_bytes=100, modified=1.0),
+        ManifestEntry("test_b@s.yaml", size_bytes=200, modified=2.0),
+        ManifestEntry("test_c@s.yaml", size_bytes=300, modified=3.0),
     ]
 
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 3
     assert stats.total_size == SizeSummary(known_bytes=600)
-    assert stats.by_recorder["pickle"] == RecorderStats(
+    assert stats.by_recorder["yaml"] == RecorderStats(
         count=3,
         size=SizeSummary(known_bytes=600),
     )

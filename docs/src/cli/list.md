@@ -31,7 +31,7 @@ Displays a table with columns:
 |--------|-------------|
 | Test | Test function name |
 | Key | Snapshot key |
-| Recorder | Format used (pkl, yaml, json, etc.) |
+| Recorder | Format used (json, yaml, external formats, etc.) |
 | Size | File size |
 | Modified | Last-modified date |
 
