@@ -6,22 +6,14 @@ import ditto
 # --- Default behaviour ---
 
 
-def test_defaults_to_pickle_when_no_mark_is_applied(snapshot) -> None:
-    """Without a record mark, the snapshot fixture uses pickle format."""
+def test_defaults_to_json_when_no_mark_is_applied(snapshot) -> None:
+    """Without a record mark, the snapshot fixture uses strict JSON."""
     actual = snapshot.recorder.extension
 
-    assert actual == "pkl"
+    assert actual == "json"
 
 
 # --- Convenience marks ---
-
-
-@ditto.pickle
-def test_uses_pickle_when_pickle_mark_is_applied(snapshot) -> None:
-    """The @ditto.pickle convenience mark selects pickle format for the snapshot."""
-    actual = snapshot.recorder.extension
-
-    assert actual == "pkl"
 
 
 @ditto.json
@@ -41,14 +33,6 @@ def test_uses_yaml_when_yaml_mark_is_applied(snapshot) -> None:
 
 
 # --- Raw record marks ---
-
-
-@ditto.record("pickle")
-def test_uses_pickle_when_raw_record_mark_specifies_pickle(snapshot) -> None:
-    """The raw @ditto.record mark with 'pickle' selects pickle format."""
-    actual = snapshot.recorder.extension
-
-    assert actual == "pkl"
 
 
 @ditto.record("json")
@@ -71,9 +55,11 @@ def test_uses_yaml_when_raw_record_mark_specifies_yaml(snapshot) -> None:
 
 
 @pytest.mark.xfail(
-    reason="multiple record markers", raises=ditto.exceptions.AdditionalMarkError
+    reason="multiple record markers",
+    raises=ditto.exceptions.AdditionalMarkError,
+    strict=True,
 )
-@ditto.record("pickle")
+@ditto.record("yaml")
 @ditto.record("json")
 def test_raises_when_multiple_record_marks_are_applied(snapshot) -> None:
     """Applying more than one record mark to a test raises AdditionalMarkError."""
@@ -81,11 +67,13 @@ def test_raises_when_multiple_record_marks_are_applied(snapshot) -> None:
 
 
 @pytest.mark.xfail(
-    reason="unregistered recorder name", raises=ditto.exceptions.DittoMarkHasNoIOType
+    reason="unregistered recorder name",
+    raises=ditto.exceptions.DittoUnknownRecorderError,
+    strict=True,
 )
 @ditto.record("nonexistent-format")
 def test_raises_when_record_mark_specifies_unknown_recorder(snapshot) -> None:
-    """Specifying an unregistered recorder name raises DittoMarkHasNoIOType."""
+    """Specifying an unregistered recorder raises DittoUnknownRecorderError."""
     pass
 
 
@@ -208,7 +196,7 @@ def test_default_target_falls_back_to_dot_ditto(pytester) -> None:
 
     result.assert_outcomes(passed=1)
     assert (pytester.path / ".ditto").is_dir()
-    assert list((pytester.path / ".ditto").glob("*.pkl"))
+    assert list((pytester.path / ".ditto").glob("*.json"))
 
 
 def test_unknown_target_scheme_raises_value_error(pytester) -> None:

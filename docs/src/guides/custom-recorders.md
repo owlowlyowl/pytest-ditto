@@ -111,7 +111,7 @@ def test_with_msgpack(snapshot):
 The `extension` field is the canonical identifier appended to snapshot keys.
 It may contain dots for namespaced recorders:
 
-- Built-in: `pkl`, `yaml`, `json`
+- Built-in: `json`, `yaml`
 - Plugin: `pandas.parquet`, `pandas.csv`, `pyarrow.feather`
 
 The extension does not need to match the mark alias or registry key.

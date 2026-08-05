@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator, MutableMapping
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -7,8 +8,8 @@ import pytest
 
 from ditto import Snapshot, recorders
 from ditto.backends import FsspecMapping
-from ditto.exceptions import DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, save_snapshot
+from ditto.exceptions import DittoJSONSerializationError, DuplicateSnapshotKeyError
+from ditto.snapshot import load_snapshot, save_snapshot, session_tracker
 
 json_recorder = recorders.get("json")
 qualified_json_recorder = recorders.Recorder(
@@ -31,6 +32,12 @@ def _file_snapshot(path: Path, **kwargs) -> Snapshot:
 
 
 # --- Snapshot dataclass ---
+
+
+def test_snapshot_defaults_to_strict_json(tmp_path: Path) -> None:
+    snapshot = _file_snapshot(tmp_path)
+
+    assert snapshot.recorder is json_recorder
 
 
 def test_snapshot_is_immutable() -> None:
@@ -165,6 +172,87 @@ def test_overwrites_stored_value_when_update_is_true(tmp_dir) -> None:
     snapshot("updated", key)
 
     assert load_snapshot(snapshot, key) == "updated"
+
+
+# --- legacy recorder isolation ---
+
+
+class _TrackingBackend(MutableMapping[str, bytes]):
+    def __init__(self, values: dict[str, bytes]) -> None:
+        self.values = values.copy()
+        self.getitem_calls: list[str] = []
+
+    def __getitem__(self, key: str) -> bytes:
+        self.getitem_calls.append(key)
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: bytes) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+def _legacy_backend_snapshot(backend: MutableMapping[str, bytes], **kwargs) -> Snapshot:
+    return Snapshot(
+        group_name="group",
+        module="m",
+        target="memory://snapshots",
+        _backend=backend,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("update", [False, True])
+def test_missing_json_records_normally_without_reading_legacy_key(update: bool) -> None:
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(backend, update=update)
+
+    actual = snapshot({"current": True}, "result")
+
+    assert actual == {"current": True}
+    assert json.loads(backend.values["m/group@result.json"]) == {"current": True}
+    assert backend.values[legacy_key] == b"untrusted legacy bytes"
+    assert legacy_key not in backend.getitem_calls
+
+
+def test_readonly_missing_json_ignores_legacy_key() -> None:
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(backend, readonly=True)
+
+    actual = snapshot({"current": True}, "result")
+
+    assert actual == {"current": True}
+    assert backend.values == {legacy_key: b"untrusted legacy bytes"}
+    assert legacy_key not in backend.getitem_calls
+
+
+def test_invalid_json_value_does_not_touch_backend_or_lock_observations() -> None:
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_invalid",
+    )
+    session_tracker.lock_accessed.clear()
+    session_tracker.lock_created.clear()
+
+    with pytest.raises(DittoJSONSerializationError):
+        snapshot((1, 2), "result")
+
+    assert backend.values == {legacy_key: b"untrusted legacy bytes"}
+    assert legacy_key not in backend.getitem_calls
+    assert session_tracker.lock_accessed == set()
+    assert session_tracker.lock_created == set()
 
 
 # --- duplicate key detection ---

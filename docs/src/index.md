@@ -10,7 +10,7 @@ Snapshot testing with minimal ceremony and flexible recorders.
 
 - :material-swap-horizontal: **Flexible Recorders**
 
-    Built-in pickle, YAML, and JSON. Plugin recorders for pandas, PyArrow, and more.
+    Strict JSON by default, built-in YAML, and plugins for specialised data.
 
 - :material-cloud-upload: **Remote Backends**
 

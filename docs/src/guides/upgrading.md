@@ -1,5 +1,38 @@
 # Upgrading
 
+## Upgrading to 2.0
+
+pytest-ditto 2.0 changes the unmarked default from pickle to strict JSON and
+removes pickle from the core distribution. Existing `.pkl` snapshots are
+ignored by the JSON path: core does not inspect, load, compare, convert, or
+migrate them.
+
+When a `.json` snapshot is absent, a normal or update run follows ordinary
+missing-snapshot behavior and records current test output as new JSON, even if
+a same-key `.pkl` file exists. A read-only verification run reports the JSON key
+as missing. Re-recording does not prove that the current output is equivalent
+to the old baseline.
+
+Use this upgrade workflow:
+
+1. Upgrade and run the complete test suite to create missing JSON snapshots.
+2. For strict-JSON failures, change the snapshotted representation or select a
+   suitable installed recorder.
+3. Review every new JSON snapshot. It was recorded from current output, not
+   converted or compared with pickle.
+4. Run the complete suite again.
+5. Run `ditto lock` only after accepting the new baselines.
+6. Remove old `.pkl` snapshots manually or through the ordinary prune workflow.
+
+If pickle is deliberately required, install `pytest-ditto-pickle` and select
+its recorder explicitly. Loading pickle data can execute arbitrary code, so
+only load trusted snapshots. Core provides no pickle warning, guard, migration
+command, or convenience extra.
+
+Version 2.0 also removes `DittoTestCase`. Unittest-style classes collected by
+pytest should use pytest fixtures and marks. Direct `Snapshot` construction is
+the lower-level alternative when fixture injection is unsuitable.
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by

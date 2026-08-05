@@ -19,6 +19,6 @@ Displays a table with columns:
 
 | Column | Description |
 |--------|-------------|
-| Name | Registry key (e.g., `pickle`, `pandas_parquet`) |
-| Extension | File extension (e.g., `.pkl`, `.pandas.parquet`) |
+| Name | Registry key (e.g., `json`, `pandas_parquet`) |
+| Extension | File extension (e.g., `.json`, `.pandas.parquet`) |
 | Package | Source package (e.g., `pytest-ditto`, `pytest-ditto-pandas`) |

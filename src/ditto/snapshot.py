@@ -27,7 +27,7 @@ class SnapshotKey:
     key : str
         Per-snapshot identifier within the test.
     extension : str
-        Recorder file extension, e.g. "pkl", "json".
+        Recorder file extension, e.g. "json", "yaml".
     """
 
     module: str
@@ -75,7 +75,7 @@ class LockSeen:
     key : str
         Per-snapshot identifier within the test.
     recorder : str
-        Recorder extension string, e.g. `pkl`, `json`, `pandas.parquet`.
+        Recorder extension string, e.g. `json`, `yaml`, `pandas.parquet`.
     """
 
     target_id: str
@@ -216,7 +216,7 @@ class Snapshot:
         Resolved storage backend. Conventionally private — set by the fixture via
         `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
-        Serialisation strategy. Defaults to pickle.
+        Serialisation strategy. Defaults to strict JSON.
     update : bool
         When True, overwrite existing snapshots. Set by `--ditto-update`.
     readonly : bool

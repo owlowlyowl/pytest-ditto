@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pickle
+import json
 import uuid
 from collections.abc import Iterator, MutableMapping
 
@@ -35,9 +35,9 @@ def test_fsspec_mapping_stores_and_retrieves_bytes() -> None:
     """Bytes written under a key are returned unchanged on read."""
     m = _mem()
 
-    m["snap.pkl"] = b"hello"
+    m["snap.json"] = b"hello"
 
-    assert m["snap.pkl"] == b"hello"
+    assert m["snap.json"] == b"hello"
 
 
 def test_fsspec_mapping_raises_key_error_for_absent_key() -> None:
@@ -45,32 +45,32 @@ def test_fsspec_mapping_raises_key_error_for_absent_key() -> None:
     m = _mem()
 
     with pytest.raises(KeyError):
-        _ = m["missing.pkl"]
+        _ = m["missing.json"]
 
 
 def test_fsspec_mapping_contains_written_key() -> None:
     """__contains__ returns True for a key that has been written."""
     m = _mem()
-    m["a.pkl"] = b"x"
+    m["a.json"] = b"x"
 
-    assert "a.pkl" in m
+    assert "a.json" in m
 
 
 def test_fsspec_mapping_does_not_contain_absent_key() -> None:
     """__contains__ returns False for a key that has never been written."""
     m = _mem()
 
-    assert "nope.pkl" not in m
+    assert "nope.json" not in m
 
 
 def test_fsspec_mapping_deletes_key() -> None:
     """Deleting a key removes it from the mapping."""
     m = _mem()
-    m["a.pkl"] = b"x"
+    m["a.json"] = b"x"
 
-    del m["a.pkl"]
+    del m["a.json"]
 
-    assert "a.pkl" not in m
+    assert "a.json" not in m
 
 
 def test_fsspec_mapping_delete_absent_key_raises() -> None:
@@ -78,23 +78,23 @@ def test_fsspec_mapping_delete_absent_key_raises() -> None:
     m = _mem()
 
     with pytest.raises(KeyError):
-        del m["ghost.pkl"]
+        del m["ghost.json"]
 
 
 def test_fsspec_mapping_iter_returns_filenames() -> None:
     """__iter__ yields the filenames of all stored keys."""
     m = _mem()
-    m["a.pkl"] = b"1"
-    m["b.pkl"] = b"2"
+    m["a.json"] = b"1"
+    m["b.json"] = b"2"
 
-    assert set(m) == {"a.pkl", "b.pkl"}
+    assert set(m) == {"a.json", "b.json"}
 
 
 def test_fsspec_mapping_len_counts_stored_keys() -> None:
     """__len__ returns the number of stored entries."""
     m = _mem()
-    m["a.pkl"] = b"1"
-    m["b.pkl"] = b"2"
+    m["a.json"] = b"1"
+    m["b.json"] = b"2"
 
     assert len(m) == 2
 
@@ -110,7 +110,7 @@ def test_fsspec_mapping_iter_returns_empty_when_root_does_not_exist() -> None:
 def test_fsspec_mapping_stores_and_retrieves_bracket_key() -> None:
     """Keys containing bracket characters round-trip correctly."""
     m = _mem()
-    key = "test_result[second]@v.pkl"
+    key = "test_result[second]@v.json"
 
     m[key] = b"payload"
 
@@ -126,7 +126,7 @@ def test_fsspec_mapping_iter_includes_bracket_key() -> None:
     pattern, silently dropping parametrised test names like test_result[second].
     """
     m = _mem()
-    key = "test_result[second]@v.pkl"
+    key = "test_result[second]@v.json"
 
     m[key] = b"payload"
 
@@ -136,7 +136,7 @@ def test_fsspec_mapping_iter_includes_bracket_key() -> None:
 def test_fsspec_mapping_stores_and_retrieves_bytes_at_nested_key_path() -> None:
     """Bytes stored under a slash-containing key are returned unchanged on read."""
     m = _mem()
-    key = "tests/test_api/test_something@result.pkl"
+    key = "tests/test_api/test_something@result.json"
 
     m[key] = b"nested-data"
 
@@ -147,20 +147,20 @@ def test_fsspec_mapping_stores_and_retrieves_bytes_at_nested_key_path() -> None:
 def test_fsspec_mapping_iter_yields_forward_slash_keys_for_nested_files() -> None:
     """__iter__ yields forward-slash-separated relative paths for files at any depth."""
     m = _mem()
-    m["flat.pkl"] = b"1"
-    m["sub/nested.pkl"] = b"2"
-    m["sub/deep/leaf.pkl"] = b"3"
+    m["flat.json"] = b"1"
+    m["sub/nested.json"] = b"2"
+    m["sub/deep/leaf.json"] = b"3"
 
     keys = set(m)
 
-    assert keys == {"flat.pkl", "sub/nested.pkl", "sub/deep/leaf.pkl"}
+    assert keys == {"flat.json", "sub/nested.json", "sub/deep/leaf.json"}
     assert all("\\" not in k for k in keys)
 
 
 def test_fsspec_mapping_removes_entry_when_nested_key_is_deleted() -> None:
     """Deleting a nested key removes the backing entry."""
     m = _mem()
-    key = "mod/group@k.pkl"
+    key = "mod/group@k.json"
     m[key] = b"x"
 
     del m[key]
@@ -173,7 +173,7 @@ def test_fsspec_mapping_raises_when_key_contains_path_traversal() -> None:
     m = _mem()
 
     with pytest.raises(ValueError, match="escape"):
-        m["../../outside.pkl"] = b"x"
+        m["../../outside.json"] = b"x"
 
 
 def test_fsspec_mapping_raises_when_key_is_absolute_path() -> None:
@@ -208,9 +208,9 @@ def test_transform_mapping_stores_and_retrieves_via_recorder() -> None:
         _default_recorder()
     )
 
-    store["key.pkl"] = {"x": 42}
+    store["key.json"] = {"x": 42}
 
-    actual = store["key.pkl"]
+    actual = store["key.json"]
     assert actual == {"x": 42}
 
 
@@ -224,17 +224,17 @@ def test_transform_mapping_contains_does_not_deserialise() -> None:
 
     def counting_load(raw: bytes) -> object:
         load_calls.append("load")
-        return pickle.loads(raw)  # noqa: S301
+        return json.loads(raw)
 
     backend = _mem()
-    backend["k.pkl"] = pickle.dumps("value")
+    backend["k.json"] = b'"value"'
     store = TransformMapping(
         mapping=backend,
-        save=pickle.dumps,
+        save=lambda value: json.dumps(value).encode(),
         load=counting_load,
     )
 
-    _ = "k.pkl" in store
+    _ = "k.json" in store
 
     assert load_calls == [], "load callable must not be invoked by __contains__"
 
@@ -245,9 +245,9 @@ def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
         _default_recorder()
     )
 
-    store["k.pkl"] = [1, 2, 3]
+    store["k.json"] = [1, 2, 3]
 
-    assert store["k.pkl"] == [1, 2, 3]
+    assert store["k.json"] == [1, 2, 3]
 
 
 def test_transform_mapping_missing_key_raises() -> None:
@@ -257,7 +257,7 @@ def test_transform_mapping_missing_key_raises() -> None:
     )
 
     with pytest.raises(KeyError):
-        _ = store["missing.pkl"]
+        _ = store["missing.json"]
 
 
 def test_transform_mapping_raises_when_both_sides_have_a_mapping() -> None:

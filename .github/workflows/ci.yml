@@ -78,3 +78,73 @@ jobs:
           name: test-results-py3${{ matrix.python-version }}
           path: .pytest/test-results.xml
           retention-days: 30
+
+  portable-json:
+    name: Strict JSON (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["12", "13", "14"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.69.0
+          cache: true
+          environments: py3${{ matrix.python-version }}
+
+      - name: Run strict JSON and plugin discovery tests
+        run: >-
+          pixi run -e py3${{ matrix.python-version }} pytest
+          tests/ci/test_recorders.py
+          tests/ci/test_recorder_properties.py
+          tests/ci/test_plugins.py
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.69.0
+          cache: true
+          environments: py312
+
+      - name: Run branch coverage
+        run: pixi run -e py312 test-cov
+
+  artifacts:
+    name: Release artifact boundary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.69.0
+          cache: true
+          environments: build
+
+      - name: Build sdist and wheel
+        run: pixi run -e build build
+
+      - name: Verify exact release artifacts
+        run: pixi run -e build verify-artifacts

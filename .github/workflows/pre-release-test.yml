@@ -22,5 +22,8 @@ jobs:
       - name: Build package
         run: pixi run -e build build
 
+      - name: Verify exact release artifacts
+        run: pixi run -e build verify-artifacts
+
       - name: Test package
         run: pixi run -e py312 test
