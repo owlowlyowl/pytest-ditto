@@ -12,6 +12,7 @@ __all__ = (
     "DittoDuplicateProfileError",
     "DittoLockFileError",
     "DittoLockFileVersionError",
+    "DittoUnhashableStorageOptionsError",
 )
 
 
@@ -111,4 +112,19 @@ class DittoLockFileVersionError(DittoLockFileError):
         super().__init__(
             f"unsupported lock-file version {got!r}; expected {expected}. "
             "Upgrade pytest-ditto."
+        )
+
+
+class DittoUnhashableStorageOptionsError(DittoException):
+    """Raised when `ditto_storage_options` contains an unhashable value."""
+
+    def __init__(self, value: object) -> None:
+        super().__init__(
+            f"ditto_storage_options contains an unhashable value ({value!r}, "
+            f"type {type(value).__name__}). Backend cache identity requires every "
+            "storage option to be hashable: two resolutions of the same logical "
+            "target would otherwise silently get separate backend instances, "
+            "breaking session-lifecycle tracking (prune, lock) for that target. "
+            "Pass a hashable equivalent, or wrap the value so identity can be "
+            "established some other way."
         )

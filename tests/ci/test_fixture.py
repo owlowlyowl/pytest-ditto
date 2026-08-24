@@ -17,6 +17,18 @@ def test_raises_when_key_is_not_provided(snapshot) -> None:
     )
 
 
+def test_rejects_non_string_key(snapshot) -> None:
+    """snapshot raises TypeError when key is not a str.
+
+    A non-str key round-trips through `snapshot()` but cannot be represented
+    by a `ditto.lock` entry, whose `key` field is `str`-typed: a normal run
+    would auto-append a lock entry for it and then fail to read the lock back
+    on the very next session (see #98).
+    """
+    with pytest.raises(TypeError, match=r"key must be a str, got int"):
+        snapshot(77, key=1029384756)
+
+
 def test_returns_value_on_first_call(pytester) -> None:
     """snapshot returns the value passed to it when no snapshot file exists yet."""
     pytester.makepyfile("""
@@ -257,19 +269,6 @@ def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*could not prune*"])
     result.stdout.fnmatch_lines(["*network gone*"])
-
-
-def test_accepts_integer_as_key(pytester) -> None:
-    """snapshot accepts an integer key and stores and returns the value correctly."""
-    pytester.makepyfile("""
-        def test_inner(snapshot):
-            actual = snapshot(77, key=1029384756)
-            assert actual == 77
-    """)
-
-    result = pytester.runpytest()
-
-    result.assert_outcomes(passed=1)
 
 
 def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:
