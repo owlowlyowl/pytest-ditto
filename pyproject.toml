@@ -204,6 +204,7 @@ python = "3.12.*"
 [tool.pixi.feature.py312.tasks]
 test = "pytest"
 test-cov = "pytest --cov=ditto --cov-branch --cov-report=html --cov-report=term --cov-report=xml"
+verify = "ditto verify tests/ci/test_usage_examples.py"
 
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
@@ -211,6 +212,7 @@ python = "3.13.*"
 [tool.pixi.feature.py313.tasks]
 test = "pytest"
 test-cov = "pytest --cov=ditto --cov-branch --cov-report=html --cov-report=term --cov-report=xml"
+verify = "ditto verify tests/ci/test_usage_examples.py"
 
 [tool.pixi.feature.py314.dependencies]
 python = "3.14.*"
@@ -218,6 +220,7 @@ python = "3.14.*"
 [tool.pixi.feature.py314.tasks]
 test = "pytest"
 test-cov = "pytest --cov=ditto --cov-branch --cov-report=html --cov-report=term --cov-report=xml"
+verify = "ditto verify tests/ci/test_usage_examples.py"
 
 [tool.pixi.feature.build.dependencies]
 uv = ">=0.5"

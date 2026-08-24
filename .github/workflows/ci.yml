@@ -21,7 +21,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: lint
 
@@ -40,7 +40,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: lint
 
@@ -64,7 +64,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: py3${{ matrix.python-version }}
 
@@ -97,7 +97,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: py3${{ matrix.python-version }}
 
@@ -107,6 +107,25 @@ jobs:
           tests/ci/test_recorders.py
           tests/ci/test_recorder_properties.py
           tests/ci/test_plugins.py
+
+  lock-file:
+    name: Lock-file drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.77.0
+          cache: true
+          environments: py312
+
+      - name: Verify committed snapshots match ditto.lock
+        run: pixi run -e py312 verify
 
   coverage:
     name: Coverage
@@ -120,7 +139,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: py312
 
@@ -139,7 +158,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.77.0
           cache: true
           environments: build
 
