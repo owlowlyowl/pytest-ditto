@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "targets": {
+    "tests/ci/.ditto": {
+      "scheme": "file",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_dict_through_yaml_format",
+          "key": "a",
+          "recorder": "yaml"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_dict_through_yaml_format",
+          "key": "x",
+          "recorder": "yaml"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[First]",
+          "key": "a",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[First]",
+          "key": "b",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[Second]",
+          "key": "a",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[Second]",
+          "key": "b",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_string_through_json_format",
+          "key": "abc",
+          "recorder": "json"
+        }
+      ]
+    }
+  }
+}

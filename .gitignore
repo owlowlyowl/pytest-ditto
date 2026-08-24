@@ -1,5 +1,10 @@
+# tests/ci/.ditto and the root ditto.lock are pytest-ditto's own committed,
+# PR-reviewed baseline (see docs/src/guides/lock-file.md) — everywhere else
+# .ditto/ditto.lock are ephemeral local test-run artifacts.
 .ditto
+!/tests/ci/.ditto/
 ditto.lock
+!/ditto.lock
 .tmp/
 tmp.py
 ditto-tui.html
