@@ -249,6 +249,8 @@ class Snapshot:
             )
 
     def _key(self, key: str) -> SnapshotKey:
+        if not isinstance(key, str):
+            raise TypeError(f"key must be a str, got {type(key).__name__}")
         return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:

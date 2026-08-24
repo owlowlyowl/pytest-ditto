@@ -40,6 +40,7 @@ from ditto.exceptions import (
     DittoInvalidProfileError,
     DittoLockFileError,
     DittoMarkHasNoIOType,
+    DittoUnhashableStorageOptionsError,
     DittoUnknownRecorderError,
     DittoUnknownProfileError,
     DittoWarning,
@@ -173,7 +174,13 @@ def _get_storage_options(request: pytest.FixtureRequest) -> StorageOptionsBySche
 
 
 def _freeze_options(value: object) -> Hashable:
-    """Return a stable hashable representation of nested storage options."""
+    """Return a stable hashable representation of nested storage options.
+
+    Raises
+    ------
+    DittoUnhashableStorageOptionsError
+        When `value` (or something nested inside it) cannot be hashed.
+    """
     if isinstance(value, Mapping):
         items = [(key, _freeze_options(item)) for key, item in value.items()]
         return tuple(sorted(items, key=lambda item: repr(item[0])))
@@ -182,7 +189,10 @@ def _freeze_options(value: object) -> Hashable:
     if isinstance(value, set):
         return frozenset(_freeze_options(item) for item in value)
 
-    hash(value)
+    try:
+        hash(value)
+    except TypeError:
+        raise DittoUnhashableStorageOptionsError(value) from None
     return value
 
 
@@ -202,12 +212,15 @@ def _canonicalize_uri(uri: str, test_dir: Path) -> str:
 def _cache_key(
     canonical_uri: str,
     opts: Mapping[str, object],
-) -> TargetCacheKey | None:
-    """Return the per-session cache key for a resolved target, or None."""
-    try:
-        return canonical_uri, _freeze_options(opts)
-    except TypeError:
-        return None
+) -> TargetCacheKey:
+    """Return the per-session cache key for a resolved target.
+
+    Raises
+    ------
+    DittoUnhashableStorageOptionsError
+        When `opts` contains a value that cannot be hashed.
+    """
+    return canonical_uri, _freeze_options(opts)
 
 
 # ---------------------------------------------------------------------------
@@ -407,11 +420,13 @@ def _resolve_uri(
     ------
     ValueError
         When the scheme is unrecognised by both `BACKEND_REGISTRY` and fsspec.
+    DittoUnhashableStorageOptionsError
+        When `opts` contains a value that cannot be hashed.
     """
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
 
-    if cache_key is not None and cache_key in _backend_cache:
+    if cache_key in _backend_cache:
         return _backend_cache[cache_key], canonical_uri
 
     canonical = urlparse(canonical_uri)
@@ -421,21 +436,18 @@ def _resolve_uri(
         path = Path(canonical.netloc + canonical.path or ".ditto")
         backend = FsspecMapping(fsspec.filesystem("file"), path.as_posix())
         backend = _maybe_enter(backend)
-        if cache_key is not None:
-            _backend_cache[cache_key] = backend
+        _backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     if scheme in BACKEND_REGISTRY:
         backend = _maybe_enter(BACKEND_REGISTRY[scheme](canonical_uri, **opts))
-        if cache_key is not None:
-            _backend_cache[cache_key] = backend
+        _backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     if scheme in fsspec.available_protocols():
         fs, root = fsspec.core.url_to_fs(canonical_uri, **opts)
         backend = _maybe_enter(FsspecMapping(fs, root))
-        if cache_key is not None:
-            _backend_cache[cache_key] = backend
+        _backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     raise ValueError(

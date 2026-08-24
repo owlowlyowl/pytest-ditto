@@ -14,6 +14,7 @@ from ditto.exceptions import (
     DittoDuplicateProfileError,
     DittoInvalidProfileError,
     DittoMarkHasNoIOType,
+    DittoUnhashableStorageOptionsError,
     DittoUnknownRecorderError,
     DittoUnknownProfileError,
 )
@@ -195,6 +196,21 @@ def test_freeze_options_handles_nested_mappings_sequences_and_sets() -> None:
         ("items", (1, (("flags", frozenset({"a", "b"})),))),
         ("token", "abc"),
     )
+
+
+def test_resolve_uri_raises_for_unhashable_storage_option(tmp_path: Path) -> None:
+    """An unhashable storage option must fail loudly, not silently disable caching.
+
+    Silently falling back to no caching means logically identical targets get
+    separate backend instances, which reopens the false-unused/false-prune bug
+    class the lock file was built to close (see #104).
+    """
+
+    class _Unhashable:
+        __hash__ = None  # type: ignore[assignment]
+
+    with pytest.raises(DittoUnhashableStorageOptionsError):
+        _resolve_uri("file://.ditto", tmp_path, {"client": _Unhashable()})
 
 
 def test_resolve_uri_caches_relative_file_target_by_canonical_path(tmp_path) -> None:
