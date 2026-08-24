@@ -1,0 +1,93 @@
+name: Bug report
+description: A defect in pytest-ditto's behavior, correctness, or safety.
+title: "[Bug]: "
+labels: ["kind: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Evidence must cite paths **tracked in git** — line references into
+        `src/`, `tests/`, `docs/`, or config files a reader can actually open
+        on GitHub. Don't cite a `.gitignore`d path or a local/untracked file;
+        nobody else can see those, so a reference to one is not evidence.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences stating the defect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        The exact tracked source/test paths and line numbers that show the
+        defect. Quote the relevant lines if that helps.
+      placeholder: |
+        `src/ditto/cli.py:660` checks for a `pytest11` entry point named
+        `"ditto"`, but `pyproject.toml:47-48` registers it as
+        `recording = "ditto.plugin"`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What actually goes wrong for a user, and under what conditions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: remediation
+    attributes:
+      label: Proposed remediation
+      description: Optional — a concrete fix or fix direction, if you have one.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - core
+        - cli
+        - lock-file
+        - backends
+        - recorders
+        - docs
+        - packaging
+        - ci
+        - security
+        - tests
+        - db
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: >-
+            Every file reference above points to a path tracked in git, not a
+            `.gitignore`d or local-only file.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

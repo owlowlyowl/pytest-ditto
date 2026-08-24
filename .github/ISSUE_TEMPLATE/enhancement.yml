@@ -1,0 +1,97 @@
+name: Enhancement
+description: A hardening improvement or missing capability — not a broken behavior.
+title: "[Enhancement]: "
+labels: ["kind: enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Evidence must cite paths **tracked in git** — line references into
+        `src/`, `tests/`, `docs/`, or config files a reader can actually open
+        on GitHub. Don't cite a `.gitignore`d path or a local/untracked file;
+        nobody else can see those, so a reference to one is not evidence.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences stating the gap or weakness.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        The exact tracked source/test/doc paths and line numbers that show
+        the current behavior this proposes to change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who this affects and what it costs them today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The concrete change being proposed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - core
+        - cli
+        - lock-file
+        - backends
+        - recorders
+        - docs
+        - packaging
+        - ci
+        - security
+        - tests
+        - db
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: >-
+            Every file reference above points to a path tracked in git, not a
+            `.gitignore`d or local-only file.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
