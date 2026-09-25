@@ -218,6 +218,57 @@ def test_raises_when_duplicate_profile_name_exists_in_fixture_and_static_config(
     result.stdout.fnmatch_lines(["*Duplicate ditto target profile*golden*"])
 
 
+def test_static_profiles_are_read_from_rootdir_pyproject_under_pytest_ini(
+    pytester,
+) -> None:
+    """Static profiles come from the rootdir's pyproject.toml even when pytest's
+    own configuration file is pytest.ini."""
+    pytester.makeini("""
+        [pytest]
+    """)
+    pytester.makepyprojecttoml("""
+        [tool.pytest-ditto.target_profiles]
+        golden = "memory://static-golden"
+    """)
+    pytester.makepyfile("""
+        import ditto
+
+        @ditto.record("json", target_profile="golden")
+        def test_inner(snapshot):
+            assert snapshot.target == "memory://static-golden"
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_static_profiles_in_a_pyproject_outside_the_rootdir_are_ignored(
+    pytester,
+) -> None:
+    """Only the rootdir's pyproject.toml is read: a profile table in a nested
+    pyproject.toml is not loaded."""
+    pytester.makeini("""
+        [pytest]
+    """)
+    nested = pytester.mkdir("sub")
+    (nested / "pyproject.toml").write_text(
+        '[tool.pytest-ditto.target_profiles]\ngolden = "memory://nested"\n'
+    )
+    (nested / "test_nested.py").write_text(
+        "import ditto\n"
+        "\n"
+        '@ditto.record("json", target_profile="golden")\n'
+        "def test_inner(snapshot):\n"
+        '    snapshot(1, key="k")\n'
+    )
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(["*DittoUnknownProfileError*"])
+
+
 def test_raises_when_unknown_profile_name_is_requested(pytester) -> None:
     """Requesting a profile name not in the table raises a clear error."""
     pytester.makeconftest("""
