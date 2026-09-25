@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+
 from click.testing import CliRunner
 
 from ditto import cli as cli_mod
@@ -20,6 +22,19 @@ from ditto.cli import (
     cli,
     gather_stats,
 )
+
+
+# ── --version ─────────────────────────────────────────────────────────────────
+
+
+def test_version_option_reports_the_installed_distribution_version() -> None:
+    """`ditto --version` prints the pytest-ditto distribution's version and exits
+    cleanly."""
+    result = CliRunner().invoke(cli, ["--version"])
+
+    assert result.exit_code == 0
+    expected = importlib.metadata.version("pytest-ditto")
+    assert result.output == f"pytest-ditto {expected}\n"
 
 
 # ── _parse_snapshot_name ──────────────────────────────────────────────────────

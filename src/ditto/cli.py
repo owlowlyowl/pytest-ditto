@@ -324,6 +324,7 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
 
 
 @click.group()
+@click.version_option(package_name="pytest-ditto", message="%(package)s %(version)s")
 def cli():
     """pytest-ditto snapshot management."""
 
@@ -687,7 +688,11 @@ def _plugin_check() -> CheckResult:
 
 
 def _doctor_checks() -> list[CheckResult]:
-    """Return health-check results without any I/O."""
+    """Return health-check results.
+
+    Reads installed package metadata and imports the registered plugins to check
+    they load; does not write to disk or render output.
+    """
     results: list[CheckResult] = []
 
     results.append(
