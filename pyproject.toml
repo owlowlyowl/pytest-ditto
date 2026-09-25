@@ -154,7 +154,7 @@ venv = "lint"
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
 pytest-ditto = { path = ".", editable = true }
