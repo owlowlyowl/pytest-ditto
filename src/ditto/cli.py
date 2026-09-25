@@ -644,6 +644,48 @@ class LintIssue:
 # ── Doctor / Lint / Stats pure core ───────────────────────────────────────────
 
 
+_PLUGIN_MODULE = "ditto.plugin"
+
+
+def _plugin_check() -> CheckResult:
+    """Check that pytest will load the ditto plugin.
+
+    The plugin is identified by the module its `pytest11` entry point targets,
+    not by the entry-point name. pytest registers only the first plugin under a
+    given name and silently skips the rest, so another plugin claiming the same
+    name is reported as a failure.
+    """
+    name = "ditto plugin registered"
+    pytest11 = list(importlib.metadata.entry_points(group="pytest11"))
+
+    ours = next((ep for ep in pytest11 if ep.value == _PLUGIN_MODULE), None)
+    if ours is None:
+        return CheckResult(
+            name=name,
+            ok=False,
+            detail=f"no pytest11 entry point targets {_PLUGIN_MODULE!r}",
+        )
+
+    clashes = sorted(
+        {ep.value for ep in pytest11 if ep.name == ours.name} - {_PLUGIN_MODULE}
+    )
+    if clashes:
+        return CheckResult(
+            name=name,
+            ok=False,
+            detail=(
+                f"pytest11 name {ours.name!r} is also claimed by "
+                f"{', '.join(clashes)}; pytest loads only one of them"
+            ),
+        )
+
+    try:
+        ours.load()
+    except Exception as exc:
+        return CheckResult(name=name, ok=False, detail=str(exc))
+    return CheckResult(name=name, ok=True, detail="")
+
+
 def _doctor_checks() -> list[CheckResult]:
     """Return health-check results without any I/O."""
     results: list[CheckResult] = []
@@ -656,12 +698,7 @@ def _doctor_checks() -> list[CheckResult]:
         )
     )
 
-    registered = any(
-        ep.name == "ditto" for ep in importlib.metadata.entry_points(group="pytest11")
-    )
-    results.append(
-        CheckResult(name="ditto plugin registered", ok=registered, detail="")
-    )
+    results.append(_plugin_check())
 
     for ep in importlib.metadata.entry_points(group="ditto_recorders"):
         try:

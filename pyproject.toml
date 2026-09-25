@@ -45,7 +45,7 @@ dev = [
 ditto = "ditto.cli:cli"
 
 [project.entry-points.pytest11]
-recording = "ditto.plugin"
+ditto = "ditto.plugin"
 
 [project.entry-points.ditto_recorders]
 yaml   = "ditto.recorders._yaml:yaml"

@@ -3,6 +3,7 @@ consistency fixes on list/status/clean/recorders."""
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 from unittest.mock import MagicMock, patch
 
@@ -28,10 +29,16 @@ from ditto.cli import (
 # ── test helpers ──────────────────────────────────────────────────────────────
 
 
-def _ep(name: str, *, load_raises: Exception | None = None) -> MagicMock:
+def _ep(
+    name: str,
+    *,
+    value: str = "some_package.module",
+    load_raises: Exception | None = None,
+) -> MagicMock:
     """Build a minimal entry-point mock."""
     ep = MagicMock()
     ep.name = name
+    ep.value = value
     if load_raises is not None:
         ep.load.side_effect = load_raises
     else:
@@ -85,29 +92,77 @@ def test_pytest_check_fails_when_pytest_is_not_importable() -> None:
 # ── _doctor_checks: plugin registration ───────────────────────────────────────
 
 
-def test_plugin_check_passes_when_ditto_is_in_pytest11() -> None:
-    """The plugin check passes when 'ditto' appears in the pytest11 entry points."""
+def _plugin_check(*pytest11: MagicMock):
     with patch(
         "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(pytest11=[_ep("ditto")]),
+        side_effect=_entry_points(pytest11=pytest11),
     ):
         checks = _doctor_checks()
+    return next(c for c in checks if c.name == "ditto plugin registered")
 
-    result = next(c for c in checks if c.name == "ditto plugin registered")
+
+def test_plugin_check_passes_when_an_entry_point_targets_the_plugin_module() -> None:
+    """The plugin check passes when a pytest11 entry point targets ditto.plugin."""
+    result = _plugin_check(_ep("ditto", value="ditto.plugin"))
+
     assert result.ok is True
 
 
-def test_plugin_check_fails_when_ditto_is_absent_from_pytest11() -> None:
-    """The plugin check fails when no 'ditto' entry point is registered under
-    pytest11."""
-    with patch(
-        "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(pytest11=[]),
-    ):
-        checks = _doctor_checks()
+def test_plugin_check_identifies_the_plugin_by_module_not_by_name() -> None:
+    """The check matches the entry point's target module, so it is independent of
+    the name the entry point is registered under."""
+    result = _plugin_check(_ep("any_name", value="ditto.plugin"))
 
-    result = next(c for c in checks if c.name == "ditto plugin registered")
+    assert result.ok is True
+
+
+def test_plugin_check_fails_when_no_entry_point_targets_the_plugin_module() -> None:
+    """The plugin check fails, naming the missing module, when no pytest11 entry
+    point targets ditto.plugin — even if one is named 'ditto'."""
+    result = _plugin_check(_ep("ditto", value="someone_else.plugin"))
+
     assert result.ok is False
+    assert "ditto.plugin" in result.detail
+
+
+def test_plugin_check_fails_when_plugin_module_cannot_be_imported() -> None:
+    """The plugin check fails with the import error when ditto.plugin is
+    registered but cannot be loaded."""
+    result = _plugin_check(
+        _ep("ditto", value="ditto.plugin", load_raises=ImportError("missing dep"))
+    )
+
+    assert result.ok is False
+    assert "missing dep" in result.detail
+
+
+def test_plugin_check_fails_when_another_plugin_claims_the_same_name() -> None:
+    """pytest registers only the first plugin under a given name and silently skips
+    the rest, so a name clash is reported as a failure naming the other plugin."""
+    result = _plugin_check(
+        _ep("ditto", value="ditto.plugin"),
+        _ep("ditto", value="other_package.plugin"),
+    )
+
+    assert result.ok is False
+    assert "other_package.plugin" in result.detail
+
+
+def test_installed_package_registers_the_plugin_under_the_name_ditto() -> None:
+    """The installed distribution registers ditto.plugin as the pytest11 entry
+    point 'ditto', so `-p no:ditto` disables it and `doctor` passes for real."""
+    pytest11 = importlib.metadata.distribution("pytest-ditto").entry_points.select(
+        group="pytest11"
+    )
+
+    assert [(ep.name, ep.value) for ep in pytest11] == [("ditto", "ditto.plugin")]
+
+
+def test_doctor_plugin_check_passes_against_the_real_installation() -> None:
+    """Against the real installed metadata (no mocks), the plugin check passes."""
+    result = next(c for c in _doctor_checks() if c.name == "ditto plugin registered")
+
+    assert result.ok is True, result.detail
 
 
 # ── _doctor_checks: entry point loading ───────────────────────────────────────
