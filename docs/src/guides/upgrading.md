@@ -29,6 +29,10 @@ its recorder explicitly. Loading pickle data can execute arbitrary code, so
 only load trusted snapshots. Core provides no pickle warning, guard, migration
 command, or convenience extra.
 
+Version 2.0 registers the pytest plugin under the name `ditto` instead of
+`recording`, which collided with the `pytest-recording` plugin. To disable
+pytest-ditto for a run, use `-p no:ditto` in place of `-p no:recording`.
+
 Version 2.0 also removes `DittoTestCase`. Unittest-style classes collected by
 pytest should use pytest fixtures and marks. Direct `Snapshot` construction is
 the lower-level alternative when fixture injection is unsuitable.
