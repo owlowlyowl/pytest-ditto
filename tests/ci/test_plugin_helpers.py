@@ -19,8 +19,7 @@ from ditto.exceptions import (
     DittoUnknownProfileError,
 )
 from ditto.plugin import (
-    _backend_cache,
-    _entered_backends,
+    _DittoSession,
     _freeze_options,
     _maybe_enter,
     _merge_profile_sources,
@@ -36,13 +35,12 @@ json_recorder = recorders.get("json")
 yaml_recorder = recorders.get("yaml")
 
 
-@pytest.fixture(autouse=True)
-def _clear_backend_state() -> Iterator[None]:
-    _entered_backends.clear()
-    _backend_cache.clear()
-    yield
-    _entered_backends.clear()
-    _backend_cache.clear()
+@pytest.fixture
+def state() -> Iterator[_DittoSession]:
+    """A fresh ditto session state, closed after the test."""
+    session = _DittoSession()
+    yield session
+    session.exit_stack.close()
 
 
 def _mark(*args):
@@ -173,13 +171,14 @@ class _CountingBackend(AbstractContextManager, MutableMapping[str, bytes]):
         pass
 
 
-def test_returns_entered_value_on_every_call_when_backend_is_context_manager() -> None:
+def test_returns_entered_value_on_every_call_when_backend_is_context_manager(
+    state: _DittoSession,
+) -> None:
     """The value returned by __enter__ is reused on every call."""
-    _entered_backends.clear()
     backend = _WrappingBackend()
 
-    first = _maybe_enter(backend)
-    second = _maybe_enter(backend)
+    first = _maybe_enter(backend, state)
+    second = _maybe_enter(backend, state)
 
     assert first is backend.wrapper
     assert second is backend.wrapper
@@ -198,7 +197,9 @@ def test_freeze_options_handles_nested_mappings_sequences_and_sets() -> None:
     )
 
 
-def test_resolve_uri_raises_for_unhashable_storage_option(tmp_path: Path) -> None:
+def test_resolve_uri_raises_for_unhashable_storage_option(
+    tmp_path: Path, state: _DittoSession
+) -> None:
     """An unhashable storage option must fail loudly, not silently disable caching.
 
     Silently falling back to no caching means logically identical targets get
@@ -210,12 +211,14 @@ def test_resolve_uri_raises_for_unhashable_storage_option(tmp_path: Path) -> Non
         __hash__ = None  # type: ignore[assignment]
 
     with pytest.raises(DittoUnhashableStorageOptionsError):
-        _resolve_uri("file://.ditto", tmp_path, {"client": _Unhashable()})
+        _resolve_uri("file://.ditto", tmp_path, {"client": _Unhashable()}, state)
 
 
-def test_resolve_uri_caches_relative_file_target_by_canonical_path(tmp_path) -> None:
-    first_backend, first_uri = _resolve_uri("file://.ditto", tmp_path, {})
-    second_backend, second_uri = _resolve_uri("file://.ditto", tmp_path, {})
+def test_resolve_uri_caches_relative_file_target_by_canonical_path(
+    tmp_path, state: _DittoSession
+) -> None:
+    first_backend, first_uri = _resolve_uri("file://.ditto", tmp_path, {}, state)
+    second_backend, second_uri = _resolve_uri("file://.ditto", tmp_path, {}, state)
 
     expected = f"file://{(tmp_path / '.ditto').resolve().as_posix()}"
     assert first_uri == expected
@@ -224,7 +227,7 @@ def test_resolve_uri_caches_relative_file_target_by_canonical_path(tmp_path) -> 
 
 
 def test_resolve_uri_caches_registered_backend_by_uri_and_options(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
@@ -234,9 +237,11 @@ def test_resolve_uri_caches_registered_backend_by_uri_and_options(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
 
-    first_backend, first_uri = _resolve_uri("demo://shared", tmp_path, {"token": "abc"})
+    first_backend, first_uri = _resolve_uri(
+        "demo://shared", tmp_path, {"token": "abc"}, state
+    )
     second_backend, second_uri = _resolve_uri(
-        "demo://shared", tmp_path, {"token": "abc"}
+        "demo://shared", tmp_path, {"token": "abc"}, state
     )
 
     assert first_uri == "demo://shared"
@@ -246,7 +251,7 @@ def test_resolve_uri_caches_registered_backend_by_uri_and_options(
 
 
 def test_resolve_uri_separates_cache_entries_when_options_differ(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
@@ -256,8 +261,8 @@ def test_resolve_uri_separates_cache_entries_when_options_differ(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
 
-    first_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "a"})
-    second_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "b"})
+    first_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "a"}, state)
+    second_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "b"}, state)
 
     assert first_backend is not second_backend
     assert calls == [
@@ -267,7 +272,7 @@ def test_resolve_uri_separates_cache_entries_when_options_differ(
 
 
 def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
 ) -> None:
     constructed: list[_CountingBackend] = []
 
@@ -278,22 +283,22 @@ def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "ctx", factory)
 
-    first_backend, _ = _resolve_uri("ctx://shared", tmp_path, {})
-    second_backend, _ = _resolve_uri("ctx://shared", tmp_path, {})
+    first_backend, _ = _resolve_uri("ctx://shared", tmp_path, {}, state)
+    second_backend, _ = _resolve_uri("ctx://shared", tmp_path, {}, state)
 
     assert len(constructed) == 1
     assert constructed[0].enter_calls == 1
     assert first_backend is second_backend
 
 
-def test_resolve_uri_raises_for_unknown_scheme(tmp_path) -> None:
+def test_resolve_uri_raises_for_unknown_scheme(tmp_path, state: _DittoSession) -> None:
     """Unknown schemes raise a ValueError with an install hint."""
     with pytest.raises(ValueError, match="Unknown backend scheme"):
-        _resolve_uri("notascheme://target", tmp_path, {})
+        _resolve_uri("notascheme://target", tmp_path, {}, state)
 
 
 def test_resolve_uri_forwards_storage_options_to_fsspec(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
 ) -> None:
     """Scheme-scoped storage options are forwarded to `fsspec.core.url_to_fs`."""
     calls: list[tuple[str, dict[str, str]]] = []
@@ -305,7 +310,7 @@ def test_resolve_uri_forwards_storage_options_to_fsspec(
 
     monkeypatch.setattr(fsspec.core, "url_to_fs", fake_url_to_fs)
 
-    backend, uri = _resolve_uri("memory://shared", tmp_path, {"token": "abc"})
+    backend, uri = _resolve_uri("memory://shared", tmp_path, {"token": "abc"}, state)
 
     assert uri == "memory://shared"
     assert getattr(backend, "root") == "/shared-root"
@@ -317,6 +322,7 @@ def test_resolve_target_uses_ini_target_when_no_mark_is_present(tmp_path) -> Non
     request = Mock()
     request._fixturemanager.getfixturedefs.return_value = None
     request.node = object()
+    request.config.stash = pytest.Stash()
     request.path = tmp_path / "test_example.py"
     request.getfixturevalue.return_value = {}
     request.config.getini.side_effect = lambda key: {

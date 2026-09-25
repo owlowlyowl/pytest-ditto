@@ -1,6 +1,8 @@
 import json
 import types
 
+import pytest
+
 from ditto.plugin import _xdist_is_distributing
 
 pytest_plugins = ["pytester"]
@@ -216,3 +218,48 @@ def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
 
     assert _xdist_is_distributing(absent) is False
     assert _xdist_is_distributing(zero) is False
+
+
+NESTED_SESSION_MODULE = '''
+import ditto
+
+pytest_plugins = ["pytester"]
+
+
+def test_a_outer(snapshot):
+    assert snapshot(1, key="outer") == 1
+
+
+def test_b_nested(pytester):
+    pytester.makepyfile(test_inner="""
+        import ditto
+
+        @ditto.record("json", target="memory://nested")
+        def test_inner(snapshot):
+            assert snapshot(2, key="inner") == 2
+    """)
+    pytester.runpytest().assert_outcomes(passed=1)
+'''
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param((), id="full-run"),
+        pytest.param(("-k", "a_outer or b_nested"), id="filtered-run"),
+    ],
+)
+def test_nested_in_process_session_does_not_leak_into_outer_lockfile(pytester, args):
+    """An in-process pytester session run from inside a test keeps its own ditto
+    state: its snapshots never reach the outer session's ditto.lock, and the outer
+    session's own observations survive it (#115)."""
+    pytester.makepyfile(test_outer=NESTED_SESSION_MODULE)
+
+    result = pytester.runpytest_subprocess(*args)
+
+    result.assert_outcomes(passed=2)
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    entries = {
+        (e["nodeid"], e["key"]) for t in data["targets"].values() for e in t["entries"]
+    }
+    assert entries == {("test_outer.py::test_a_outer", "outer")}

@@ -9,7 +9,7 @@ import pytest
 from ditto import Snapshot, recorders
 from ditto.backends import FsspecMapping
 from ditto.exceptions import DittoJSONSerializationError, DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, save_snapshot, session_tracker
+from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
 qualified_json_recorder = recorders.Recorder(
@@ -243,16 +243,13 @@ def test_invalid_json_value_does_not_touch_backend_or_lock_observations() -> Non
         target_id="memory://snapshots",
         nodeid="test_module.py::test_invalid",
     )
-    session_tracker.lock_accessed.clear()
-    session_tracker.lock_created.clear()
-
     with pytest.raises(DittoJSONSerializationError):
         snapshot((1, 2), "result")
 
     assert backend.values == {legacy_key: b"untrusted legacy bytes"}
     assert legacy_key not in backend.getitem_calls
-    assert session_tracker.lock_accessed == set()
-    assert session_tracker.lock_created == set()
+    assert snapshot._tracker.lock_accessed == set()
+    assert snapshot._tracker.lock_created == set()
 
 
 # --- duplicate key detection ---

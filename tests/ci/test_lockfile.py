@@ -1,3 +1,4 @@
+import dataclasses
 from pathlib import Path
 
 import fsspec
@@ -9,11 +10,10 @@ from ditto._lockfile import portable_target_id, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
 from ditto.snapshot import (
-    _SessionTracker,
     LockSeen,
     Snapshot,
     resolve_snapshot,
-    session_tracker,
+    _SessionTracker,
 )
 from ditto.backends import FsspecMapping
 from ditto.recorders import default as _default_recorder
@@ -224,7 +224,6 @@ def test_does_not_mutate_existing_lockfile():
 
 def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
     """Creating a snapshot records a created lock entry for its target."""
-    session_tracker.reset()
     backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
     snap = Snapshot(
         group_name="test_foo",
@@ -245,13 +244,11 @@ def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
         key="k",
         recorder="json",
     )
-    assert expected in session_tracker.lock_created
-    session_tracker.reset()
+    assert expected in snap._tracker.lock_created
 
 
 def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
     """Resolving an already-stored snapshot records access but not creation."""
-    session_tracker.reset()
     backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
     snap = Snapshot(
         group_name="test_foo",
@@ -263,9 +260,10 @@ def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
         target_id="tests/.ditto",
     )
     resolve_snapshot(snap, 123, "k")  # first call creates and records it
-    session_tracker.reset()  # clear observations; the stored snapshot remains on disk
+    # A fresh tracker, as in a later session; the stored snapshot remains on disk.
+    later = dataclasses.replace(snap, _tracker=_SessionTracker())
 
-    resolve_snapshot(snap, 123, "k")
+    resolve_snapshot(later, 123, "k")
 
     seen = LockSeen(
         target_id="tests/.ditto",
@@ -274,9 +272,8 @@ def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
         key="k",
         recorder="json",
     )
-    assert seen in session_tracker.lock_accessed
-    assert seen not in session_tracker.lock_created
-    session_tracker.reset()
+    assert seen in later._tracker.lock_accessed
+    assert seen not in later._tracker.lock_created
 
 
 def test_records_entry_as_created_and_accessed_when_created():
@@ -299,17 +296,3 @@ def test_records_entry_as_accessed_only_when_not_created():
 
     assert seen not in tracker.lock_created
     assert seen in tracker.lock_accessed
-
-
-def test_clears_lock_sets_on_reset():
-    """Resetting the tracker drops all recorded lock observations."""
-    tracker = _SessionTracker()
-    tracker.record_lock_seen(
-        LockSeen("tests/.ditto", "file", "tests/test_a.py::test_a", "k", "pkl"),
-        created=True,
-    )
-
-    tracker.reset()
-
-    assert not tracker.lock_created
-    assert not tracker.lock_accessed

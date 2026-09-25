@@ -9,7 +9,7 @@ from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "session_tracker")
+__all__ = ("LockSeen", "Snapshot", "SnapshotKey")
 
 
 @dataclass(frozen=True)
@@ -94,9 +94,10 @@ class _BackendRecord:
 
 @dataclass
 class _SessionTracker:
-    """In-memory record of snapshot activity for the current pytest session.
+    """In-memory record of snapshot activity for one pytest session.
 
-    Reset at `pytest_sessionstart` and read at `pytest_sessionfinish`.
+    The plugin creates one per session (on `config.stash`) and reads it at
+    `pytest_sessionfinish`. A `Snapshot` built outside the fixture gets its own.
     Never written to disk.
     """
 
@@ -151,33 +152,9 @@ class _SessionTracker:
         if created:
             self.lock_created.add(seen)
 
-    def reset(self) -> None:
-        self._records.clear()
-        self.created.clear()
-        self.updated.clear()
-        self.used_keys.clear()
-        self.backend_modules.clear()
-        self.lock_created.clear()
-        self.lock_accessed.clear()
-        self.target_backends.clear()
-
     @property
     def records(self) -> dict[int, _BackendRecord]:
         return self._records
-
-
-session_tracker = _SessionTracker()
-"""Module-level singleton that tracks snapshot activity for the current pytest session.
-
-Collects created, updated, and accessed snapshot keys across all tests.
-Reset at `pytest_sessionstart` and consumed at `pytest_sessionfinish`
-to produce the session report.
-
-Notes
------
-`reset()` is called by the plugin at `pytest_sessionstart` to clear state
-from any previous session.
-"""
 
 
 def _flat_key(sk: SnapshotKey) -> str:
@@ -228,6 +205,9 @@ class Snapshot:
         Used to build lock-file entries. Empty when constructed outside the fixture.
     target_id : str
         Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
+    _tracker : _SessionTracker
+        Where snapshot activity is recorded. The fixture passes its pytest
+        session's tracker; a directly constructed `Snapshot` gets a private one.
     """
 
     group_name: str
@@ -239,6 +219,9 @@ class Snapshot:
     readonly: bool = False
     nodeid: str = ""
     target_id: str = ""
+    _tracker: _SessionTracker = field(
+        default_factory=_SessionTracker, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         if not self.module:
@@ -314,11 +297,12 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     storage_key = key_of(sk)
 
     backend = snapshot._backend
+    tracker = snapshot._tracker
     used_key = (id(backend), storage_key)
-    if used_key in session_tracker.used_keys:
+    if used_key in tracker.used_keys:
         raise DuplicateSnapshotKeyError(key)
-    session_tracker.used_keys.add(used_key)
-    session_tracker.register_access(backend, key_of, sk)
+    tracker.used_keys.add(used_key)
+    tracker.register_access(backend, key_of, sk)
 
     store = snapshot._store()
     exists = storage_key in store
@@ -346,23 +330,21 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         # Record as "created" when the key is absent so that the verify hook can
         # identify intended-but-blocked new snapshots as unsynced.
         if seen is not None:
-            session_tracker.record_lock_seen(seen, created=not exists)
+            tracker.record_lock_seen(seen, created=not exists)
         if exists:
             return store[storage_key]
         return data
 
     if not exists or snapshot.update:
         store[storage_key] = data
-        (
-            session_tracker.updated
-            if (snapshot.update and exists)
-            else session_tracker.created
-        ).append(sk)
+        (tracker.updated if (snapshot.update and exists) else tracker.created).append(
+            sk
+        )
         if seen is not None:
-            session_tracker.record_lock_seen(seen, created=not exists)
+            tracker.record_lock_seen(seen, created=not exists)
         return data
 
     value = store[storage_key]
     if seen is not None:
-        session_tracker.record_lock_seen(seen, created=False)
+        tracker.record_lock_seen(seen, created=False)
     return value

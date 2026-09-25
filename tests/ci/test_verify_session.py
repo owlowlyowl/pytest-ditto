@@ -36,16 +36,6 @@ def test_tracker_registers_target_backend():
     assert tracker.target_backends["tests/.ditto"] == ("file", backend)
 
 
-def test_tracker_reset_clears_target_backends():
-    """Reset drops registered target backends."""
-    tracker = _SessionTracker()
-    tracker.register_target_backend("tests/.ditto", "file", object())
-
-    tracker.reset()
-
-    assert tracker.target_backends == {}
-
-
 VERIFY_MODULE = '''
 def test_alpha(snapshot):
     assert snapshot(1, key="a") == 1
