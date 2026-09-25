@@ -18,6 +18,9 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto lint`](lint.md) | Check snapshots for issues |
 | [`ditto stats`](stats.md) | Per-directory usage breakdown |
 
+Run `ditto --version` to print the installed pytest-ditto version (include it
+in bug reports).
+
 ## CLI and remote backends
 
 `ditto list`, `status`, `stats`, and `lint` are **credential-free by default**.
