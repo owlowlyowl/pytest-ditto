@@ -361,6 +361,57 @@ def test_prefixed_mapping_propagates_context_manager_enter() -> None:
     assert inner.exited is True
 
 
+class _SuppressingStore(dict[str, bytes]):
+    """A dict store whose __exit__ records the exception and returns `suppress`."""
+
+    def __init__(self, *, suppress: bool) -> None:
+        super().__init__()
+        self.suppress = suppress
+        self.exit_args: tuple[object, ...] | None = None
+
+    def __enter__(self) -> "_SuppressingStore":
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        self.exit_args = args
+        return self.suppress
+
+
+def test_prefixed_mapping_suppresses_exception_when_inner_exit_suppresses() -> None:
+    """An exception raised in the with-block is suppressed when the inner store's
+    __exit__ returns True, as the context-manager protocol requires."""
+    inner = _SuppressingStore(suppress=True)
+    error = ValueError("boom")
+
+    with PrefixedMapping(inner, prefix="p:"):
+        raise error
+
+    assert inner.exit_args is not None
+    assert inner.exit_args[:2] == (ValueError, error)
+
+
+def test_prefixed_mapping_propagates_exception_when_inner_exit_does_not_suppress() -> (
+    None
+):
+    """An exception raised in the with-block propagates when the inner store's
+    __exit__ returns a falsy value."""
+    inner = _SuppressingStore(suppress=False)
+
+    with pytest.raises(ValueError, match="boom"):
+        with PrefixedMapping(inner, prefix="p:"):
+            raise ValueError("boom")
+
+
+def test_prefixed_mapping_propagates_exception_when_inner_has_no_context_manager() -> (
+    None
+):
+    """With a plain dict inner store there is nothing to suppress, so the exception
+    propagates."""
+    with pytest.raises(ValueError, match="boom"):
+        with PrefixedMapping({}, prefix="p:"):
+            raise ValueError("boom")
+
+
 def test_prefixed_mapping_does_not_fail_when_inner_has_no_context_manager() -> None:
     """__enter__/__exit__ on a plain dict inner store does not raise."""
     m = PrefixedMapping({}, prefix="p:")
