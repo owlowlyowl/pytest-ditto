@@ -118,6 +118,22 @@ uri = "s3://east-bucket/golden/"
 storage_options = { key = "...", secret = "..." }
 ```
 
+!!! note "Static profiles are only read from `pyproject.toml`"
+    The `[tool.pytest-ditto.target_profiles]` table is read from the
+    `pyproject.toml` in pytest's [rootdir](https://docs.pytest.org/en/stable/reference/customize.html#initialization-determining-rootdir-and-configfile),
+    and nowhere else:
+
+    - `pytest.ini`, `tox.ini` and `setup.cfg` cannot hold the table.
+    - If pytest is configured by one of those files, a `pyproject.toml` next
+      to it (in the rootdir) is still read.
+    - A `pyproject.toml` in any other directory, such as a subdirectory of
+      the rootdir, is ignored.
+
+    Projects without a `pyproject.toml` in the rootdir can define the same
+    profiles in the `ditto_target_profiles` fixture instead. Selecting a
+    default profile with the `ditto_target_profile` ini option works from any
+    pytest configuration file.
+
 ### Using Profiles
 
 Per-test:
@@ -144,3 +160,5 @@ ditto_target_profile = "golden"
 - `target=` and `target_profile=` are mutually exclusive on a mark
 - `ditto_target` and `ditto_target_profile` are mutually exclusive in ini
 - A name defined in both fixture and `pyproject.toml` raises an error
+- Static profiles are read only from the rootdir's `pyproject.toml` (see the
+  note above)
