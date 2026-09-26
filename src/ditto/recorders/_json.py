@@ -118,4 +118,4 @@ def _load(filepath: Path) -> Any:
     return data
 
 
-json = Recorder(extension="json", save=_save, load=_load)
+json = Recorder(identifier="json", save=_save, load=_load)

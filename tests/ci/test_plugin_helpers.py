@@ -79,7 +79,7 @@ def test_resolves_synthetic_external_recorder(
 ) -> None:
     """Raw marks continue to resolve recorders installed through the registry."""
     external = recorders.Recorder(
-        extension="external",
+        identifier="external",
         save=json_recorder.save,
         load=json_recorder.load,
     )

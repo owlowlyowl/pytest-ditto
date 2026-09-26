@@ -198,11 +198,11 @@ def test_assigns_palette_colours_in_alphabetical_order() -> None:
 # ── _ext_map ──────────────────────────────────────────────────────────────────
 
 
-def test_maps_extension_to_recorder_info() -> None:
-    """Each RecorderInfo is keyed by its extension."""
+def test_maps_identifier_to_recorder_info() -> None:
+    """Each RecorderInfo is keyed by its identifier."""
     infos = [
-        RecorderInfo(name="json", extension=".json", package="pytest-ditto"),
-        RecorderInfo(name="yaml", extension=".yaml", package="pytest-ditto"),
+        RecorderInfo(name="json", identifier=".json", package="pytest-ditto"),
+        RecorderInfo(name="yaml", identifier=".yaml", package="pytest-ditto"),
     ]
     result = _ext_map(infos)
     assert result[".json"].name == "json"
@@ -214,10 +214,10 @@ def test_ext_map_is_empty_for_no_infos() -> None:
     assert _ext_map([]) == {}
 
 
-def test_later_entry_wins_on_duplicate_extension() -> None:
-    """Last info with a given extension is kept (dict overwrite semantics)."""
-    a = RecorderInfo(name="first", extension=".custom", package="pkg-a")
-    b = RecorderInfo(name="second", extension=".custom", package="pkg-b")
+def test_later_entry_wins_on_duplicate_identifier() -> None:
+    """Last info with a given identifier is kept (dict overwrite semantics)."""
+    a = RecorderInfo(name="first", identifier=".custom", package="pkg-a")
+    b = RecorderInfo(name="second", identifier=".custom", package="pkg-b")
     result = _ext_map([a, b])
     assert result[".custom"].name == "second"
 

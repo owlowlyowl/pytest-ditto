@@ -30,7 +30,7 @@ def test_parquet_mark(snapshot) -> None:
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="parquet")
     assert snapshot.recorder is recorders.get("pandas_parquet")
-    assert snapshot.recorder.extension == "pandas.parquet"
+    assert snapshot.recorder.identifier == "pandas.parquet"
 
 
 @ditto.pandas.json
@@ -39,7 +39,7 @@ def test_json_mark(snapshot) -> None:
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="json")
     assert snapshot.recorder is recorders.get("pandas_json")
-    assert snapshot.recorder.extension == "pandas.json"
+    assert snapshot.recorder.identifier == "pandas.json"
 
 
 @ditto.pandas.csv
@@ -48,7 +48,7 @@ def test_csv_mark(snapshot) -> None:
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     snapshot(data, key="csv")
     assert snapshot.recorder is recorders.get("pandas_csv")
-    assert snapshot.recorder.extension == "pandas.csv"
+    assert snapshot.recorder.identifier == "pandas.csv"
 
 
 @pytest.mark.parametrize(
@@ -67,7 +67,7 @@ def test_pandas_recorder_roundtrip_preserves_value(
 ) -> None:
     """Pandas parquet and json recorders round-trip a DataFrame without loss."""
     recorder = recorders.get(recorder_name)
-    filepath = tmp_dir / f"tmp.{recorder.extension}"
+    filepath = tmp_dir / f"tmp.{recorder.identifier}"
 
     recorder.save(data, filepath)
     actual = recorder.load(filepath)
@@ -79,7 +79,7 @@ def test_pandas_csv_recorder_saves_file(tmp_dir) -> None:
     """Pandas CSV recorder writes a file to disk."""
     recorder = recorders.get("pandas_csv")
     data = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-    filepath = tmp_dir / f"tmp.{recorder.extension}"
+    filepath = tmp_dir / f"tmp.{recorder.identifier}"
 
     recorder.save(data, filepath)
 

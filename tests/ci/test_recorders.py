@@ -16,7 +16,7 @@ yaml_recorder = recorders.get("yaml")
 
 @pytest.mark.parametrize("recorder", [json_recorder, yaml_recorder])
 def test_recorder_saves_file_to_disk(tmp_path: Path, recorder) -> None:
-    filepath = tmp_path / f"tmp.{recorder.extension}"
+    filepath = tmp_path / f"tmp.{recorder.identifier}"
 
     recorder.save(1, filepath)
 

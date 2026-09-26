@@ -146,7 +146,7 @@ def _entries(manifest: Manifest) -> list[ManifestEntry]:
 @dataclass(frozen=True)
 class RecorderInfo:
     name: str  # e.g. "pandas_parquet"
-    extension: str  # e.g. ".pandas.parquet"
+    identifier: str  # e.g. ".pandas.parquet"
     package: str  # e.g. "pytest-ditto-pandas"
 
 
@@ -156,21 +156,21 @@ def _load_recorder_infos() -> list[RecorderInfo]:
     for ep in importlib.metadata.entry_points(group="ditto_recorders"):
         try:
             recorder = ep.load()
-            ext = f".{recorder.extension}"
+            ext = f".{recorder.identifier}"
             dist = ep.dist.name if ep.dist else "unknown"
         except Exception:
             ext, dist = "?", "unknown"
-        infos.append(RecorderInfo(name=ep.name, extension=ext, package=dist))
+        infos.append(RecorderInfo(name=ep.name, identifier=ext, package=dist))
     return infos
 
 
 def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
-    """Pure: derive extension → RecorderInfo lookup from a list of infos."""
-    return {info.extension: info for info in infos}
+    """Pure: derive identifier → RecorderInfo lookup from a list of infos."""
+    return {info.identifier: info for info in infos}
 
 
 def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
-    """Map a parsed extension to its recorder name, falling back to the bare ext."""
+    """Map a parsed identifier to its recorder name, falling back to the bare one."""
     if ext in ext_map:
         return ext_map[ext].name
     return ext.lstrip(".")
@@ -586,19 +586,19 @@ def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
     """Build and print the registered recorders panel."""
     colour_map = _build_colour_map(info.name for info in infos)
     name_w = max(len("Name"), max(len(i.name) for i in infos))
-    ext_w = max(len("Extension"), max(len(i.extension) for i in infos))
+    ext_w = max(len("Identifier"), max(len(i.identifier) for i in infos))
 
     lines = Text()
     lines.append("\n")
     lines.append(
-        f"  {'Name':<{name_w}}  {'Extension':<{ext_w}}  {'Source'}\n",
+        f"  {'Name':<{name_w}}  {'Identifier':<{ext_w}}  {'Source'}\n",
         style=f"bold {HEADER}",
     )
     for info in sorted(infos, key=lambda i: i.name):
         lines.append(
             f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED)
         )
-        lines.append(f"{info.extension:<{ext_w}}  ", style=TEXT)
+        lines.append(f"{info.identifier:<{ext_w}}  ", style=TEXT)
         lines.append(f"{info.package}\n", style=MUTED)
 
     console.print(
@@ -744,7 +744,7 @@ def _find_lint_issues(
             issues.append(
                 LintIssue(
                     filename=entry.storage_key,
-                    issue=f"Unknown extension: {ext!r}",
+                    issue=f"Unknown recorder identifier: {ext!r}",
                 )
             )
         if entry.size_bytes == 0:

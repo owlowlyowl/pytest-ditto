@@ -111,7 +111,7 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
         # Fix: write to a BytesIO/buffer and pass that to recorder.save(), or use
         # tempfile.mkstemp() and handle the fd lifetime explicitly.
         with tempfile.NamedTemporaryFile(
-            suffix=f".{recorder.extension}", delete=False
+            suffix=f".{recorder.identifier}", delete=False
         ) as f:
             tmp = Path(f.name)
         try:
@@ -123,7 +123,7 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
     def _load(raw: bytes) -> Any:
         # TODO: same Windows sharing-violation risk as _save above.
         with tempfile.NamedTemporaryFile(
-            suffix=f".{recorder.extension}", delete=False
+            suffix=f".{recorder.identifier}", delete=False
         ) as f:
             tmp = Path(f.name)
         try:

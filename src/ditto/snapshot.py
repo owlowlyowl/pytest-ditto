@@ -26,14 +26,14 @@ class SnapshotKey:
         the class prefix: "TestClass.test_something".
     key : str
         Per-snapshot identifier within the test.
-    extension : str
-        Recorder file extension, e.g. "json", "yaml".
+    identifier : str
+        Recorder identifier, e.g. "json", "yaml", "pandas.parquet".
     """
 
     module: str
     group_name: str
     key: str
-    extension: str
+    identifier: str
 
     @property
     def filename(self) -> str:
@@ -43,7 +43,7 @@ class SnapshotKey:
         File backends use `_flat_key` ('module.group@key.ext') and remote backends
         use `str(key)` ('module/group@key.ext').
         """
-        return f"{self.group_name}@{self.key}.{self.extension}"
+        return f"{self.group_name}@{self.key}.{self.identifier}"
 
     def __str__(self) -> str:
         """Namespaced key for remote backends: 'module/group@key.ext'.
@@ -51,7 +51,7 @@ class SnapshotKey:
         Unique across all test files in a shared backend (Redis, S3, etc.).
         Also used as the human-readable display name in session reports.
         """
-        return f"{self.module}/{self.group_name}@{self.key}.{self.extension}"
+        return f"{self.module}/{self.group_name}@{self.key}.{self.identifier}"
 
     @property
     def display_name(self) -> str:
@@ -75,7 +75,7 @@ class LockSeen:
     key : str
         Per-snapshot identifier within the test.
     recorder : str
-        Recorder extension string, e.g. `json`, `yaml`, `pandas.parquet`.
+        Recorder identifier, e.g. `json`, `yaml`, `pandas.parquet`.
     """
 
     target_id: str
@@ -165,7 +165,7 @@ def _flat_key(sk: SnapshotKey) -> str:
     Unique across all test files sharing the same `file://` target.
     """
     module_dotted = sk.module.replace("/", ".")
-    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.extension}"
+    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.identifier}"
 
 
 @dataclass(frozen=True)
@@ -234,7 +234,7 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
+        return SnapshotKey(self.module, self.group_name, key, self.recorder.identifier)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
         # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
@@ -316,7 +316,7 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             scheme=urlparse(snapshot.target).scheme,
             nodeid=snapshot.nodeid,
             key=key,
-            recorder=snapshot.recorder.extension,
+            recorder=snapshot.recorder.identifier,
         )
         if snapshot.target_id
         else None

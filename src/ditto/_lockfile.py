@@ -33,7 +33,7 @@ LOCKFILE_NAME = "ditto.lock"
 class LockEntry(msgspec.Struct, frozen=True, order=True):
     """One legitimate snapshot's identity.
 
-    Carries the test `nodeid`, the snapshot `key`, and the recorder extension.
+    Carries the test `nodeid`, the snapshot `key`, and the recorder identifier.
     """
 
     nodeid: str
