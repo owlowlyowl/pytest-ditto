@@ -51,9 +51,10 @@ def test_core_metadata_has_only_json_and_yaml_recorder_entry_points() -> None:
     assert set(project["entry-points"]["ditto_recorders"]) == {"json", "yaml"}
 
 
-def test_repository_tracks_no_pickle_snapshots() -> None:
+def test_core_tracks_no_pickle_snapshots() -> None:
+    # The pickle plugin under plugins/ legitimately commits .pkl snapshots.
     tracked_paths = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "*.pkl"],
+        ["git", "-C", str(ROOT), "ls-files", "--", "*.pkl", ":(exclude)plugins/"],
         check=True,
         capture_output=True,
         text=True,
