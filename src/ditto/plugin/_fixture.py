@@ -7,7 +7,7 @@ import pytest
 from ditto.snapshot import Snapshot
 from ditto._lockfile import portable_target_id
 
-from ._options import read_run_options
+from ._options import run_options
 from ._selection import parse_mark_target_selection, resolve_recorder
 from ._session import session_state
 from ._targets import resolve_target
@@ -22,7 +22,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     module = request.path.relative_to(rootdir).with_suffix("").as_posix()
     marks = list(request.node.iter_markers(name="record"))
     recorder = resolve_recorder(marks)
-    options = read_run_options(request.config)
+    options = run_options(request.config)
 
     mark_target, mark_profile = parse_mark_target_selection(marks)
     backend, abs_uri = resolve_target(mark_target, mark_profile, request)

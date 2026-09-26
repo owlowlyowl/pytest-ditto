@@ -306,3 +306,16 @@ def test_raises_at_construction_when_module_is_empty_for_file_scheme(
     """Snapshot raises TypeError when constructed without module= for file:// too."""
     with pytest.raises(TypeError, match="module="):
         _file_snapshot(tmp_dir, group_name="test", module="")
+
+
+@pytest.mark.parametrize("mode", ["update", True, None])
+def test_raises_at_construction_when_mode_is_not_a_snapshot_mode(mode: object) -> None:
+    """A mode outside SnapshotMode is rejected rather than recording nothing."""
+    with pytest.raises(TypeError, match="mode must be a SnapshotMode"):
+        Snapshot(
+            group_name="test",
+            module="m",
+            target="memory://",
+            _backend={},
+            mode=mode,  # type: ignore[arg-type]
+        )

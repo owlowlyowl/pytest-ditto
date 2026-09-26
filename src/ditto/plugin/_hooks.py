@@ -18,10 +18,12 @@ from ._lock import (
     write_session_lockfile,
 )
 from ._options import (
+    RUN_OPTIONS,
     PruneMode,
     add_options,
     is_xdist_worker,
     read_run_options,
+    run_options,
     validate_options,
     xdist_is_distributing,
 )
@@ -47,6 +49,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "record(recorder): snapshot with a specific recorder",
     )
     validate_options(config)
+    config.stash[RUN_OPTIONS] = read_run_options(config)
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -55,7 +58,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
-    options = read_run_options(config)
+    options = run_options(config)
     pruned: list[str] = []
     would_prune: list[str] = []
 

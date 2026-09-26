@@ -247,6 +247,12 @@ class Snapshot:
                 "Pass the rootdir-relative test file stem, e.g. "
                 "module='tests/my_module/test_foo'."
             )
+        if not isinstance(self.mode, SnapshotMode):
+            raise TypeError(
+                f"mode must be a SnapshotMode, got {self.mode!r}. "
+                "Use SnapshotMode.UPDATE in place of update=True and "
+                "SnapshotMode.VERIFY in place of readonly=True."
+            )
 
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):

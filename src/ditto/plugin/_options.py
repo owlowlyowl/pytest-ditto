@@ -15,7 +15,9 @@ __all__ = (
     "StorageOptionsByScheme",
     "PruneMode",
     "RunOptions",
+    "RUN_OPTIONS",
     "read_run_options",
+    "run_options",
     "add_options",
     "validate_options",
     "validate_target_config",
@@ -40,7 +42,10 @@ class PruneMode(Enum):
 
 @dataclass(frozen=True)
 class RunOptions:
-    """The ditto command-line options for one run, read once from the config.
+    """The ditto command-line options for one run.
+
+    Read and validated once, in `pytest_configure`, and stored on `config.stash`
+    under `RUN_OPTIONS`; `run_options` returns that instance.
 
     Attributes
     ----------
@@ -59,6 +64,14 @@ class RunOptions:
     rebuild_lock: bool
     prune: PruneMode
     introspect_path: str
+
+
+RUN_OPTIONS = pytest.StashKey[RunOptions]()
+
+
+def run_options(config: pytest.Config) -> RunOptions:
+    """Return the run's options, as stored by `pytest_configure`."""
+    return config.stash[RUN_OPTIONS]
 
 
 def read_run_options(config: pytest.Config) -> RunOptions:
