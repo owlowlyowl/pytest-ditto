@@ -145,7 +145,7 @@ convention = "numpy"
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src", "plugins/pandas/src", "plugins/pyarrow/src"]
+include = ["src", "plugins/pandas/src", "plugins/pickle/src", "plugins/pyarrow/src"]
 venvPath = ".pixi/envs"
 venv = "lint"
 
@@ -248,6 +248,13 @@ libstdcxx-ng = ">=14"
 test-pandas = { cmd = "pytest", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 verify-pandas = { cmd = "ditto verify", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 
+[tool.pixi.feature.pickle.pypi-dependencies]
+pytest-ditto-pickle = { path = "plugins/pickle", editable = true }
+
+[tool.pixi.feature.pickle.tasks]
+test-pickle = { cmd = "pytest", cwd = "plugins/pickle" }
+verify-pickle = { cmd = "ditto verify", cwd = "plugins/pickle" }
+
 [tool.pixi.feature.pyarrow.pypi-dependencies]
 pytest-ditto-pyarrow = { path = "plugins/pyarrow", editable = true }
 
@@ -280,6 +287,9 @@ examples = { features = ["examples", "py312", "test"], solve-group = "default" }
 pandas-py312 = { features = ["pandas", "py312", "test"] }
 pandas-py313 = { features = ["pandas", "py313", "test"] }
 pandas-py314 = { features = ["pandas", "py314", "test"] }
+pickle-py312 = { features = ["pickle", "py312", "test"] }
+pickle-py313 = { features = ["pickle", "py313", "test"] }
+pickle-py314 = { features = ["pickle", "py314", "test"] }
 pyarrow-py312 = { features = ["pyarrow", "py312", "test"] }
 pyarrow-py313 = { features = ["pyarrow", "py313", "test"] }
 pyarrow-py314 = { features = ["pyarrow", "py314", "test"] }

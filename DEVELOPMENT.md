@@ -28,6 +28,7 @@ pixi manages multiple isolated environments for different tasks:
 | `py313` | Test on Python 3.13 | pytest, pytest-cov, hypothesis |
 | `py314` | Test on Python 3.14 | pytest, pytest-cov, hypothesis |
 | `pandas-py312`–`py314` | Test the pandas plugin | pytest-ditto-pandas (editable) |
+| `pickle-py312`–`py314` | Test the pickle plugin | pytest-ditto-pickle (editable) |
 | `pyarrow-py312`–`py314` | Test the PyArrow plugin | pytest-ditto-pyarrow (editable) |
 | `lint` | Linting and type checking | pre-commit, ruff, basedpyright |
 | `docs` | Documentation | zensical, mkdocstrings-python |
@@ -70,6 +71,8 @@ from the plugin's directory, the way a third-party plugin's suite runs:
 ```bash
 pixi run -e pandas-py312 test-pandas       # pandas plugin tests
 pixi run -e pandas-py312 verify-pandas     # its snapshots against its ditto.lock
+pixi run -e pickle-py312 test-pickle       # pickle plugin tests
+pixi run -e pickle-py312 verify-pickle     # its snapshots against its ditto.lock
 pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
 pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
 ```
