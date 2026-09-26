@@ -66,7 +66,8 @@ def get(
         Pass an isolated dict in tests to avoid depending on shared state.
     fallback : Recorder, optional
         Recorder to return when `name` is not found. If omitted, an unknown
-        recorder raises `DittoUnknownRecorderError`.
+        recorder raises `DittoUnknownRecorderError`. A registered recorder that
+        fails to load raises `DittoRecorderLoadError`, even if a fallback is given.
 
     Returns
     -------

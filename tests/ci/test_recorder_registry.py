@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import textwrap
+from copy import copy
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,7 +19,7 @@ json_recorder = recorders.default()
 
 
 def _ep(name: str, *, load_return=None, load_side_effect=None, dist="fake-dist"):
-    ep = MagicMock()
+    ep = MagicMock(spec=EntryPoint)
     ep.name = name
     ep.dist.name = dist
     if load_side_effect is not None:
@@ -72,6 +74,78 @@ def test_assigned_recorder_overrides_entry_point_without_loading_it() -> None:
     registry["fmt"] = json_recorder
 
     assert registry["fmt"] is json_recorder
+    ep.load.assert_not_called()
+
+
+def test_load_error_without_distribution_preserves_cause() -> None:
+    ep = EntryPoint(
+        name="broken",
+        value="_ditto_missing_test_plugin:recorder",
+        group="ditto_recorders",
+    )
+    registry = RecorderRegistry([ep])
+
+    with pytest.raises(
+        DittoRecorderLoadError, match="'broken' from an unknown distribution"
+    ) as caught:
+        registry["broken"]
+
+    assert isinstance(caught.value.__cause__, ModuleNotFoundError)
+    assert caught.value.__cause__.name == "_ditto_missing_test_plugin"
+
+
+def test_fallback_only_applies_to_absent_names() -> None:
+    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
+    registry = RecorderRegistry([ep])
+
+    assert recorders.get("missing", registry, fallback=json_recorder) is json_recorder
+    ep.load.assert_not_called()
+    with pytest.raises(DittoRecorderLoadError, match="missing lib"):
+        recorders.get("broken", registry, fallback=json_recorder)
+
+
+def test_shallow_copy_preserves_cached_recorders_and_loads_independently() -> None:
+    loaded = _ep("loaded", load_return=json_recorder)
+    pending = _ep("pending", load_return=json_recorder)
+    registry = RecorderRegistry([loaded, pending])
+    assert registry["loaded"] is json_recorder
+
+    copied = copy(registry)
+
+    assert copied is not registry
+    assert list(copied) == list(registry)
+    assert copied["loaded"] is registry["loaded"]
+    loaded.load.assert_called_once()
+    pending.load.assert_not_called()
+    assert copied["pending"] is json_recorder
+    pending.load.assert_called_once()
+    assert registry["pending"] is json_recorder
+    assert pending.load.call_count == 2
+    assert copied["pending"] is registry["pending"]
+    assert pending.load.call_count == 2
+
+
+def test_shallow_copy_mutations_do_not_change_original() -> None:
+    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
+    registry = RecorderRegistry([ep])
+    registry["assigned"] = json_recorder
+    copied = copy(registry)
+    replacement = recorders.Recorder(
+        "replacement", json_recorder.save, json_recorder.load
+    )
+
+    copied["assigned"] = replacement
+    copied["extra"] = replacement
+    del copied["broken"]
+    assert registry["assigned"] is json_recorder
+    assert list(registry) == ["broken", "assigned"]
+    assert list(copied) == ["assigned", "extra"]
+
+    registry["original_only"] = json_recorder
+    assert "original_only" not in copied
+    copied.clear()
+    assert len(copied) == 0
+    assert list(registry) == ["broken", "assigned", "original_only"]
     ep.load.assert_not_called()
 
 

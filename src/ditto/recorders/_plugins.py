@@ -41,48 +41,45 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
     def __init__(self, entry_points: Iterable[EntryPoint] | None = None) -> None:
         if entry_points is None:
             entry_points = importlib.metadata.entry_points(group="ditto_recorders")
-        self._entry_points: dict[str, EntryPoint] = {ep.name: ep for ep in entry_points}
-        self._recorders: dict[str, Recorder] = {}
+        self._entries: dict[str, Recorder | EntryPoint] = {
+            ep.name: ep for ep in entry_points
+        }
 
     def __getitem__(self, name: str) -> Recorder:
-        if name in self._recorders:
-            return self._recorders[name]
-        ep = self._entry_points[name]
-        try:
-            recorder = ep.load()
-        except Exception as exc:
-            dist = ep.dist.name if ep.dist else "an unknown distribution"
-            raise DittoRecorderLoadError(name, dist, exc) from exc
-        self._recorders[name] = recorder
-        return recorder
+        entry = self._entries[name]
+        if isinstance(entry, EntryPoint):
+            try:
+                recorder = entry.load()
+            except Exception as exc:
+                dist = entry.dist.name if entry.dist else "an unknown distribution"
+                raise DittoRecorderLoadError(name, dist, exc) from exc
+            self._entries[name] = entry = recorder
+        return entry
 
     def __setitem__(self, name: str, recorder: Recorder) -> None:
-        self._recorders[name] = recorder
+        self._entries[name] = recorder
 
     def __delitem__(self, name: str) -> None:
-        if name not in self:
-            raise KeyError(name)
-        self._recorders.pop(name, None)
-        self._entry_points.pop(name, None)
+        del self._entries[name]
 
     def __contains__(self, name: object) -> bool:
-        return name in self._recorders or name in self._entry_points
+        return name in self._entries
 
     def __iter__(self) -> Iterator[str]:
-        yield from self._entry_points
-        for name in self._recorders:
-            if name not in self._entry_points:
-                yield name
+        return iter(self._entries)
 
     def __len__(self) -> int:
-        return len(self._entry_points) + sum(
-            name not in self._entry_points for name in self._recorders
-        )
+        return len(self._entries)
+
+    def __copy__(self) -> "RecorderRegistry":
+        """Copy registrations and cached values without loading entry points."""
+        registry = RecorderRegistry([])
+        registry._entries = self._entries.copy()
+        return registry
 
     def clear(self) -> None:
         """Remove all registrations without loading any entry points."""
-        self._recorders.clear()
-        self._entry_points.clear()
+        self._entries.clear()
 
 
 def load_recorders() -> dict[str, Recorder]:

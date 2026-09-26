@@ -10,6 +10,12 @@ additional assigned names in insertion order.
 Assignment (including `register()`), `del`, and `clear()` do not load plugins.
 Operations that read values, such as `get()`, iteration over `items()` or
 `values()`, and `pop()`, can load plugins and raise `DittoRecorderLoadError`.
+The `fallback` argument to `recorders.get()` applies only to absent names; it
+does not suppress errors from an installed recorder that fails to load.
+
+`copy.copy(RECORDER_REGISTRY)` creates an independent registry without loading
+plugins. Already loaded recorder objects are shared, while subsequent loading,
+assignment, deletion, and clearing affect only the registry being used.
 
 Pytest's `monkeypatch.setitem()` and `monkeypatch.delitem()` read the previous
 value so they can restore it. For an existing entry point, this loads the plugin
