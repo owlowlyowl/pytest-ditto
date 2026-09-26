@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from ditto.plugin import _xdist_is_distributing
+from ditto.plugin._options import xdist_is_distributing
 
 pytest_plugins = ["pytester"]
 
@@ -208,7 +208,7 @@ def test_xdist_distribution_detected_when_numprocesses_set():
     """A positive -n value marks the run as xdist-distributed."""
     config = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=4))
 
-    assert _xdist_is_distributing(config) is True
+    assert xdist_is_distributing(config) is True
 
 
 def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
@@ -216,8 +216,8 @@ def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
     absent = types.SimpleNamespace(option=types.SimpleNamespace())
     zero = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=0))
 
-    assert _xdist_is_distributing(absent) is False
-    assert _xdist_is_distributing(zero) is False
+    assert xdist_is_distributing(absent) is False
+    assert xdist_is_distributing(zero) is False
 
 
 NESTED_SESSION_MODULE = '''

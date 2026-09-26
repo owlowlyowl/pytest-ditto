@@ -18,27 +18,20 @@ from ditto.exceptions import (
     DittoUnknownRecorderError,
     DittoUnknownProfileError,
 )
-from ditto.plugin import (
-    _DittoSession,
-    _freeze_options,
-    _maybe_enter,
-    _merge_profile_sources,
-    _parse_mark_target_selection,
-    _resolve_profile,
-    _resolve_recorder,
-    _resolve_target,
-    _resolve_uri,
-    _validate_target_config,
-)
+from ditto.plugin._options import validate_target_config
+from ditto.plugin._profiles import merge_profile_sources, resolve_profile
+from ditto.plugin._selection import parse_mark_target_selection, resolve_recorder
+from ditto.plugin._session import DittoSession, maybe_enter
+from ditto.plugin._targets import freeze_options, resolve_target, resolve_uri
 
 json_recorder = recorders.get("json")
 yaml_recorder = recorders.get("yaml")
 
 
 @pytest.fixture
-def state() -> Iterator[_DittoSession]:
+def state() -> Iterator[DittoSession]:
     """A fresh ditto session state, closed after the test."""
-    session = _DittoSession()
+    session = DittoSession()
     yield session
     session.exit_stack.close()
 
@@ -50,26 +43,26 @@ def _mark(*args):
     return m
 
 
-# --- _resolve_recorder ---
+# --- resolve_recorder ---
 
 
 def test_resolves_to_json_when_no_marks_present() -> None:
     """No record marks defaults to the strict JSON recorder."""
-    actual = _resolve_recorder([])
+    actual = resolve_recorder([])
 
     assert actual is json_recorder
 
 
 def test_resolves_to_yaml_when_yaml_mark_is_present() -> None:
     """A record mark naming 'yaml' resolves to the yaml recorder."""
-    actual = _resolve_recorder([_mark("yaml")])
+    actual = resolve_recorder([_mark("yaml")])
 
     assert actual is yaml_recorder
 
 
 def test_resolves_to_json_when_json_mark_is_present() -> None:
     """A record mark naming 'json' resolves to the json recorder."""
-    actual = _resolve_recorder([_mark("json")])
+    actual = resolve_recorder([_mark("json")])
 
     assert actual is json_recorder
 
@@ -85,7 +78,7 @@ def test_resolves_synthetic_external_recorder(
     )
     monkeypatch.setitem(recorders.RECORDER_REGISTRY, "external", external)
 
-    actual = _resolve_recorder([_mark("external")])
+    actual = resolve_recorder([_mark("external")])
 
     assert actual is external
 
@@ -93,7 +86,7 @@ def test_resolves_synthetic_external_recorder(
 def test_raises_when_mark_carries_no_args() -> None:
     """A bare record mark with no arguments raises DittoMarkHasNoIOType."""
     with pytest.raises(DittoMarkHasNoIOType):
-        _resolve_recorder([_mark()])
+        resolve_recorder([_mark()])
 
 
 def test_raises_when_mark_names_unregistered_recorder() -> None:
@@ -102,16 +95,16 @@ def test_raises_when_mark_names_unregistered_recorder() -> None:
         DittoUnknownRecorderError,
         match="Unknown ditto recorder 'nonexistent'.*json.*yaml",
     ):
-        _resolve_recorder([_mark("nonexistent")])
+        resolve_recorder([_mark("nonexistent")])
 
 
 def test_raises_when_multiple_marks_are_present() -> None:
     """More than one record mark raises AdditionalMarkError."""
     with pytest.raises(AdditionalMarkError):
-        _resolve_recorder([_mark("yaml"), _mark("json")])
+        resolve_recorder([_mark("yaml"), _mark("json")])
 
 
-# --- _maybe_enter ---
+# --- maybe_enter ---
 
 
 class _WrappingBackend(AbstractContextManager, MutableMapping[str, bytes]):
@@ -172,13 +165,13 @@ class _CountingBackend(AbstractContextManager, MutableMapping[str, bytes]):
 
 
 def test_returns_entered_value_on_every_call_when_backend_is_context_manager(
-    state: _DittoSession,
+    state: DittoSession,
 ) -> None:
     """The value returned by __enter__ is reused on every call."""
     backend = _WrappingBackend()
 
-    first = _maybe_enter(backend, state)
-    second = _maybe_enter(backend, state)
+    first = maybe_enter(backend, state)
+    second = maybe_enter(backend, state)
 
     assert first is backend.wrapper
     assert second is backend.wrapper
@@ -189,7 +182,7 @@ def test_returns_entered_value_on_every_call_when_backend_is_context_manager(
 
 
 def test_freeze_options_handles_nested_mappings_sequences_and_sets() -> None:
-    actual = _freeze_options({"items": [1, {"flags": {"a", "b"}}], "token": "abc"})
+    actual = freeze_options({"items": [1, {"flags": {"a", "b"}}], "token": "abc"})
 
     assert actual == (
         ("items", (1, (("flags", frozenset({"a", "b"})),))),
@@ -198,7 +191,7 @@ def test_freeze_options_handles_nested_mappings_sequences_and_sets() -> None:
 
 
 def test_resolve_uri_raises_for_unhashable_storage_option(
-    tmp_path: Path, state: _DittoSession
+    tmp_path: Path, state: DittoSession
 ) -> None:
     """An unhashable storage option must fail loudly, not silently disable caching.
 
@@ -211,14 +204,14 @@ def test_resolve_uri_raises_for_unhashable_storage_option(
         __hash__ = None  # type: ignore[assignment]
 
     with pytest.raises(DittoUnhashableStorageOptionsError):
-        _resolve_uri("file://.ditto", tmp_path, {"client": _Unhashable()}, state)
+        resolve_uri("file://.ditto", tmp_path, {"client": _Unhashable()}, state)
 
 
 def test_resolve_uri_caches_relative_file_target_by_canonical_path(
-    tmp_path, state: _DittoSession
+    tmp_path, state: DittoSession
 ) -> None:
-    first_backend, first_uri = _resolve_uri("file://.ditto", tmp_path, {}, state)
-    second_backend, second_uri = _resolve_uri("file://.ditto", tmp_path, {}, state)
+    first_backend, first_uri = resolve_uri("file://.ditto", tmp_path, {}, state)
+    second_backend, second_uri = resolve_uri("file://.ditto", tmp_path, {}, state)
 
     expected = f"file://{(tmp_path / '.ditto').resolve().as_posix()}"
     assert first_uri == expected
@@ -227,7 +220,7 @@ def test_resolve_uri_caches_relative_file_target_by_canonical_path(
 
 
 def test_resolve_uri_caches_registered_backend_by_uri_and_options(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
@@ -237,10 +230,10 @@ def test_resolve_uri_caches_registered_backend_by_uri_and_options(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
 
-    first_backend, first_uri = _resolve_uri(
+    first_backend, first_uri = resolve_uri(
         "demo://shared", tmp_path, {"token": "abc"}, state
     )
-    second_backend, second_uri = _resolve_uri(
+    second_backend, second_uri = resolve_uri(
         "demo://shared", tmp_path, {"token": "abc"}, state
     )
 
@@ -251,7 +244,7 @@ def test_resolve_uri_caches_registered_backend_by_uri_and_options(
 
 
 def test_resolve_uri_separates_cache_entries_when_options_differ(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
 ) -> None:
     calls: list[tuple[str, dict[str, str]]] = []
 
@@ -261,8 +254,8 @@ def test_resolve_uri_separates_cache_entries_when_options_differ(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
 
-    first_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "a"}, state)
-    second_backend, _ = _resolve_uri("demo://shared", tmp_path, {"token": "b"}, state)
+    first_backend, _ = resolve_uri("demo://shared", tmp_path, {"token": "a"}, state)
+    second_backend, _ = resolve_uri("demo://shared", tmp_path, {"token": "b"}, state)
 
     assert first_backend is not second_backend
     assert calls == [
@@ -272,7 +265,7 @@ def test_resolve_uri_separates_cache_entries_when_options_differ(
 
 
 def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
 ) -> None:
     constructed: list[_CountingBackend] = []
 
@@ -283,22 +276,22 @@ def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
 
     monkeypatch.setitem(BACKEND_REGISTRY, "ctx", factory)
 
-    first_backend, _ = _resolve_uri("ctx://shared", tmp_path, {}, state)
-    second_backend, _ = _resolve_uri("ctx://shared", tmp_path, {}, state)
+    first_backend, _ = resolve_uri("ctx://shared", tmp_path, {}, state)
+    second_backend, _ = resolve_uri("ctx://shared", tmp_path, {}, state)
 
     assert len(constructed) == 1
     assert constructed[0].enter_calls == 1
     assert first_backend is second_backend
 
 
-def test_resolve_uri_raises_for_unknown_scheme(tmp_path, state: _DittoSession) -> None:
+def test_resolve_uri_raises_for_unknown_scheme(tmp_path, state: DittoSession) -> None:
     """Unknown schemes raise a ValueError with an install hint."""
     with pytest.raises(ValueError, match="Unknown backend scheme"):
-        _resolve_uri("notascheme://target", tmp_path, {}, state)
+        resolve_uri("notascheme://target", tmp_path, {}, state)
 
 
 def test_resolve_uri_forwards_storage_options_to_fsspec(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: _DittoSession
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
 ) -> None:
     """Scheme-scoped storage options are forwarded to `fsspec.core.url_to_fs`."""
     calls: list[tuple[str, dict[str, str]]] = []
@@ -310,7 +303,7 @@ def test_resolve_uri_forwards_storage_options_to_fsspec(
 
     monkeypatch.setattr(fsspec.core, "url_to_fs", fake_url_to_fs)
 
-    backend, uri = _resolve_uri("memory://shared", tmp_path, {"token": "abc"}, state)
+    backend, uri = resolve_uri("memory://shared", tmp_path, {"token": "abc"}, state)
 
     assert uri == "memory://shared"
     assert getattr(backend, "root") == "/shared-root"
@@ -330,7 +323,7 @@ def test_resolve_target_uses_ini_target_when_no_mark_is_present(tmp_path) -> Non
         "ditto_target_profile": "",
     }[key]
 
-    backend, uri = _resolve_target(None, None, request)
+    backend, uri = resolve_target(None, None, request)
 
     assert getattr(backend, "root") == (tmp_path / ".snapshots").resolve().as_posix()
     assert uri == f"file://{(tmp_path / '.snapshots').resolve().as_posix()}"
@@ -343,15 +336,15 @@ def test_resolve_target_raises_migration_error_for_user_defined_ditto_backend() 
     request.node = object()
 
     with pytest.raises(TypeError, match="ditto_backend is superseded"):
-        _resolve_target(None, None, request)
+        resolve_target(None, None, request)
 
 
-# --- _parse_mark_target_selection ---
+# --- parse_mark_target_selection ---
 
 
 def test_returns_none_pair_when_no_marks_are_present() -> None:
     """Both values are None when there are no record marks."""
-    actual = _parse_mark_target_selection([])
+    actual = parse_mark_target_selection([])
 
     assert actual == (None, None)
 
@@ -361,7 +354,7 @@ def test_returns_target_uri_when_only_target_is_set() -> None:
     mark = Mock()
     mark.kwargs = {"target": "s3://bucket/prefix/"}
 
-    actual = _parse_mark_target_selection([mark])
+    actual = parse_mark_target_selection([mark])
 
     assert actual == ("s3://bucket/prefix/", None)
 
@@ -371,7 +364,7 @@ def test_returns_profile_name_when_only_target_profile_is_set() -> None:
     mark = Mock()
     mark.kwargs = {"target_profile": "s3_east"}
 
-    actual = _parse_mark_target_selection([mark])
+    actual = parse_mark_target_selection([mark])
 
     assert actual == (None, "s3_east")
 
@@ -382,10 +375,10 @@ def test_raises_when_both_target_and_target_profile_are_set() -> None:
     mark.kwargs = {"target": "s3://bucket/", "target_profile": "s3_east"}
 
     with pytest.raises(DittoAmbiguousTargetError):
-        _parse_mark_target_selection([mark])
+        parse_mark_target_selection([mark])
 
 
-# --- _validate_target_config ---
+# --- validate_target_config ---
 
 
 def test_raises_when_both_ini_target_options_are_set() -> None:
@@ -397,7 +390,7 @@ def test_raises_when_both_ini_target_options_are_set() -> None:
     }[key]
 
     with pytest.raises(DittoAmbiguousTargetError):
-        _validate_target_config(config)
+        validate_target_config(config)
 
 
 def test_does_not_raise_when_only_ditto_target_is_set() -> None:
@@ -408,7 +401,7 @@ def test_does_not_raise_when_only_ditto_target_is_set() -> None:
         "ditto_target_profile": "",
     }[key]
 
-    _validate_target_config(config)  # must not raise
+    validate_target_config(config)  # must not raise
 
 
 def test_does_not_raise_when_only_ditto_target_profile_is_set() -> None:
@@ -419,15 +412,15 @@ def test_does_not_raise_when_only_ditto_target_profile_is_set() -> None:
         "ditto_target_profile": "s3_east",
     }[key]
 
-    _validate_target_config(config)  # must not raise
+    validate_target_config(config)  # must not raise
 
 
-# --- _merge_profile_sources ---
+# --- merge_profile_sources ---
 
 
 def test_merges_fixture_and_static_profiles_when_names_are_distinct() -> None:
     """Profiles from both sources are combined when no name appears in both."""
-    actual = _merge_profile_sources(
+    actual = merge_profile_sources(
         {"local": "file://.snapshots"},
         {"s3_east": {"uri": "s3://east/", "storage_options": {}}},
     )
@@ -439,24 +432,24 @@ def test_merges_fixture_and_static_profiles_when_names_are_distinct() -> None:
 def test_raises_when_same_profile_name_exists_in_both_sources() -> None:
     """A name present in both sources raises DittoDuplicateProfileError."""
     with pytest.raises(DittoDuplicateProfileError):
-        _merge_profile_sources({"shared": "file://.a"}, {"shared": "file://.b"})
+        merge_profile_sources({"shared": "file://.a"}, {"shared": "file://.b"})
 
 
 def test_returns_empty_dict_when_both_sources_are_empty() -> None:
     """Two empty sources produce an empty merged dict."""
-    actual = _merge_profile_sources({}, {})
+    actual = merge_profile_sources({}, {})
 
     assert actual == {}
 
 
-# --- _resolve_profile ---
+# --- resolve_profile ---
 
 
 def test_expands_string_shorthand_to_uri_and_empty_options() -> None:
     """A URI string shorthand expands to (uri, {})."""
     profiles = {"local": "file://.snapshots"}
 
-    actual_uri, actual_opts = _resolve_profile("local", profiles)
+    actual_uri, actual_opts = resolve_profile("local", profiles)
 
     assert actual_uri == "file://.snapshots"
     assert actual_opts == {}
@@ -471,7 +464,7 @@ def test_expands_full_mapping_to_uri_and_storage_options() -> None:
         }
     }
 
-    actual_uri, actual_opts = _resolve_profile("s3_east", profiles)
+    actual_uri, actual_opts = resolve_profile("s3_east", profiles)
 
     assert actual_uri == "s3://east-bucket/golden/"
     assert actual_opts == {"key": "ACCESS", "secret": "SECRET"}
@@ -481,7 +474,7 @@ def test_expands_mapping_without_storage_options_to_empty_opts() -> None:
     """A mapping with only uri returns empty opts."""
     profiles = {"s3_east": {"uri": "s3://east-bucket/"}}
 
-    _, actual_opts = _resolve_profile("s3_east", profiles)
+    _, actual_opts = resolve_profile("s3_east", profiles)
 
     assert actual_opts == {}
 
@@ -491,7 +484,7 @@ def test_raises_when_profile_name_is_unknown() -> None:
     profiles = {"local": "file://.snapshots"}
 
     with pytest.raises(DittoUnknownProfileError, match="kirby"):
-        _resolve_profile("kirby", profiles)
+        resolve_profile("kirby", profiles)
 
 
 def test_unknown_profile_error_lists_available_names() -> None:
@@ -499,7 +492,7 @@ def test_unknown_profile_error_lists_available_names() -> None:
     profiles = {"local": "file://.snapshots", "s3_east": {"uri": "s3://east/"}}
 
     with pytest.raises(DittoUnknownProfileError, match="local"):
-        _resolve_profile("missing", profiles)
+        resolve_profile("missing", profiles)
 
 
 def test_raises_for_invalid_profile_shape() -> None:
@@ -507,7 +500,7 @@ def test_raises_for_invalid_profile_shape() -> None:
     profiles = {"bad": 12345}
 
     with pytest.raises(DittoInvalidProfileError, match="bad"):
-        _resolve_profile("bad", profiles)
+        resolve_profile("bad", profiles)
 
 
 def test_raises_when_profile_uri_is_not_a_string() -> None:
@@ -515,7 +508,7 @@ def test_raises_when_profile_uri_is_not_a_string() -> None:
     profiles = {"bad": {"uri": 12345}}
 
     with pytest.raises(DittoInvalidProfileError, match="uri must be a string"):
-        _resolve_profile("bad", profiles)
+        resolve_profile("bad", profiles)
 
 
 def test_raises_when_profile_storage_options_is_not_a_mapping() -> None:
@@ -526,7 +519,7 @@ def test_raises_when_profile_storage_options_is_not_a_mapping() -> None:
         DittoInvalidProfileError,
         match="storage_options must be a mapping",
     ):
-        _resolve_profile("bad", profiles)
+        resolve_profile("bad", profiles)
 
 
 def test_raises_when_profile_mapping_has_unknown_keys() -> None:
@@ -535,4 +528,4 @@ def test_raises_when_profile_mapping_has_unknown_keys() -> None:
     profiles = {"bad": {"uri": "s3://east-bucket/", "storage_optoins": {}}}
 
     with pytest.raises(DittoInvalidProfileError, match="unknown key.*storage_optoins"):
-        _resolve_profile("bad", profiles)
+        resolve_profile("bad", profiles)
