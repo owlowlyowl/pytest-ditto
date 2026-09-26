@@ -17,7 +17,7 @@ repos:
         name: ruff
         entry: pixi run -e lint ruff check --exit-non-zero-on-fix --fix --force-exclude
         language: system
-        files: ^(src|tests)/
+        files: ^(src|tests|plugins)/
         types_or: [python, pyi]
         require_serial: true
         verbose: true
@@ -25,7 +25,7 @@ repos:
         name: ruff-format
         entry: pixi run -e lint ruff format --force-exclude
         language: system
-        files: ^(src|tests)/
+        files: ^(src|tests|plugins)/
         types_or: [python, pyi]
         require_serial: true
         verbose: true
@@ -33,7 +33,7 @@ repos:
         name: basedpyright
         entry: pixi run -e lint basedpyright
         language: system
-        files: ^src/
+        files: ^(src|plugins/[^/]+/src)/
         types_or: [python, pyi]
         require_serial: true
         pass_filenames: false
