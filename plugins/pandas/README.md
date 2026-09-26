@@ -53,17 +53,35 @@ def test_fn_with_json_dataframe_snapshot(snapshot):
 
 ### Format notes
 
-| Format | Index preserved | dtype preserved |
-|--------|----------------|-----------------|
-| parquet | yes | yes |
-| json | yes | yes |
-| csv | single-level numeric or string only (see below) | no |
+Only parquet round-trips a DataFrame exactly. JSON and CSV change some values or
+types on the way through, and a snapshot comparison then fails even though the
+code under test didn't change.
 
-The CSV recorder does not preserve index type metadata. Supported index types
-for round-trip are single-level numeric (note: `RangeIndex` is read back as
-`Int64`) and string. `DatetimeIndex`, `PeriodIndex`, `CategoricalIndex`, and
-`MultiIndex` are not supported — use `@ditto.pandas.parquet` or
-`@ditto.pandas.json` for DataFrames with these index types.
+| Format | Index | Values and dtypes |
+|--------|-------|-------------------|
+| parquet | preserved | preserved |
+| json | preserved, except an index named `index` | preserved, except numeric widths |
+| csv | single-level only; values re-parsed | re-parsed from text |
 
-When comparing a CSV snapshot with `pd.testing.assert_frame_equal`, pass
-`check_index_type=False` to account for the `RangeIndex` → `Int64` conversion.
+**JSON** (`to_json(orient="table")`):
+
+- An index named `index` is read back unnamed, and pandas warns that the name is
+  not round-trippable.
+- Numeric columns are widened to 64 bits, so `int8`, `int32` and `uint16` come
+  back as `int64`, and `float32` as `float64`.
+
+**CSV** keeps no type information, so every column and the index are parsed
+from text on load:
+
+- Strings that look like numbers become numbers: `"001"` is read back as `1`.
+- Strings pandas treats as missing, such as `"NA"`, `"null"` and `""`, become
+  `NaN`.
+- dtypes are inferred again, so `int32` comes back as `int64`, and categoricals
+  come back as plain strings.
+- Only a single-level index is supported. `DatetimeIndex`, `PeriodIndex`,
+  `CategoricalIndex` and `MultiIndex` are not.
+- A `RangeIndex` may come back as a plain integer index, depending on the pandas
+  version. Pass `check_index_type=False` to `pd.testing.assert_frame_equal` to
+  allow for that. It does not help with any of the changed values above.
+
+Use `@ditto.pandas.parquet` for DataFrames that hit any of these cases.
