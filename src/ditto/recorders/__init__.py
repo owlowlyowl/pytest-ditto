@@ -5,20 +5,13 @@ from ditto.exceptions import DittoUnknownRecorderError
 
 from ._protocol import Recorder
 from ._json import json as _default
-from ._plugins import (
-    RECORDER_REGISTRY,
-    MARK_REGISTRY,
-    load_recorders,
-    load_mark_plugins,
-)
+from ._plugins import RECORDER_REGISTRY, load_recorders
 
 
 __all__ = (
     "Recorder",
     "RECORDER_REGISTRY",
-    "MARK_REGISTRY",
     "load_recorders",
-    "load_mark_plugins",
     "register",
     "get",
     "default",

@@ -46,12 +46,11 @@ def _ep(
     return ep
 
 
-def _entry_points(*, pytest11=(), recorders=(), marks=()):
+def _entry_points(*, pytest11=(), recorders=()):
     """Return a side_effect callable for patching importlib.metadata.entry_points."""
     mapping = {
         "pytest11": list(pytest11),
         "ditto_recorders": list(recorders),
-        "ditto_marks": list(marks),
     }
     return lambda group: mapping.get(group, [])
 
@@ -183,21 +182,6 @@ def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> 
     assert "missing dep" in result.detail
 
 
-def test_returns_failing_check_with_error_detail_when_mark_load_raises() -> None:
-    """A mark entry point that raises on load produces a failing check with the
-    error message."""
-    bad = _ep("broken_mark", load_raises=RuntimeError("oops"))
-    with patch(
-        "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(marks=[bad]),
-    ):
-        checks = _doctor_checks()
-
-    result = next(c for c in checks if c.name == "mark: broken_mark")
-    assert result.ok is False
-    assert "oops" in result.detail
-
-
 def test_returns_one_result_per_recorder_entry_point() -> None:
     """Each registered recorder entry point produces exactly one CheckResult."""
     eps = [_ep("custom"), _ep("yaml"), _ep("json")]
@@ -209,19 +193,6 @@ def test_returns_one_result_per_recorder_entry_point() -> None:
 
     recorder_checks = [c for c in checks if c.name.startswith("recorder:")]
     assert len(recorder_checks) == 3
-
-
-def test_returns_one_result_per_mark_entry_point() -> None:
-    """Each registered mark entry point produces exactly one CheckResult."""
-    eps = [_ep("custom"), _ep("yaml")]
-    with patch(
-        "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(marks=eps),
-    ):
-        checks = _doctor_checks()
-
-    mark_checks = [c for c in checks if c.name.startswith("mark:")]
-    assert len(mark_checks) == 2
 
 
 # ── _find_lint_issues: clean inputs ───────────────────────────────────────────
