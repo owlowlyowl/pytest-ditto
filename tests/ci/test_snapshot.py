@@ -6,7 +6,7 @@ from pathlib import Path
 import fsspec
 import pytest
 
-from ditto import Snapshot, recorders
+from ditto import Snapshot, SnapshotMode, recorders
 from ditto.backends import FsspecMapping
 from ditto.exceptions import DittoJSONSerializationError, DuplicateSnapshotKeyError
 from ditto.snapshot import load_snapshot, save_snapshot
@@ -152,10 +152,10 @@ def test_file_backed_snapshot_preserves_dotted_recorder_identifier(tmp_dir) -> N
 # --- update mode ---
 
 
-def test_returns_new_value_when_update_is_true(tmp_dir) -> None:
-    """When update=True, snapshot returns the new value rather than the stored one."""
+def test_returns_new_value_when_mode_is_update(tmp_dir) -> None:
+    """In update mode, snapshot returns the new value rather than the stored one."""
     key = "result"
-    snapshot = _file_snapshot(tmp_dir, group_name="group", update=True)
+    snapshot = _file_snapshot(tmp_dir, group_name="group", mode=SnapshotMode.UPDATE)
     save_snapshot(snapshot, "original", key)
 
     actual = snapshot("updated", key)
@@ -163,10 +163,10 @@ def test_returns_new_value_when_update_is_true(tmp_dir) -> None:
     assert actual == "updated"
 
 
-def test_overwrites_stored_value_when_update_is_true(tmp_dir) -> None:
-    """When update=True, snapshot replaces the value on disk."""
+def test_overwrites_stored_value_when_mode_is_update(tmp_dir) -> None:
+    """In update mode, snapshot replaces the value on disk."""
     key = "result"
-    snapshot = _file_snapshot(tmp_dir, group_name="group", update=True)
+    snapshot = _file_snapshot(tmp_dir, group_name="group", mode=SnapshotMode.UPDATE)
     save_snapshot(snapshot, "original", key)
 
     snapshot("updated", key)
@@ -209,11 +209,14 @@ def _legacy_backend_snapshot(backend: MutableMapping[str, bytes], **kwargs) -> S
     )
 
 
-@pytest.mark.parametrize("update", [False, True])
-def test_missing_json_records_normally_without_reading_legacy_key(update: bool) -> None:
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_missing_json_records_normally_without_reading_legacy_key(
+    mode: SnapshotMode,
+) -> None:
+    """A missing JSON snapshot is recorded without reading a same-key .pkl file."""
     legacy_key = "m/group@result.pkl"
     backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
-    snapshot = _legacy_backend_snapshot(backend, update=update)
+    snapshot = _legacy_backend_snapshot(backend, mode=mode)
 
     actual = snapshot({"current": True}, "result")
 
@@ -223,10 +226,11 @@ def test_missing_json_records_normally_without_reading_legacy_key(update: bool) 
     assert legacy_key not in backend.getitem_calls
 
 
-def test_readonly_missing_json_ignores_legacy_key() -> None:
+def test_verify_missing_json_ignores_legacy_key() -> None:
+    """Verify mode neither writes JSON nor reads a same-key .pkl file."""
     legacy_key = "m/group@result.pkl"
     backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
-    snapshot = _legacy_backend_snapshot(backend, readonly=True)
+    snapshot = _legacy_backend_snapshot(backend, mode=SnapshotMode.VERIFY)
 
     actual = snapshot({"current": True}, "result")
 
@@ -304,3 +308,16 @@ def test_raises_at_construction_when_module_is_empty_for_file_scheme(
     """Snapshot raises TypeError when constructed without module= for file:// too."""
     with pytest.raises(TypeError, match="module="):
         _file_snapshot(tmp_dir, group_name="test", module="")
+
+
+@pytest.mark.parametrize("mode", ["update", True, None])
+def test_raises_at_construction_when_mode_is_not_a_snapshot_mode(mode: object) -> None:
+    """A mode outside SnapshotMode is rejected rather than recording nothing."""
+    with pytest.raises(TypeError, match="mode must be a SnapshotMode"):
+        Snapshot(
+            group_name="test",
+            module="m",
+            target="memory://",
+            _backend={},
+            mode=mode,  # type: ignore[arg-type]
+        )

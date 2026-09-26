@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import warnings
+from enum import Enum
 
 import pytest
 
-from ditto.snapshot import LockSeen
+from ditto.snapshot import LockSeen, SnapshotMode
 from ditto._lockfile import (
     LockEntry,
     LockFile,
@@ -17,10 +18,39 @@ from ditto._lockfile import (
 )
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
+from ._options import PruneMode, RunOptions
 from ._session import fail_session, session_state
 
 
-__all__ = ("write_session_lockfile", "warn_if_lockfile_ignored")
+__all__ = (
+    "LockAction",
+    "choose_lock_action",
+    "is_authoritative_run",
+    "write_session_lockfile",
+    "warn_if_lockfile_ignored",
+)
+
+
+class LockAction(Enum):
+    """What a single-process session does to `ditto.lock` when it finishes.
+
+    Attributes
+    ----------
+    APPEND
+        Add the entries created this run.
+    REBUILD
+        Rewrite each exercised target's entries from this run.
+    REFUSE
+        `--ditto-lock` on a run that cannot rebuild the lock: warn and fail.
+    KEEP
+        Leave the lock unchanged. A prune run keeps it so a snapshot created
+        this run stays `unsynced` (kept and warned) rather than being appended.
+    """
+
+    APPEND = "append"
+    REBUILD = "rebuild"
+    REFUSE = "refuse"
+    KEEP = "keep"
 
 
 def _grouped(seen: set[LockSeen]) -> dict[tuple[str, str], list[LockEntry]]:
@@ -49,7 +79,7 @@ def _append_lockfile(config: pytest.Config) -> None:
         write_lockfile(path, lock)
 
 
-def _is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
+def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     """True when this run is safe to rebuild the lock file from.
 
     Refuses filtered runs (`-k`, `-m`, `--lf`/`--ff`), positional path/nodeid
@@ -142,25 +172,39 @@ def warn_if_lockfile_ignored(config: pytest.Config) -> None:
         )
 
 
-def write_session_lockfile(
-    session: pytest.Session,
-    exitstatus: int,
-    *,
-    is_lock: bool,
-    pruning: bool,
-) -> None:
-    """Rewrite, append, or leave ditto.lock unchanged for a single-process run.
+def choose_lock_action(options: RunOptions, authoritative: bool) -> LockAction:
+    """Decide what the session does to `ditto.lock`.
 
-    A prune run (`pruning`) leaves the lock untouched so a snapshot created this
-    run stays `unsynced` (kept and warned) rather than being silently appended.
+    Parameters
+    ----------
+    options : RunOptions
+        The run's ditto options.
+    authoritative : bool
+        Whether the run is safe to rebuild the lock from; see
+        `is_authoritative_run`.
+    """
+    if options.rebuild_lock:
+        return LockAction.REBUILD if authoritative else LockAction.REFUSE
+    if options.snapshot_mode is SnapshotMode.UPDATE and authoritative:
+        return LockAction.REBUILD
+    if options.prune is not PruneMode.OFF:
+        return LockAction.KEEP
+    return LockAction.APPEND
+
+
+def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
+    """Apply `action` to `ditto.lock` for a single-process run.
+
     Never raises — a lock-write failure is downgraded to a `DittoWarning`.
     """
     config = session.config
     try:
-        if is_lock:
-            if _is_authoritative_run(session, exitstatus):
+        match action:
+            case LockAction.APPEND:
+                _append_lockfile(config)
+            case LockAction.REBUILD:
                 _rewrite_lockfile(config)
-            else:
+            case LockAction.REFUSE:
                 warnings.warn(
                     "--ditto-lock requires a full run (no -k/-m/--lf, no "
                     "path/nodeid args, and no failures); leaving "
@@ -169,15 +213,8 @@ def write_session_lockfile(
                     stacklevel=1,
                 )
                 fail_session(session)
-        elif config.getoption(
-            "--ditto-update", default=False
-        ) and _is_authoritative_run(session, exitstatus):
-            _rewrite_lockfile(config)
-        elif pruning:
-            # A prune run does not write the lock (see docstring).
-            pass
-        else:
-            _append_lockfile(config)
+            case LockAction.KEEP:
+                pass
     except Exception as exc:  # never crash a run over a lock-file write
         warnings.warn(
             f"Failed to write {LOCKFILE_NAME}: {exc}",

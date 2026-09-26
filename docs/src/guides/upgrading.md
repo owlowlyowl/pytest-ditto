@@ -37,6 +37,12 @@ Version 2.0 also removes `DittoTestCase`. Unittest-style classes collected by
 pytest should use pytest fixtures and marks. Direct `Snapshot` construction is
 the lower-level alternative when fixture injection is unsuitable.
 
+A directly constructed `Snapshot` takes a single `mode` in place of the
+`update` and `readonly` flags: `Snapshot(..., mode=SnapshotMode.UPDATE)` replaces
+`update=True`, and `mode=SnapshotMode.VERIFY` replaces `readonly=True`. The
+default, `SnapshotMode.RECORD`, matches the old defaults. Import `SnapshotMode`
+from `ditto`.
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by
