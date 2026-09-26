@@ -2,7 +2,7 @@ import fsspec
 
 from ditto._reconcile import ReconcileResult, owned_prefixes, diff_backend
 from ditto._lockfile import LockEntry, storage_key
-from ditto.snapshot import Snapshot, resolve_snapshot, session_tracker
+from ditto.snapshot import Snapshot, resolve_snapshot
 from ditto.backends import FsspecMapping
 from ditto.recorders import default as _default_recorder
 
@@ -107,7 +107,6 @@ def test_key_in_both_lock_and_backend_is_not_an_orphan():
 
 def test_storage_key_matches_the_key_the_fixture_actually_stores(tmp_path):
     """storage_key(nodeid) equals the backend key a real resolve_snapshot writes."""
-    session_tracker.reset()
     root = (tmp_path / ".ditto").as_posix()
     backend = FsspecMapping(fsspec.filesystem("file"), root)
     snap = Snapshot(
@@ -127,7 +126,6 @@ def test_storage_key_matches_the_key_the_fixture_actually_stores(tmp_path):
     )
 
     assert derived in stored_keys
-    session_tracker.reset()
 
 
 def test_classifies_created_this_run_key_as_unsynced_not_orphan():

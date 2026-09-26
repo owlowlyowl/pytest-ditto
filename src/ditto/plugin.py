@@ -4,6 +4,7 @@ import tomllib
 import warnings
 from collections.abc import Hashable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, ExitStack
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ import fsspec
 import fsspec.core
 
 from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.snapshot import LockSeen, session_tracker
+from ditto.snapshot import LockSeen, _SessionTracker
 from ditto._manifest import BackendManifest, ManifestEntry, to_json
 from ditto._lockfile import (
     LockEntry,
@@ -56,18 +57,42 @@ StorageOptionsByScheme = dict[str, StorageOptions]
 
 
 # ---------------------------------------------------------------------------
-# Module-level session state — reset in pytest_sessionstart
+# Per-session state
 #
-# Pytest hook functions (pytest_sessionstart, pytest_sessionfinish, etc.) are
-# discovered and called by pytest's plugin machinery with no dependency-injection
-# mechanism for passing state between them. Module-level variables are the only
-# practical way to share lifecycle state across hooks in a pytest plugin.
+# Held on `config.stash`, never at module level: an in-process `pytester` run
+# executes a nested pytest session inside the same interpreter, with this same
+# module as its plugin. Module-level state would be shared between the two
+# sessions, leaking the nested run's snapshots into the outer `ditto.lock` and
+# wiping the outer run's observations (#115).
 # ---------------------------------------------------------------------------
 
-_session_exit_stack: ExitStack = ExitStack()
-_entered_backends: dict[int, MutableMapping[str, bytes]] = {}
-_backend_cache: dict[TargetCacheKey, MutableMapping[str, bytes]] = {}
-_introspect_backends: dict[str, MutableMapping[str, bytes]] = {}
+
+@dataclass
+class _DittoSession:
+    """ditto's mutable state for one pytest session."""
+
+    tracker: _SessionTracker = field(default_factory=_SessionTracker)
+    exit_stack: ExitStack = field(default_factory=ExitStack)
+    entered_backends: dict[int, MutableMapping[str, bytes]] = field(
+        default_factory=dict
+    )
+    backend_cache: dict[TargetCacheKey, MutableMapping[str, bytes]] = field(
+        default_factory=dict
+    )
+    introspect_backends: dict[str, MutableMapping[str, bytes]] = field(
+        default_factory=dict
+    )
+
+
+_SESSION_STATE = pytest.StashKey[_DittoSession]()
+
+
+def _session_state(config: pytest.Config) -> _DittoSession:
+    """Return this config's session state, creating it on first use."""
+    state = config.stash.get(_SESSION_STATE, None)
+    if state is None:
+        state = config.stash[_SESSION_STATE] = _DittoSession()
+    return state
 
 
 # ---------------------------------------------------------------------------
@@ -75,21 +100,23 @@ _introspect_backends: dict[str, MutableMapping[str, bytes]] = {}
 # ---------------------------------------------------------------------------
 
 
-def _maybe_enter(backend: MutableMapping[str, bytes]) -> MutableMapping[str, bytes]:
+def _maybe_enter(
+    backend: MutableMapping[str, bytes], state: _DittoSession
+) -> MutableMapping[str, bytes]:
     """Enter a context-manager backend into the session `ExitStack` exactly once.
 
     Returns the value of `__enter__` (typically `self`). No-op for backends that
     are not context managers and for backends already entered.
     """
     bid = id(backend)
-    if bid in _entered_backends:
-        return _entered_backends[bid]
+    if bid in state.entered_backends:
+        return state.entered_backends[bid]
     if isinstance(backend, AbstractContextManager):
         entered = cast(
             MutableMapping[str, bytes],
-            _session_exit_stack.enter_context(backend),
+            state.exit_stack.enter_context(backend),
         )
-        _entered_backends[bid] = entered
+        state.entered_backends[bid] = entered
         return entered
     return backend
 
@@ -381,6 +408,7 @@ def _resolve_uri(
     uri: str,
     test_dir: Path,
     opts: Mapping[str, object],
+    state: _DittoSession,
 ) -> tuple[MutableMapping[str, bytes], str]:
     """Resolve a URI to `(backend, canonical_uri)`.
 
@@ -410,6 +438,8 @@ def _resolve_uri(
     opts : Mapping[str, Any]
         Flat keyword arguments forwarded to the backend factory or
         `fsspec.core.url_to_fs`.
+    state : _DittoSession
+        The session whose backend cache and exit stack own the backend.
 
     Returns
     -------
@@ -426,8 +456,8 @@ def _resolve_uri(
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
 
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key], canonical_uri
+    if cache_key in state.backend_cache:
+        return state.backend_cache[cache_key], canonical_uri
 
     canonical = urlparse(canonical_uri)
     scheme = canonical.scheme
@@ -435,19 +465,19 @@ def _resolve_uri(
     if scheme == "file":
         path = Path(canonical.netloc + canonical.path or ".ditto")
         backend = FsspecMapping(fsspec.filesystem("file"), path.as_posix())
-        backend = _maybe_enter(backend)
-        _backend_cache[cache_key] = backend
+        backend = _maybe_enter(backend, state)
+        state.backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     if scheme in BACKEND_REGISTRY:
-        backend = _maybe_enter(BACKEND_REGISTRY[scheme](canonical_uri, **opts))
-        _backend_cache[cache_key] = backend
+        backend = _maybe_enter(BACKEND_REGISTRY[scheme](canonical_uri, **opts), state)
+        state.backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     if scheme in fsspec.available_protocols():
         fs, root = fsspec.core.url_to_fs(canonical_uri, **opts)
-        backend = _maybe_enter(FsspecMapping(fs, root))
-        _backend_cache[cache_key] = backend
+        backend = _maybe_enter(FsspecMapping(fs, root), state)
+        state.backend_cache[cache_key] = backend
         return backend, canonical_uri
 
     raise ValueError(
@@ -506,27 +536,30 @@ def _resolve_target(
 
     test_dir = request.path.parent
     storage_options = _get_storage_options(request)
+    state = _session_state(request.config)
 
     if mark_target is not None:
         parsed = urlparse(mark_target)
         return _resolve_uri(
-            mark_target, test_dir, storage_options.get(parsed.scheme, {})
+            mark_target, test_dir, storage_options.get(parsed.scheme, {}), state
         )
 
     if mark_target_profile is not None:
         profiles = _load_target_profiles(request)
         profile_uri, profile_opts = _resolve_profile(mark_target_profile, profiles)
-        return _resolve_uri(profile_uri, test_dir, profile_opts)
+        return _resolve_uri(profile_uri, test_dir, profile_opts, state)
 
     ini_profile = request.config.getini("ditto_target_profile")
     if ini_profile:
         profiles = _load_target_profiles(request)
         profile_uri, profile_opts = _resolve_profile(ini_profile, profiles)
-        return _resolve_uri(profile_uri, test_dir, profile_opts)
+        return _resolve_uri(profile_uri, test_dir, profile_opts, state)
 
     ini_target = request.config.getini("ditto_target") or "file://.ditto"
     parsed = urlparse(ini_target)
-    return _resolve_uri(ini_target, test_dir, storage_options.get(parsed.scheme, {}))
+    return _resolve_uri(
+        ini_target, test_dir, storage_options.get(parsed.scheme, {}), state
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -546,13 +579,14 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     mark_target, mark_profile = _parse_mark_target_selection(marks)
     backend, abs_uri = _resolve_target(mark_target, mark_profile, request)
 
-    session_tracker.register_backend_module(id(backend), module)
-    session_tracker.register_target_backend(
+    state = _session_state(request.config)
+    state.tracker.register_backend_module(id(backend), module)
+    state.tracker.register_target_backend(
         portable_target_id(abs_uri, rootdir), urlparse(abs_uri).scheme, backend
     )
 
     if request.config.getoption("--ditto-introspect", default=""):
-        _introspect_backends.setdefault(abs_uri, backend)
+        state.introspect_backends.setdefault(abs_uri, backend)
 
     file_prefix = str(request.path.relative_to(rootdir)) + "::"
     qualified_name = request.node.nodeid.removeprefix(file_prefix)
@@ -568,6 +602,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         readonly=readonly,
         nodeid=request.node.nodeid,
         target_id=portable_target_id(abs_uri, rootdir),
+        _tracker=state.tracker,
     )
 
 
@@ -666,7 +701,7 @@ def _grouped(seen: set[LockSeen]) -> dict[tuple[str, str], list[LockEntry]]:
 
 def _append_lockfile(config: pytest.Config) -> None:
     """Union this session's newly-created entries into `ditto.lock` (append-only)."""
-    grouped = _grouped(session_tracker.lock_created)
+    grouped = _grouped(_session_state(config).tracker.lock_created)
     if not grouped:
         return
     path = config.rootpath / LOCKFILE_NAME
@@ -690,7 +725,7 @@ def _xdist_is_distributing(config: pytest.Config) -> bool:
     """True when pytest-xdist is distributing this run across worker processes.
 
     Under distribution the controller process (which runs `pytest_sessionfinish`
-    and writes the lock) never executes test bodies, so its `session_tracker` is
+    and writes the lock) never executes test bodies, so its session tracker is
     empty and any lock write would be wrong (see #83). `numprocesses` is set by
     `-n auto`/`-n N` and is falsy (`None`/`0`) for single-process runs.
     """
@@ -739,7 +774,7 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
 
     Targets present in the existing file but not exercised this run are preserved.
     """
-    grouped = _grouped(session_tracker.lock_accessed)
+    grouped = _grouped(_session_state(config).tracker.lock_accessed)
     path = config.rootpath / LOCKFILE_NAME
     # An authoritative rebuild must be able to recover a corrupt lock file, so a
     # parse failure of the existing file is downgraded to "start fresh" rather
@@ -813,15 +848,17 @@ def _classify_target(
     return list(result.missing), list(result.orphan), list(result.unsynced)
 
 
-def _session_target_maps() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+def _session_target_maps(
+    tracker: _SessionTracker,
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Return (modules_by_target, created_keys_by_target) from this session."""
     modules_by_target: dict[str, set[str]] = {}
     created_by_target: dict[str, set[str]] = {}
-    for seen in session_tracker.lock_accessed:
+    for seen in tracker.lock_accessed:
         modules_by_target.setdefault(seen.target_id, set()).add(
             _split_nodeid(seen.nodeid)[0]
         )
-    for seen in session_tracker.lock_created:
+    for seen in tracker.lock_created:
         created_by_target.setdefault(seen.target_id, set()).add(
             storage_key(LockEntry(seen.nodeid, seen.key, seen.recorder), seen.scheme)
         )
@@ -860,7 +897,8 @@ def _run_verify(session: pytest.Session) -> None:
         _fail_session(session)
         return
 
-    modules_by_target, created_by_target = _session_target_maps()
+    tracker = _session_state(config).tracker
+    modules_by_target, created_by_target = _session_target_maps(tracker)
 
     opt = session.config.option
     is_partial = bool(getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""))
@@ -875,7 +913,7 @@ def _run_verify(session: pytest.Session) -> None:
     all_missing: list[str] = []
     all_orphan: list[str] = []
     all_unsynced: list[str] = []
-    for target_id, (scheme, backend) in session_tracker.target_backends.items():
+    for target_id, (scheme, backend) in tracker.target_backends.items():
         try:
             missing, orphan, unsynced = _classify_target(
                 target_id,
@@ -969,7 +1007,8 @@ def _run_prune(
         _fail_session(session)
         return [], []
 
-    modules_by_target, created_by_target = _session_target_maps()
+    tracker = _session_state(config).tracker
+    modules_by_target, created_by_target = _session_target_maps(tracker)
 
     opt = session.config.option
     if getattr(opt, "keyword", "") or getattr(opt, "markexpr", ""):
@@ -982,7 +1021,7 @@ def _run_prune(
 
     pruned: list[str] = []
     would_prune: list[str] = []
-    for target_id, (scheme, backend) in session_tracker.target_backends.items():
+    for target_id, (scheme, backend) in tracker.target_backends.items():
         try:
             missing, orphan, unsynced = _classify_target(
                 target_id,
@@ -1067,12 +1106,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    global _session_exit_stack
-    _session_exit_stack = ExitStack()
-    _entered_backends.clear()
-    _backend_cache.clear()
-    _introspect_backends.clear()
-    session_tracker.reset()
+    session.config.stash[_SESSION_STATE] = _DittoSession()
 
 
 def _enumerate_entries(backend: MutableMapping[str, bytes]) -> list[ManifestEntry]:
@@ -1104,14 +1138,16 @@ def _enumerate_entries(backend: MutableMapping[str, bytes]) -> list[ManifestEntr
         return []
 
 
-def _write_introspect_manifest(path: str) -> None:
+def _write_introspect_manifest(
+    path: str, backends: Mapping[str, MutableMapping[str, bytes]]
+) -> None:
     """Write a manifest of every resolved backend to `path`.
 
     Called before the session ExitStack closes, so backends are still open.
     """
     manifest = [
         BackendManifest(location=uri, entries=_enumerate_entries(backend))
-        for uri, backend in _introspect_backends.items()
+        for uri, backend in backends.items()
     ]
     Path(path).write_text(to_json(manifest))
 
@@ -1168,12 +1204,14 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     introspect_path = config.getoption("--ditto-introspect", default="")
     if introspect_path:
-        _write_introspect_manifest(introspect_path)
+        _write_introspect_manifest(
+            introspect_path, _session_state(config).introspect_backends
+        )
         return
 
     render_session_report(
-        created=session_tracker.created,
-        updated=session_tracker.updated,
+        created=_session_state(config).tracker.created,
+        updated=_session_state(config).tracker.updated,
         pruned=pruned,
         would_prune=would_prune,
     )
@@ -1181,4 +1219,6 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     """Close all backend connections after pruning has run in pytest_sessionfinish."""
-    _session_exit_stack.close()
+    state = config.stash.get(_SESSION_STATE, None)
+    if state is not None:
+        state.exit_stack.close()

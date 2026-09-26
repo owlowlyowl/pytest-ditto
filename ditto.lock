@@ -1,6 +1,31 @@
 {
   "version": 1,
   "targets": {
+    "redis://localhost:6379/0": {
+      "scheme": "redis",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_keys_use_namespaced_format",
+          "key": "n",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_multiple_keys_in_one_test",
+          "key": "list",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_multiple_keys_in_one_test",
+          "key": "str",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_round_trips_value_through_redis",
+          "key": "data",
+          "recorder": "json"
+        }
+      ]
+    },
     "tests/ci/.ditto": {
       "scheme": "file",
       "entries": [
