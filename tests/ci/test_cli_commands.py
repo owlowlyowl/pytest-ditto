@@ -12,9 +12,11 @@ from click.testing import CliRunner
 
 from ditto._lockfile import LOCKFILE_VERSION
 from ditto._manifest import BackendManifest, ManifestEntry
+from ditto.recorders._plugins import RecorderRegistry
 from ditto.cli import (
     RecorderInfo,
     _doctor_checks,
+    _recorder_checks,
     _ext_map,
     _find_lint_issues,
     cmd_clean,
@@ -167,32 +169,55 @@ def test_doctor_plugin_check_passes_against_the_real_installation() -> None:
 # ── _doctor_checks: entry point loading ───────────────────────────────────────
 
 
-def test_returns_failing_check_with_error_detail_when_recorder_load_raises() -> None:
-    """A recorder whose entry point raises on load produces a failing check with the
-    error message."""
-    bad = _ep("broken_recorder", load_raises=ImportError("missing dep"))
-    with patch(
-        "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(recorders=[bad]),
-    ):
-        checks = _doctor_checks()
+def test_returns_failing_check_with_error_detail_when_recorder_load_raises(
+    make_distribution,
+) -> None:
+    """A recorder whose entry point fails to load gets a failing check with the
+    error."""
+    eps = make_distribution(
+        "plug", "1.0", {"ditto_recorders": {"broken": "ditto_no_such_module:x"}}
+    )
 
-    result = next(c for c in checks if c.name == "recorder: broken_recorder")
+    checks = _recorder_checks(RecorderRegistry(eps, []))
+
+    result = next(c for c in checks if c.name == "recorder: broken")
     assert result.ok is False
-    assert "missing dep" in result.detail
+    assert "ditto_no_such_module" in result.detail
 
 
-def test_returns_one_result_per_recorder_entry_point() -> None:
-    """Each registered recorder entry point produces exactly one CheckResult."""
-    eps = [_ep("custom"), _ep("yaml"), _ep("json")]
-    with patch(
-        "ditto.cli.importlib.metadata.entry_points",
-        side_effect=_entry_points(recorders=eps),
-    ):
-        checks = _doctor_checks()
+def test_returns_one_passing_result_per_loadable_recorder(make_distribution) -> None:
+    """Each recorder that loads produces exactly one passing check."""
+    eps = make_distribution(
+        "plug",
+        "1.0",
+        {
+            "ditto_recorders": {
+                "json": "ditto.recorders._json:json",
+                "yaml": "ditto.recorders._yaml:yaml",
+            }
+        },
+    )
 
-    recorder_checks = [c for c in checks if c.name.startswith("recorder:")]
-    assert len(recorder_checks) == 3
+    checks = _recorder_checks(RecorderRegistry(eps, []))
+
+    actual = [(c.name, c.ok) for c in checks]
+    expected = [("recorder: json", True), ("recorder: yaml", True)]
+    assert actual == expected
+
+
+def test_reports_a_contract_problem_once_instead_of_per_recorder(
+    make_distribution,
+) -> None:
+    """A duplicated name fails one contract check, naming both distributions."""
+    json_ep = "ditto.recorders._json:json"
+    first = make_distribution("plug-a", "1.0", {"ditto_recorders": {"fmt": json_ep}})
+    second = make_distribution("plug-b", "2.0", {"ditto_recorders": {"fmt": json_ep}})
+
+    checks = _recorder_checks(RecorderRegistry([*first, *second], []))
+
+    (check,) = checks
+    assert (check.name, check.ok) == ("plugin contract", False)
+    assert "plug-a 1.0, plug-b 2.0" in check.detail
 
 
 # ── _find_lint_issues: clean inputs ───────────────────────────────────────────

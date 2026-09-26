@@ -55,6 +55,8 @@ from ._theme import (
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
 from ._inventory import InventoryError, build_inventory, lock_present
+from .recorders._contract import NAME_PATTERN
+from .recorders._plugins import RecorderRegistry
 
 console = Console()
 
@@ -145,7 +147,7 @@ def _entries(manifest: Manifest) -> list[ManifestEntry]:
 
 @dataclass(frozen=True)
 class RecorderInfo:
-    name: str  # e.g. "pandas_parquet"
+    name: str  # e.g. "pandas.parquet"
     identifier: str  # e.g. ".pandas.parquet"
     package: str  # e.g. "pytest-ditto-pandas"
 
@@ -582,22 +584,29 @@ def cmd_status(path: Path, live: bool):
     _print_inventory_notes(path, entries, live=live)
 
 
+def _mark_for(name: str) -> str:
+    """Return the mark a recorder name derives, or "-" for an invalid name."""
+    return f"@ditto.{name}" if NAME_PATTERN.fullmatch(name) else "-"
+
+
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
     """Build and print the registered recorders panel."""
     colour_map = _build_colour_map(info.name for info in infos)
     name_w = max(len("Name"), max(len(i.name) for i in infos))
+    mark_w = max(len("Mark"), max(len(_mark_for(i.name)) for i in infos))
     ext_w = max(len("Identifier"), max(len(i.identifier) for i in infos))
 
     lines = Text()
     lines.append("\n")
     lines.append(
-        f"  {'Name':<{name_w}}  {'Identifier':<{ext_w}}  {'Source'}\n",
+        f"  {'Name':<{name_w}}  {'Mark':<{mark_w}}  {'Identifier':<{ext_w}}  Source\n",
         style=f"bold {HEADER}",
     )
     for info in sorted(infos, key=lambda i: i.name):
         lines.append(
             f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED)
         )
+        lines.append(f"{_mark_for(info.name):<{mark_w}}  ", style=TEXT)
         lines.append(f"{info.identifier:<{ext_w}}  ", style=TEXT)
         lines.append(f"{info.package}\n", style=MUTED)
 
@@ -624,6 +633,12 @@ def cmd_recorders():
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
         sys.exit(1)
     _render_recorders(infos, console)
+    problems = RecorderRegistry().problems
+    if problems:
+        console.print(
+            f"[{PRUNED}]{len(problems)} plugin contract problem(s); run "
+            f"`ditto doctor` for details.[/{PRUNED}]"
+        )
 
 
 # ── Doctor / Lint / Stats data types ──────────────────────────────────────────
@@ -704,16 +719,34 @@ def _doctor_checks() -> list[CheckResult]:
     )
 
     results.append(_plugin_check())
+    results.extend(_recorder_checks(RecorderRegistry()))
+    return results
 
-    for ep in importlib.metadata.entry_points(group="ditto_recorders"):
+
+def _recorder_checks(registry: RecorderRegistry) -> list[CheckResult]:
+    """Check each recorder loads and the registrations keep the plugin contract.
+
+    Every recorder is loaded through `registry`, so identifier collisions and
+    1.x-plugin upgrade hints are reported the way a test run would report them.
+    A contract problem gets one failing row; the recorders it affects are not
+    listed again.
+    """
+    affected = {name for problem in registry.problems for name in problem.names}
+    results = [
+        CheckResult(name="plugin contract", ok=False, detail=problem.message)
+        for problem in registry.problems
+    ]
+    for name in registry:
+        if name in affected:
+            continue
         try:
-            ep.load()
-            results.append(CheckResult(name=f"recorder: {ep.name}", ok=True, detail=""))
+            registry[name]
         except Exception as exc:
             results.append(
-                CheckResult(name=f"recorder: {ep.name}", ok=False, detail=str(exc))
+                CheckResult(name=f"recorder: {name}", ok=False, detail=str(exc))
             )
-
+        else:
+            results.append(CheckResult(name=f"recorder: {name}", ok=True, detail=""))
     return results
 
 

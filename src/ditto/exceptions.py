@@ -5,6 +5,7 @@ __all__ = (
     "DittoMarkHasNoIOType",
     "DittoUnknownRecorderError",
     "DittoRecorderLoadError",
+    "DittoRecorderConflictError",
     "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
     "DittoAmbiguousTargetError",
@@ -58,11 +59,21 @@ class DittoUnknownRecorderError(DittoException):
 class DittoRecorderLoadError(DittoException):
     """Raised when an installed recorder's entry point fails to load."""
 
-    def __init__(self, name: str, distribution: str, cause: BaseException) -> None:
-        super().__init__(
+    def __init__(
+        self, name: str, distribution: str, cause: BaseException, hint: str = ""
+    ) -> None:
+        message = (
             f"ditto recorder {name!r} from {distribution} failed to load: "
             f"{type(cause).__name__}: {cause}"
         )
+        super().__init__(f"{message}. {hint}" if hint else message)
+
+
+class DittoRecorderConflictError(DittoException):
+    """Raised when a recorder is used whose registration breaks the plugin contract.
+
+    The message describes the conflict and names the distributions involved.
+    """
 
 
 class DittoJSONSerializationError(DittoException):
