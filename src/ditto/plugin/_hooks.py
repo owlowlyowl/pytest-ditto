@@ -7,6 +7,7 @@ import pytest
 from ditto._lockfile import LOCKFILE_NAME
 from ditto._report import render_session_report
 from ditto.exceptions import DittoWarning
+from ditto.recorders import RECORDER_REGISTRY
 from ditto.snapshot import SnapshotMode
 
 from ._drift import delete_orphans, find_orphans, run_verify
@@ -51,6 +52,9 @@ def pytest_configure(config: pytest.Config) -> None:
     options = read_run_options(config)
     validate_ini_options(config)
     config.stash[RUN_OPTIONS] = options
+    if not is_xdist_worker(config):
+        for problem in RECORDER_REGISTRY.problems:
+            config.issue_config_time_warning(DittoWarning(problem.message), 2)
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
