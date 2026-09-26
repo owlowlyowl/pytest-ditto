@@ -91,8 +91,13 @@ jobs:
         python-version: ["12", "13", "14"]
 
     steps:
+      # Full history: pixi builds core and the plugin concurrently, and both run
+      # version_builder.py, whose `git fetch --unshallow` races for
+      # .git/shallow.lock on a shallow checkout.
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
