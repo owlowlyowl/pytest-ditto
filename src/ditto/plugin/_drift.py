@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from typing import NamedTuple
 
 import pytest
@@ -216,7 +216,7 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
     return orphans
 
 
-def delete_orphans(orphans: list[Orphan]) -> list[str]:
+def delete_orphans(orphans: Iterable[Orphan]) -> list[str]:
     """Delete each orphan from its backend and return the keys deleted.
 
     A failed deletion is warned about and left out of the result.

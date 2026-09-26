@@ -24,7 +24,7 @@ from ._options import (
     is_xdist_worker,
     read_run_options,
     run_options,
-    validate_options,
+    validate_ini_options,
     xdist_is_distributing,
 )
 from ._session import SESSION_STATE, DittoSession, fail_session, session_state
@@ -48,8 +48,9 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "record(recorder): snapshot with a specific recorder",
     )
-    validate_options(config)
-    config.stash[RUN_OPTIONS] = read_run_options(config)
+    options = read_run_options(config)
+    validate_ini_options(config)
+    config.stash[RUN_OPTIONS] = options
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

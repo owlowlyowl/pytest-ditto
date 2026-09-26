@@ -23,21 +23,24 @@ def test_appends_when_recording_without_pruning(authoritative: bool) -> None:
     """A plain run appends its new entries, whether or not it is authoritative."""
     actual = choose_lock_action(_options(), authoritative)
 
-    assert actual is LockAction.APPEND
+    expected = LockAction.APPEND
+    assert actual == expected
 
 
 def test_rebuilds_when_lock_rebuild_is_requested_on_authoritative_run() -> None:
     """`--ditto-lock` on a full, passing run rebuilds the lock."""
     actual = choose_lock_action(_options(rebuild_lock=True), authoritative=True)
 
-    assert actual is LockAction.REBUILD
+    expected = LockAction.REBUILD
+    assert actual == expected
 
 
 def test_refuses_when_lock_rebuild_is_requested_on_partial_run() -> None:
     """`--ditto-lock` on a run that cannot rebuild the lock is refused."""
     actual = choose_lock_action(_options(rebuild_lock=True), authoritative=False)
 
-    assert actual is LockAction.REFUSE
+    expected = LockAction.REFUSE
+    assert actual == expected
 
 
 def test_rebuilds_when_lock_rebuild_is_combined_with_pruning() -> None:
@@ -46,7 +49,8 @@ def test_rebuilds_when_lock_rebuild_is_combined_with_pruning() -> None:
 
     actual = choose_lock_action(options, authoritative=True)
 
-    assert actual is LockAction.REBUILD
+    expected = LockAction.REBUILD
+    assert actual == expected
 
 
 def test_rebuilds_when_updating_on_authoritative_run() -> None:
@@ -55,7 +59,8 @@ def test_rebuilds_when_updating_on_authoritative_run() -> None:
 
     actual = choose_lock_action(options, authoritative=True)
 
-    assert actual is LockAction.REBUILD
+    expected = LockAction.REBUILD
+    assert actual == expected
 
 
 def test_appends_when_updating_on_partial_run() -> None:
@@ -64,7 +69,8 @@ def test_appends_when_updating_on_partial_run() -> None:
 
     actual = choose_lock_action(options, authoritative=False)
 
-    assert actual is LockAction.APPEND
+    expected = LockAction.APPEND
+    assert actual == expected
 
 
 @pytest.mark.parametrize("prune", [PruneMode.DELETE, PruneMode.DRY_RUN])
@@ -72,7 +78,8 @@ def test_keeps_lock_when_pruning(prune: PruneMode) -> None:
     """A prune run leaves the lock unchanged, so new snapshots stay unsynced."""
     actual = choose_lock_action(_options(prune=prune), authoritative=True)
 
-    assert actual is LockAction.KEEP
+    expected = LockAction.KEEP
+    assert actual == expected
 
 
 def test_keeps_lock_when_updating_and_pruning_on_partial_run() -> None:
@@ -81,4 +88,5 @@ def test_keeps_lock_when_updating_and_pruning_on_partial_run() -> None:
 
     actual = choose_lock_action(options, authoritative=False)
 
-    assert actual is LockAction.KEEP
+    expected = LockAction.KEEP
+    assert actual == expected

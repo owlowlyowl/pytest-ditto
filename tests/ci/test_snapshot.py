@@ -213,6 +213,7 @@ def _legacy_backend_snapshot(backend: MutableMapping[str, bytes], **kwargs) -> S
 def test_missing_json_records_normally_without_reading_legacy_key(
     mode: SnapshotMode,
 ) -> None:
+    """A missing JSON snapshot is recorded without reading a same-key .pkl file."""
     legacy_key = "m/group@result.pkl"
     backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
     snapshot = _legacy_backend_snapshot(backend, mode=mode)
@@ -226,6 +227,7 @@ def test_missing_json_records_normally_without_reading_legacy_key(
 
 
 def test_verify_missing_json_ignores_legacy_key() -> None:
+    """Verify mode neither writes JSON nor reads a same-key .pkl file."""
     legacy_key = "m/group@result.pkl"
     backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
     snapshot = _legacy_backend_snapshot(backend, mode=SnapshotMode.VERIFY)

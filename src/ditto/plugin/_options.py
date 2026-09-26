@@ -19,7 +19,7 @@ __all__ = (
     "read_run_options",
     "run_options",
     "add_options",
-    "validate_options",
+    "validate_ini_options",
     "validate_target_config",
     "get_optional_fixturevalue",
     "get_storage_options",
@@ -75,28 +75,49 @@ def run_options(config: pytest.Config) -> RunOptions:
 
 
 def read_run_options(config: pytest.Config) -> RunOptions:
-    """Read ditto's command-line options from `config`.
+    """Read and validate ditto's command-line options from `config`.
 
-    Assumes `validate_options` has rejected conflicting combinations.
+    Raises
+    ------
+    pytest.UsageError
+        When `--ditto-verify` is combined with an option that writes, or
+        `--ditto-prune` with `--ditto-prune-dry-run`.
     """
-    if config.getoption("--ditto-verify", default=False):
+    verify = bool(config.getoption("--ditto-verify", default=False))
+    update = bool(config.getoption("--ditto-update", default=False))
+    rebuild_lock = bool(config.getoption("--ditto-lock", default=False))
+    prune = bool(config.getoption("--ditto-prune", default=False))
+    dry_run = bool(config.getoption("--ditto-prune-dry-run", default=False))
+
+    if verify and (update or rebuild_lock or prune or dry_run):
+        raise pytest.UsageError(
+            "--ditto-verify is read-only and cannot be combined with "
+            "--ditto-update, --ditto-lock, --ditto-prune, or "
+            "--ditto-prune-dry-run."
+        )
+    if prune and dry_run:
+        raise pytest.UsageError(
+            "--ditto-prune and --ditto-prune-dry-run cannot be combined."
+        )
+
+    if verify:
         snapshot_mode = SnapshotMode.VERIFY
-    elif config.getoption("--ditto-update", default=False):
+    elif update:
         snapshot_mode = SnapshotMode.UPDATE
     else:
         snapshot_mode = SnapshotMode.RECORD
 
-    if config.getoption("--ditto-prune", default=False):
-        prune = PruneMode.DELETE
-    elif config.getoption("--ditto-prune-dry-run", default=False):
-        prune = PruneMode.DRY_RUN
+    if prune:
+        prune_mode = PruneMode.DELETE
+    elif dry_run:
+        prune_mode = PruneMode.DRY_RUN
     else:
-        prune = PruneMode.OFF
+        prune_mode = PruneMode.OFF
 
     return RunOptions(
         snapshot_mode=snapshot_mode,
-        rebuild_lock=bool(config.getoption("--ditto-lock", default=False)),
-        prune=prune,
+        rebuild_lock=rebuild_lock,
+        prune=prune_mode,
         introspect_path=str(config.getoption("--ditto-introspect", default="")),
     )
 
@@ -175,25 +196,8 @@ def add_options(parser: pytest.Parser) -> None:
     )
 
 
-def validate_options(config: pytest.Config) -> None:
-    """Raise `pytest.UsageError` for conflicting ditto options."""
-    if config.getoption("--ditto-verify", default=False) and (
-        config.getoption("--ditto-update", default=False)
-        or config.getoption("--ditto-lock", default=False)
-        or config.getoption("--ditto-prune", default=False)
-        or config.getoption("--ditto-prune-dry-run", default=False)
-    ):
-        raise pytest.UsageError(
-            "--ditto-verify is read-only and cannot be combined with "
-            "--ditto-update, --ditto-lock, --ditto-prune, or "
-            "--ditto-prune-dry-run."
-        )
-    if config.getoption("--ditto-prune", default=False) and config.getoption(
-        "--ditto-prune-dry-run", default=False
-    ):
-        raise pytest.UsageError(
-            "--ditto-prune and --ditto-prune-dry-run cannot be combined."
-        )
+def validate_ini_options(config: pytest.Config) -> None:
+    """Raise `pytest.UsageError` for conflicting ditto ini values."""
     try:
         validate_target_config(config)
     except DittoAmbiguousTargetError as exc:
