@@ -1,11 +1,70 @@
 import importlib.metadata
 import warnings
+from collections.abc import Iterable, Iterator, MutableMapping
+from importlib.metadata import EntryPoint
 
 from ._protocol import Recorder
-from ..exceptions import DittoWarning
+from ..exceptions import DittoRecorderLoadError, DittoWarning
 
 
-__all__ = ("RECORDER_REGISTRY", "MARK_REGISTRY", "load_recorders", "load_mark_plugins")
+__all__ = (
+    "RECORDER_REGISTRY",
+    "MARK_REGISTRY",
+    "RecorderRegistry",
+    "load_recorders",
+    "load_mark_plugins",
+)
+
+
+class RecorderRegistry(MutableMapping[str, Recorder]):
+    """
+    Recorders keyed by name, imported only when first looked up.
+
+    Names come from `ditto_recorders` entry-point metadata, which needs no
+    import, so membership tests and iteration never import a plugin. Recorders
+    added with `registry[name] = recorder` take precedence over entry points.
+
+    Parameters
+    ----------
+    entry_points : Iterable[EntryPoint], optional
+        Entry points to serve. Defaults to the installed `ditto_recorders` group.
+    """
+
+    def __init__(self, entry_points: Iterable[EntryPoint] | None = None) -> None:
+        if entry_points is None:
+            entry_points = importlib.metadata.entry_points(group="ditto_recorders")
+        self._entry_points: dict[str, EntryPoint] = {ep.name: ep for ep in entry_points}
+        self._recorders: dict[str, Recorder] = {}
+
+    def __getitem__(self, name: str) -> Recorder:
+        if name in self._recorders:
+            return self._recorders[name]
+        ep = self._entry_points[name]
+        try:
+            recorder = ep.load()
+        except Exception as exc:
+            dist = ep.dist.name if ep.dist else "an unknown distribution"
+            raise DittoRecorderLoadError(name, dist, exc) from exc
+        self._recorders[name] = recorder
+        return recorder
+
+    def __setitem__(self, name: str, recorder: Recorder) -> None:
+        self._recorders[name] = recorder
+
+    def __delitem__(self, name: str) -> None:
+        if name not in self:
+            raise KeyError(name)
+        self._recorders.pop(name, None)
+        self._entry_points.pop(name, None)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._recorders or name in self._entry_points
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._entry_points.keys() | self._recorders.keys())
+
+    def __len__(self) -> int:
+        return len(self._entry_points.keys() | self._recorders.keys())
 
 
 def load_recorders() -> dict[str, Recorder]:
@@ -62,5 +121,5 @@ def load_mark_plugins() -> dict[str, object]:
     return result
 
 
-RECORDER_REGISTRY: dict[str, Recorder] = load_recorders()
+RECORDER_REGISTRY: RecorderRegistry = RecorderRegistry()
 MARK_REGISTRY: dict[str, object] = load_mark_plugins()

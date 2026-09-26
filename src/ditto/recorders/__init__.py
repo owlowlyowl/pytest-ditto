@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from typing import Final, cast
 
 from ditto.exceptions import DittoUnknownRecorderError
@@ -25,7 +25,11 @@ __all__ = (
 )
 
 
-def register(name: str, recorder: Recorder, registry: dict = RECORDER_REGISTRY) -> None:
+def register(
+    name: str,
+    recorder: Recorder,
+    registry: MutableMapping[str, Recorder] = RECORDER_REGISTRY,
+) -> None:
     """
     Add or replace a recorder in the given registry.
 
@@ -35,7 +39,7 @@ def register(name: str, recorder: Recorder, registry: dict = RECORDER_REGISTRY) 
         Key under which the recorder is registered.
     recorder : Recorder
         The recorder instance to register.
-    registry : dict, optional
+    registry : MutableMapping[str, Recorder], optional
         Registry to mutate. Defaults to the shared `RECORDER_REGISTRY`.
         Pass an isolated dict in tests to avoid mutating shared state.
     """

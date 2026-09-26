@@ -4,6 +4,7 @@ __all__ = (
     "AdditionalMarkError",
     "DittoMarkHasNoIOType",
     "DittoUnknownRecorderError",
+    "DittoRecorderLoadError",
     "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
     "DittoAmbiguousTargetError",
@@ -51,6 +52,16 @@ class DittoUnknownRecorderError(DittoException):
         available_str = ", ".join(sorted(available)) if available else "(none)"
         super().__init__(
             f"Unknown ditto recorder {name!r}. Available recorders: {available_str}."
+        )
+
+
+class DittoRecorderLoadError(DittoException):
+    """Raised when an installed recorder's entry point fails to load."""
+
+    def __init__(self, name: str, distribution: str, cause: BaseException) -> None:
+        super().__init__(
+            f"ditto recorder {name!r} from {distribution} failed to load: "
+            f"{type(cause).__name__}: {cause}"
         )
 
 
