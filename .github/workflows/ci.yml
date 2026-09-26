@@ -21,7 +21,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: lint
 
@@ -40,7 +40,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: lint
 
@@ -64,7 +64,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: py3${{ matrix.python-version }}
 
@@ -77,6 +77,47 @@ jobs:
         with:
           name: test-results-py3${{ matrix.python-version }}
           path: .pytest/test-results.xml
+          retention-days: 30
+
+  test-plugin:
+    name: Plugin ${{ matrix.plugin }} (Python 3.${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pyarrow]
+        python-version: ["12", "13", "14"]
+
+    steps:
+      # Full history: pixi builds core and the plugin concurrently, and both run
+      # version_builder.py, whose `git fetch --unshallow` races for
+      # .git/shallow.lock on a shallow checkout.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: ${{ matrix.plugin }}-py3${{ matrix.python-version }}
+
+      # Read-only (`pytest --ditto-verify`): runs the whole plugin suite against this
+      # commit's core and fails on any drift from the plugin's ditto.lock. An
+      # ordinary run would recreate a missing committed snapshot and hide it.
+      - name: Run plugin tests read-only against its ditto.lock
+        run: pixi run -e ${{ matrix.plugin }}-py3${{ matrix.python-version }} verify-${{ matrix.plugin }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.plugin }}-py3${{ matrix.python-version }}
+          path: plugins/${{ matrix.plugin }}/.pytest/test-results.xml
           retention-days: 30
 
   portable-json:
@@ -97,7 +138,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: py3${{ matrix.python-version }}
 
@@ -120,7 +161,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: py312
 
@@ -139,7 +180,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: py312
 
@@ -158,7 +199,7 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
-          pixi-version: v0.77.0
+          pixi-version: v0.81.0
           cache: true
           environments: build
 

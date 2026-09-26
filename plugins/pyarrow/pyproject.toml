@@ -1,0 +1,72 @@
+[project]
+name = "pytest-ditto-pyarrow"
+dynamic = ["version"]
+description = "pytest-ditto plugin for pyarrow table snapshots."
+keywords = ["pytest", "testing", "pyarrow", "snapshot"]
+authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
+maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
+requires-python = ">=3.12"
+license = "MIT"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Testing",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    # TODO(2.0 release): raise to >=2.0 once 2.0.0 is tagged. Until then main
+    # builds as 1.1.0.post0.devN; dev68 is the first with the 2.0 plugin
+    # contract (Recorder.identifier and derived marks, #118 and #120).
+    "pytest-ditto>=1.1.0.post0.dev68,<3",
+    "pyarrow>=16.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/owlowlyowl/pytest-ditto"
+Source = "https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pyarrow"
+
+[project.entry-points.ditto_recorders]
+"pyarrow.parquet" = "ditto_pyarrow.recorders:parquet"
+"pyarrow.feather" = "ditto_pyarrow.recorders:feather"
+"pyarrow.csv" = "ditto_pyarrow.recorders:csv"
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build]
+targets.wheel.packages = ["src/ditto_pyarrow"]
+targets.sdist.only-include = ["src", "README.md", "LICENSE"]
+
+# Versioned in lockstep with pytest-ditto, from the same git tag.
+[tool.hatch.version]
+source = "code"
+path = "../../version_builder.py"
+expression = "_version()"
+
+
+[tool.pytest.ini_options]
+minversion = "8.3"
+testpaths = "tests/ci"
+addopts = [
+  "-lv",
+  "--tb=short",
+  "--color=yes",
+  "--code-highlight=yes",
+  "--junit-xml=.pytest/test-results.xml",
+]
+junit_family = "xunit2"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

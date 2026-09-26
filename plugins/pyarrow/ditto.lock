@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "targets": {
+    "tests/ci/.ditto": {
+      "scheme": "file",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_readme.py::test_fn_with_pyarrow_parquet_snapshot",
+          "key": "filtered",
+          "recorder": "pyarrow.parquet"
+        },
+        {
+          "nodeid": "tests/ci/test_table.py::test_csv_snapshot_matches_the_recorded_table",
+          "key": "table",
+          "recorder": "pyarrow.csv"
+        },
+        {
+          "nodeid": "tests/ci/test_table.py::test_feather_snapshot_matches_the_recorded_table",
+          "key": "table",
+          "recorder": "pyarrow.feather"
+        },
+        {
+          "nodeid": "tests/ci/test_table.py::test_parquet_snapshot_matches_the_recorded_table",
+          "key": "table",
+          "recorder": "pyarrow.parquet"
+        }
+      ]
+    }
+  }
+}
