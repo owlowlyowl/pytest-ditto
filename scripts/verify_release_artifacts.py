@@ -74,8 +74,8 @@ def _verify_wheel_boundary(wheel: Path) -> None:
             raise RuntimeError(
                 f"Unexpected built-in recorder entry points: {sorted(recorder_names)}"
             )
-        if entry_points.has_option("ditto_marks", "pickle"):
-            raise RuntimeError("Core wheel exposes a static pickle mark entry point.")
+        if entry_points.has_section("ditto_marks"):
+            raise RuntimeError("Core wheel registers the removed ditto_marks group.")
 
         for name in sorted(members):
             if name.startswith("ditto/") and name.endswith(".py"):
@@ -110,6 +110,8 @@ def _verify_installed_wheel(wheel: Path, work: Path) -> None:
 import importlib.metadata
 import importlib.util
 
+import pytest
+
 import ditto
 from ditto import recorders
 
@@ -142,7 +144,9 @@ core_recorders = {
 assert core_recorders == {"json", "yaml"}
 assert recorders.default().identifier == "json"
 assert recorders.get("synthetic").identifier == "synthetic"
-assert ditto.synthetic is not None
+assert recorders.get("verify.dotted").identifier == "verify.dotted"
+assert ditto.synthetic == pytest.mark.record("synthetic")
+assert ditto.verify.dotted == pytest.mark.record("verify.dotted")
 """
     _run([str(python), "-I", "-c", probe], cwd=work)
 
@@ -165,6 +169,13 @@ def test_external_recorder_and_dynamic_mark(snapshot):
     value = {"external": True}
     assert snapshot.recorder.identifier == "synthetic"
     assert snapshot(value, key="value") == value
+
+
+@ditto.verify.dotted
+def test_external_recorder_and_namespaced_mark(snapshot):
+    value = {"namespaced": True}
+    assert snapshot.recorder.identifier == "verify.dotted"
+    assert snapshot(value, key="value") == value
 """,
         encoding="utf-8",
     )
@@ -183,6 +194,8 @@ def test_external_recorder_and_dynamic_mark(snapshot):
         )
     if len(list((smoke / ".ditto").glob("*@value.synthetic"))) != 1:
         raise RuntimeError("Synthetic external recorder did not persist its snapshot.")
+    if len(list((smoke / ".ditto").glob("*@value.verify.dotted"))) != 1:
+        raise RuntimeError("Namespaced external recorder did not persist its snapshot.")
 
     _run(pytest_command, cwd=smoke)
 

@@ -51,9 +51,6 @@ ditto = "ditto.plugin"
 yaml   = "ditto.recorders._yaml:yaml"
 json   = "ditto.recorders._json:json"
 
-[project.entry-points.ditto_marks]
-# placeholder for ditto IO plugins to use to register marks.
-
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

@@ -9,9 +9,7 @@ requires-python = ">=3.12"
 
 [project.entry-points.ditto_recorders]
 synthetic = "ditto_verify_plugin:recorder"
-
-[project.entry-points.ditto_marks]
-synthetic = "ditto_verify_plugin:mark"
+"verify.dotted" = "ditto_verify_plugin:dotted"
 
 [tool.setuptools.packages.find]
 where = ["src"]

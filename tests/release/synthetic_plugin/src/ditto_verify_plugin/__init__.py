@@ -2,8 +2,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from ditto.recorders import Recorder
 
 
@@ -16,7 +14,4 @@ def _load(path: Path) -> Any:
 
 
 recorder = Recorder(identifier="synthetic", save=_save, load=_load)
-
-
-def mark():
-    return pytest.mark.record("synthetic")
+dotted = Recorder(identifier="verify.dotted", save=_save, load=_load)

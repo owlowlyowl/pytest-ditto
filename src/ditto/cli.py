@@ -714,15 +714,6 @@ def _doctor_checks() -> list[CheckResult]:
                 CheckResult(name=f"recorder: {ep.name}", ok=False, detail=str(exc))
             )
 
-    for ep in importlib.metadata.entry_points(group="ditto_marks"):
-        try:
-            ep.load()
-            results.append(CheckResult(name=f"mark: {ep.name}", ok=True, detail=""))
-        except Exception as exc:
-            results.append(
-                CheckResult(name=f"mark: {ep.name}", ok=False, detail=str(exc))
-            )
-
     return results
 
 
