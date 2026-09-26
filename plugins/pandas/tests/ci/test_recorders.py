@@ -1,38 +1,78 @@
+"""The pandas recorders, as registered through the 2.0 plugin contract."""
+
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from ditto_pandas.recorders import pandas_csv, pandas_json, pandas_parquet
+import ditto
+from ditto import recorders
+
+NAMES = ["pandas.parquet", "pandas.json", "pandas.csv"]
 
 
 def _sample_dataframe() -> pd.DataFrame:
     return pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
 
 
-def test_parquet_round_trip_preserves_dataframe_values(tmp_path: Path) -> None:
-    """Parquet save and load produces a DataFrame equal to the original."""
-    df = _sample_dataframe()
-    filepath = tmp_path / "snapshot.pandas.parquet"
+@pytest.mark.parametrize("name", NAMES)
+def test_registers_each_recorder_under_its_dotted_name(name: str) -> None:
+    """Each recorder is discoverable by its `pandas.<format>` name."""
+    assert name in recorders.RECORDER_REGISTRY
 
-    pandas_parquet.save(df, filepath)
-    actual = pandas_parquet.load(filepath)
+
+def test_registrations_keep_the_plugin_contract() -> None:
+    """No contract problem involves a pandas recorder."""
+    affected = {n for p in recorders.RECORDER_REGISTRY.problems for n in p.names}
+
+    assert affected.isdisjoint(NAMES)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_persists_under_an_identifier_equal_to_its_name(name: str) -> None:
+    """Snapshot files carry the recorder's name as their identifier."""
+    actual = recorders.get(name).identifier
+
+    expected = name
+    assert actual == expected
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_derives_a_namespaced_mark_for_each_recorder(name: str) -> None:
+    """`ditto.pandas.<format>` is the mark for `record("pandas.<format>")`."""
+    fmt = name.removeprefix("pandas.")
+
+    actual = getattr(ditto.pandas, fmt)
+
+    expected = pytest.mark.record(name)
+    assert actual == expected
+
+
+@ditto.pandas.parquet
+def test_parquet_mark_selects_the_parquet_recorder(snapshot) -> None:
+    """The parquet mark gives the snapshot fixture the parquet recorder."""
+    actual = snapshot.recorder
+
+    assert actual is recorders.get("pandas.parquet")
+
+
+@pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
+def test_round_trips_a_dataframe(tmp_path: Path, name: str) -> None:
+    """Parquet and JSON load back exactly the DataFrame they saved."""
+    df = _sample_dataframe()
+    recorder = recorders.get(name)
+    filepath = tmp_path / f"snapshot.{recorder.identifier}"
+
+    recorder.save(df, filepath)
+    actual = recorder.load(filepath)
 
     pd.testing.assert_frame_equal(actual, df)
 
 
-def test_json_round_trip_preserves_dataframe_values(tmp_path: Path) -> None:
-    """JSON save and load produces a DataFrame equal to the original."""
-    df = _sample_dataframe()
-    filepath = tmp_path / "snapshot.pandas.json"
-
-    pandas_json.save(df, filepath)
-    actual = pandas_json.load(filepath)
-
-    pd.testing.assert_frame_equal(actual, df)
-
-
-def test_csv_round_trip_preserves_dataframe_values(tmp_path: Path) -> None:
-    """CSV save and load produces a DataFrame equal to the original for simple indices.
+def test_csv_round_trips_a_dataframe_except_for_the_index_type(
+    tmp_path: Path,
+) -> None:
+    """CSV loads back the saved values, with the RangeIndex read back as Int64.
 
     check_index_type=False because CSV has no type metadata: a RangeIndex is written
     as plain integers and read back as an Int64 index. Only single-level numeric or
@@ -42,22 +82,29 @@ def test_csv_round_trip_preserves_dataframe_values(tmp_path: Path) -> None:
     df = _sample_dataframe()
     filepath = tmp_path / "snapshot.pandas.csv"
 
-    pandas_csv.save(df, filepath)
-    actual = pandas_csv.load(filepath)
+    recorders.get("pandas.csv").save(df, filepath)
+    actual = recorders.get("pandas.csv").load(filepath)
 
     pd.testing.assert_frame_equal(actual, df, check_index_type=False)
 
 
-def test_parquet_recorder_extension_is_correct() -> None:
-    """Parquet recorder uses the pandas.parquet compound extension."""
-    assert pandas_parquet.extension == "pandas.parquet"
+def test_csv_reads_the_index_back_as_the_index(tmp_path: Path) -> None:
+    """The saved index is restored as the index, not as a data column (#40)."""
+    df = _sample_dataframe()
+    filepath = tmp_path / "snapshot.pandas.csv"
+
+    recorders.get("pandas.csv").save(df, filepath)
+    actual = recorders.get("pandas.csv").load(filepath)
+
+    assert list(actual.columns) == ["a", "b"]
 
 
-def test_json_recorder_extension_is_correct() -> None:
-    """JSON recorder uses the pandas.json compound extension."""
-    assert pandas_json.extension == "pandas.json"
+def test_csv_round_trips_a_string_index_exactly(tmp_path: Path) -> None:
+    """A named string index survives a CSV round trip unchanged."""
+    df = _sample_dataframe().set_index(pd.Index(["x", "y", "z"], name="key"))
+    filepath = tmp_path / "snapshot.pandas.csv"
 
+    recorders.get("pandas.csv").save(df, filepath)
+    actual = recorders.get("pandas.csv").load(filepath)
 
-def test_csv_recorder_extension_is_correct() -> None:
-    """CSV recorder uses the pandas.csv compound extension."""
-    assert pandas_csv.extension == "pandas.csv"
+    pd.testing.assert_frame_equal(actual, df)

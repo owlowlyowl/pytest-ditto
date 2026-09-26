@@ -27,8 +27,8 @@ pixi manages multiple isolated environments for different tasks:
 | `py312` | Test on Python 3.12 | pytest, pytest-cov, hypothesis |
 | `py313` | Test on Python 3.13 | pytest, pytest-cov, hypothesis |
 | `py314` | Test on Python 3.14 | pytest, pytest-cov, hypothesis |
-| `pandas` | Test with pandas recorders | pytest-ditto-pandas |
-| `pyarrow` | Test with PyArrow recorders | pytest-ditto-pyarrow |
+| `pandas-py312`–`py314` | Test the pandas plugin | pytest-ditto-pandas (editable) |
+| `pyarrow-py312`–`py314` | Test the PyArrow plugin | pytest-ditto-pyarrow (editable) |
 | `lint` | Linting and type checking | pre-commit, ruff, basedpyright |
 | `docs` | Documentation | zensical, mkdocstrings-python |
 | `build` | Package building | uv |
@@ -68,18 +68,14 @@ The `<name>-py312`/`py313`/`py314` environments install the plugin from
 from the plugin's directory, the way a third-party plugin's suite runs:
 
 ```bash
+pixi run -e pandas-py312 test-pandas       # pandas plugin tests
+pixi run -e pandas-py312 verify-pandas     # its snapshots against its ditto.lock
 pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
 pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
 ```
 
 The core environments (`default`, `py312`–`py314`) never install a plugin.
 Plugins share core's version, computed from the same git tag.
-
-The pandas plugin has not moved in yet:
-
-```bash
-pixi run -e pandas test       # core suite with pytest-ditto-pandas 0.1.0
-```
 
 ## Linting & Type Checking
 

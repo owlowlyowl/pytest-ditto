@@ -145,7 +145,7 @@ convention = "numpy"
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src", "plugins/pyarrow/src"]
+include = ["src", "plugins/pandas/src", "plugins/pyarrow/src"]
 venvPath = ".pixi/envs"
 venv = "lint"
 
@@ -160,6 +160,7 @@ pytest-ditto = { path = ".", editable = true }
 pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
 # For type-checking plugins/*/src.
+pandas = "*"
 pyarrow = ">=16.1.0"
 
 [tool.pixi.feature.lint.pypi-dependencies]
@@ -182,7 +183,7 @@ fakeredis = ">=2.0"
 duckdb = ">=1.2"
 redis = ">=5.0"
 psycopg2-binary = ">=2.9"
-pytest-ditto-pandas = "==0.1.0"
+pytest-ditto-pandas = { path = "plugins/pandas", editable = true }
 
 [tool.pixi.feature.examples.tasks]
 examples-local = "pytest examples/local -q"
@@ -228,17 +229,25 @@ uv = ">=0.5"
 build = "uv build --sdist && uv build --wheel"
 verify-artifacts = "python scripts/verify_release_artifacts.py dist"
 
-[tool.pixi.feature.pandas.pypi-dependencies]
-pytest-ditto-pandas = "==0.1.0"
-# pytest-ditto-pandas = { path = "../pytest-ditto-pandas", editable = true }
-
-[tool.pixi.feature.pandas.tasks]
-test = "pytest"
-
 # First-party plugins are installed from plugins/<name> as editable path
 # dependencies, never through the pytest-ditto[<name>] extra, which would resolve
 # against PyPI. Each plugin's suite runs from its own directory, as a third-party
 # plugin's would.
+[tool.pixi.feature.pandas.pypi-dependencies]
+pytest-ditto-pandas = { path = "plugins/pandas", editable = true }
+
+[tool.pixi.feature.pandas.tasks]
+test-pandas = { cmd = "pytest", cwd = "plugins/pandas" }
+verify-pandas = { cmd = "ditto verify", cwd = "plugins/pandas" }
+
+# pandas depends on pyarrow for parquet, so it needs the same libstdc++ preload.
+[tool.pixi.feature.pandas.target.linux-64.dependencies]
+libstdcxx-ng = ">=14"
+
+[tool.pixi.feature.pandas.target.linux-64.tasks]
+test-pandas = { cmd = "pytest", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+verify-pandas = { cmd = "ditto verify", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+
 [tool.pixi.feature.pyarrow.pypi-dependencies]
 pytest-ditto-pyarrow = { path = "plugins/pyarrow", editable = true }
 
@@ -268,7 +277,9 @@ docs-build = { cmd = "zensical build", cwd = "docs" }
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 examples = { features = ["examples", "py312", "test"], solve-group = "default" }
-pandas = { features = ["pandas", "py312", "test"] }
+pandas-py312 = { features = ["pandas", "py312", "test"] }
+pandas-py313 = { features = ["pandas", "py313", "test"] }
+pandas-py314 = { features = ["pandas", "py314", "test"] }
 pyarrow-py312 = { features = ["pyarrow", "py312", "test"] }
 pyarrow-py313 = { features = ["pyarrow", "py313", "test"] }
 pyarrow-py314 = { features = ["pyarrow", "py314", "test"] }

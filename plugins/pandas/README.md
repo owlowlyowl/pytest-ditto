@@ -1,17 +1,20 @@
 # pytest-ditto-pandas
-[![PyPI version](https://badge.fury.io/py/pytest-ditto-pandas.svg)](https://badge.fury.io/py/pytest-ditto-pandas)
-[![Continuous Integration](https://github.com/owlowlyowl/pytest-ditto-pandas/actions/workflows/ci.yml/badge.svg)](https://github.com/owlowlyowl/pytest-ditto-pandas/actions/workflows/ci.yml)
 
-`pytest-ditto` plugin for pandas snapshots.
+Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto) for `pandas` DataFrame snapshots.
 
-## @ditto Marks
-If the default recorder, `pickle`, isn't appropriate a different recorder can be
-specified per test using `ditto` marks — customised `pytest` mark decorators.
+Use the following marks for their associated recorder:
+- `@ditto.pandas.parquet`
+- `@ditto.pandas.json`
+- `@ditto.pandas.csv`
 
+Each mark is shorthand for `@ditto.record("pandas.<format>")`.
+
+## Installation
+```bash
+pip install pytest-ditto[pandas]
+```
 
 ## Usage
-
-### `pd.DataFrame`
 
 ```python
 import pandas as pd
@@ -26,7 +29,8 @@ def awesome_fn_to_test(df: pd.DataFrame):
 
 # The following test uses pandas.DataFrame.to_parquet to write the data snapshot to the
 # `.ditto` directory with filename:
-# `test_fn_with_parquet_dataframe_snapshot@ab_dataframe.pandas.parquet`.
+# `<module>.test_fn_with_parquet_dataframe_snapshot@ab_dataframe.pandas.parquet`.
+
 
 @ditto.pandas.parquet
 def test_fn_with_parquet_dataframe_snapshot(snapshot):
@@ -37,7 +41,8 @@ def test_fn_with_parquet_dataframe_snapshot(snapshot):
 
 # The following test uses pandas.DataFrame.to_json(orient="table") to write the data
 # snapshot to the `.ditto` directory with filename:
-# `test_fn_with_json_dataframe_snapshot@ab_dataframe.pandas.json`.
+# `<module>.test_fn_with_json_dataframe_snapshot@ab_dataframe.pandas.json`.
+
 
 @ditto.pandas.json
 def test_fn_with_json_dataframe_snapshot(snapshot):
