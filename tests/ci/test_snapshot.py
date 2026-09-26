@@ -13,7 +13,7 @@ from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
 qualified_json_recorder = recorders.Recorder(
-    extension="plugin.json",
+    identifier="plugin.json",
     save=json_recorder.save,
     load=json_recorder.load,
 )

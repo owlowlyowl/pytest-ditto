@@ -22,7 +22,7 @@ def _load(filepath: Path) -> MyType:
 
 
 my_recorder: Recorder[MyType] = Recorder(
-    extension="myformat",
+    identifier="myformat",
     save=_save,
     load=_load,
 )
@@ -30,7 +30,7 @@ my_recorder: Recorder[MyType] = Recorder(
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `extension` | `str` | File extension appended to snapshot names |
+| `identifier` | `str` | Persisted identifier appended to snapshot names and recorded in `ditto.lock` |
 | `save` | `Callable[[T, Path], None]` | Serialises a value to a file path |
 | `load` | `Callable[[Path], T]` | Deserialises a value from a file path |
 
@@ -84,7 +84,7 @@ def _load_msgpack(filepath: Path) -> dict:
 
 
 msgpack_recorder: Recorder[dict] = Recorder(
-    extension="msgpack",
+    identifier="msgpack",
     save=_save_msgpack,
     load=_load_msgpack,
 )
@@ -106,12 +106,12 @@ def test_with_msgpack(snapshot):
     assert data == snapshot(data, key="packed")
 ```
 
-## Extension Naming
+## Identifier Naming
 
-The `extension` field is the canonical identifier appended to snapshot keys.
+The `identifier` field is appended to snapshot keys and recorded in `ditto.lock`.
 It may contain dots for namespaced recorders:
 
 - Built-in: `json`, `yaml`
 - Plugin: `pandas.parquet`, `pandas.csv`, `pyarrow.feather`
 
-The extension does not need to match the mark alias or registry key.
+The identifier does not need to match the mark alias or registry key.

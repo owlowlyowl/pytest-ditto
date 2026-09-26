@@ -38,7 +38,7 @@ def test_parquet_mark(snapshot) -> None:
     table = _make_table()
     snapshot(table, key="parquet")
     assert snapshot.recorder is recorders.get("pyarrow_parquet")
-    assert snapshot.recorder.extension == "pyarrow.parquet"
+    assert snapshot.recorder.identifier == "pyarrow.parquet"
 
 
 @ditto.pyarrow.feather
@@ -47,7 +47,7 @@ def test_feather_mark(snapshot) -> None:
     table = _make_table()
     snapshot(table, key="feather")
     assert snapshot.recorder is recorders.get("pyarrow_feather")
-    assert snapshot.recorder.extension == "pyarrow.feather"
+    assert snapshot.recorder.identifier == "pyarrow.feather"
 
 
 @ditto.pyarrow.csv
@@ -56,7 +56,7 @@ def test_csv_mark(snapshot) -> None:
     table = _make_table()
     snapshot(table, key="csv")
     assert snapshot.recorder is recorders.get("pyarrow_csv")
-    assert snapshot.recorder.extension == "pyarrow.csv"
+    assert snapshot.recorder.identifier == "pyarrow.csv"
 
 
 @pytest.mark.parametrize(
@@ -68,7 +68,7 @@ def test_pyarrow_recorder_roundtrip_preserves_value(
     """Each pyarrow recorder round-trips a Table without loss."""
     table = _make_table()
     recorder = recorders.get(recorder_name)
-    filepath = tmp_dir / f"tmp.{recorder.extension}"
+    filepath = tmp_dir / f"tmp.{recorder.identifier}"
 
     recorder.save(table, filepath)
     actual = recorder.load(filepath)

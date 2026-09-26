@@ -140,8 +140,8 @@ core_recorders = {
     if entry.group == "ditto_recorders"
 }
 assert core_recorders == {"json", "yaml"}
-assert recorders.default().extension == "json"
-assert recorders.get("synthetic").extension == "synthetic"
+assert recorders.default().identifier == "json"
+assert recorders.get("synthetic").identifier == "synthetic"
 assert ditto.synthetic is not None
 """
     _run([str(python), "-I", "-c", probe], cwd=work)
@@ -156,14 +156,14 @@ import ditto
 
 def test_no_mark_json_round_trip(snapshot):
     value = {"unicode": "\u03bb", "nested": [1, True, None]}
-    assert snapshot.recorder.extension == "json"
+    assert snapshot.recorder.identifier == "json"
     assert snapshot(value, key="value") == value
 
 
 @ditto.synthetic
 def test_external_recorder_and_dynamic_mark(snapshot):
     value = {"external": True}
-    assert snapshot.recorder.extension == "synthetic"
+    assert snapshot.recorder.identifier == "synthetic"
     assert snapshot(value, key="value") == value
 """,
         encoding="utf-8",

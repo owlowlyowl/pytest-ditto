@@ -64,7 +64,7 @@ By default, snapshots are stored in a `.ditto/` directory adjacent to the
 test file. The filename format is:
 
 ```
-.ditto/<module>.<group>@<key>.<extension>
+.ditto/<module>.<group>@<key>.<identifier>
 ```
 
 For example, a test in `tests/test_api.py`:

@@ -8,7 +8,7 @@ import ditto
 
 def test_defaults_to_json_when_no_mark_is_applied(snapshot) -> None:
     """Without a record mark, the snapshot fixture uses strict JSON."""
-    actual = snapshot.recorder.extension
+    actual = snapshot.recorder.identifier
 
     assert actual == "json"
 
@@ -19,7 +19,7 @@ def test_defaults_to_json_when_no_mark_is_applied(snapshot) -> None:
 @ditto.json
 def test_uses_json_when_json_mark_is_applied(snapshot) -> None:
     """The @ditto.json convenience mark selects json format for the snapshot."""
-    actual = snapshot.recorder.extension
+    actual = snapshot.recorder.identifier
 
     assert actual == "json"
 
@@ -27,7 +27,7 @@ def test_uses_json_when_json_mark_is_applied(snapshot) -> None:
 @ditto.yaml
 def test_uses_yaml_when_yaml_mark_is_applied(snapshot) -> None:
     """The @ditto.yaml convenience mark selects yaml format for the snapshot."""
-    actual = snapshot.recorder.extension
+    actual = snapshot.recorder.identifier
 
     assert actual == "yaml"
 
@@ -38,7 +38,7 @@ def test_uses_yaml_when_yaml_mark_is_applied(snapshot) -> None:
 @ditto.record("json")
 def test_uses_json_when_raw_record_mark_specifies_json(snapshot) -> None:
     """The raw @ditto.record mark with 'json' selects json format."""
-    actual = snapshot.recorder.extension
+    actual = snapshot.recorder.identifier
 
     assert actual == "json"
 
@@ -46,7 +46,7 @@ def test_uses_json_when_raw_record_mark_specifies_json(snapshot) -> None:
 @ditto.record("yaml")
 def test_uses_yaml_when_raw_record_mark_specifies_yaml(snapshot) -> None:
     """The raw @ditto.record mark with 'yaml' selects yaml format."""
-    actual = snapshot.recorder.extension
+    actual = snapshot.recorder.identifier
 
     assert actual == "yaml"
 

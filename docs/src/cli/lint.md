@@ -24,7 +24,7 @@ ditto lint tests/ci/
 | Check | Description |
 |-------|-------------|
 | Naming | Validates snapshot filenames match expected format |
-| Format | Detects unknown recorder extensions |
+| Format | Detects unknown recorder identifiers |
 | Empty | Flags zero-byte snapshot files |
 
 ## Exit Codes

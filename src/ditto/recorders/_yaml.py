@@ -18,4 +18,4 @@ def _load(filepath: Path) -> Any:
         return _yaml.load(f, Loader=_yaml.SafeLoader)
 
 
-yaml = Recorder(extension="yaml", save=_save, load=_load)
+yaml = Recorder(identifier="yaml", save=_save, load=_load)

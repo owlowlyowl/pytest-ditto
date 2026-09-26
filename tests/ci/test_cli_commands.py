@@ -59,7 +59,7 @@ def _entry_points(*, pytest11=(), recorders=(), marks=()):
 @pytest.fixture()
 def json_ext_map():
     return _ext_map([
-        RecorderInfo(name="json", extension=".json", package="pytest-ditto")
+        RecorderInfo(name="json", identifier=".json", package="pytest-ditto")
     ])
 
 
@@ -253,14 +253,14 @@ def test_reports_malformed_name_when_key_has_no_at_sign(json_ext_map) -> None:
     assert "Malformed" in issues[0].issue
 
 
-def test_reports_unknown_extension_when_ext_not_in_ext_map() -> None:
-    """An entry with an unregistered extension is flagged as unknown format."""
+def test_reports_unknown_identifier_when_not_in_identifier_map() -> None:
+    """An entry with an unregistered recorder identifier is flagged."""
     entry = ManifestEntry("test_foo@result.mystery", size_bytes=4, modified=None)
 
     issues = _find_lint_issues([entry], {})
 
     assert len(issues) == 1
-    assert "Unknown extension" in issues[0].issue
+    assert "Unknown recorder identifier" in issues[0].issue
 
 
 def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
@@ -278,7 +278,7 @@ def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
 
     issue_texts = {i.issue for i in _find_lint_issues([entry], {})}
 
-    assert any("Unknown extension" in t for t in issue_texts)
+    assert any("Unknown recorder identifier" in t for t in issue_texts)
     assert any("Empty file" in t for t in issue_texts)
 
 

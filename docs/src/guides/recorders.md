@@ -1,13 +1,13 @@
 # Recorders
 
 Recorders determine how snapshot data is serialised and persisted. Each
-recorder is a pair of `save` and `load` functions plus a file extension.
+recorder is a pair of `save` and `load` functions plus a persisted identifier, used as the snapshot file suffix.
 
 ## Built-in Recorders
 
 pytest-ditto ships two built-in recorders:
 
-| Mark | Registry Key | Extension | Best For |
+| Mark | Registry Key | Identifier | Best For |
 |------|-------------|-----------|----------|
 | no mark / `@ditto.json` | `json` | `.json` | Strict, reviewable data (default) |
 | `@ditto.yaml` | `yaml` | `.yaml` | Human-readable config, dicts |
@@ -81,7 +81,7 @@ external distribution, not pytest-ditto core.
 pip install pytest-ditto[pandas]
 ```
 
-| Mark | Registry Key | Extension |
+| Mark | Registry Key | Identifier |
 |------|-------------|-----------|
 | `@ditto.pandas.parquet` | `pandas_parquet` | `.pandas.parquet` |
 | `@ditto.pandas.json` | `pandas_json` | `.pandas.json` |
@@ -105,7 +105,7 @@ def test_dataframe(snapshot):
 pip install pytest-ditto[pyarrow]
 ```
 
-| Mark | Registry Key | Extension |
+| Mark | Registry Key | Identifier |
 |------|-------------|-----------|
 | `@ditto.pyarrow.parquet` | `pyarrow_parquet` | `.pyarrow.parquet` |
 | `@ditto.pyarrow.feather` | `pyarrow_feather` | `.pyarrow.feather` |
