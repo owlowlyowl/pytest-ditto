@@ -41,3 +41,4 @@ docs/site/
 .designs/
 .issues/
 .impl/
+/tests/release/synthetic_plugin/build/
