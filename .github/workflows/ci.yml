@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plugin: [pyarrow]
+        plugin: [pandas, pyarrow]
         python-version: ["12", "13", "14"]
 
     steps:
