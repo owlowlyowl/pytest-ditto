@@ -61,9 +61,24 @@ Coverage reports are generated in HTML, terminal, and XML formats.
 
 ### Plugin tests
 
+First-party recorder plugins live under `plugins/<name>/`, each a separate
+distribution with its own `pyproject.toml`, tests, `ditto.lock` and snapshots.
+The `<name>-py312`/`py313`/`py314` environments install the plugin from
+`plugins/<name>` as an editable path dependency next to core, and its tasks run
+from the plugin's directory, the way a third-party plugin's suite runs:
+
 ```bash
-pixi run -e pandas test       # pandas recorder tests
-pixi run -e pyarrow test      # PyArrow recorder tests
+pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
+pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
+```
+
+The core environments (`default`, `py312`–`py314`) never install a plugin.
+Plugins share core's version, computed from the same git tag.
+
+The pandas plugin has not moved in yet:
+
+```bash
+pixi run -e pandas test       # core suite with pytest-ditto-pandas 0.1.0
 ```
 
 ## Linting & Type Checking

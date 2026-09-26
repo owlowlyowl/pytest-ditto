@@ -1,8 +1,6 @@
 [project]
 name = "pytest-ditto-pyarrow"
-dynamic = [
-    "version",
-]
+dynamic = ["version"]
 description = "pytest-ditto plugin for pyarrow table snapshots."
 keywords = ["pytest", "testing", "pyarrow", "snapshot"]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
@@ -25,37 +23,33 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pytest>=3.5.0",
-    "pytest-ditto>=1.0.1",
+    "pytest-ditto>=2.0.0a0,<3",
     "pyarrow>=16.1.0",
 ]
 
-[project.entry-points.ditto_recorders]
-pyarrow_parquet = "ditto_pyarrow.recorders:pyarrow_parquet"
-pyarrow_feather = "ditto_pyarrow.recorders:pyarrow_feather"
-pyarrow_csv     = "ditto_pyarrow.recorders:pyarrow_csv"
+[project.urls]
+Homepage = "https://github.com/owlowlyowl/pytest-ditto"
+Source = "https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pyarrow"
 
-[project.entry-points.ditto_marks]
-pyarrow = "ditto_pyarrow.marks:marks"
+[project.entry-points.ditto_recorders]
+"pyarrow.parquet" = "ditto_pyarrow.recorders:parquet"
+"pyarrow.feather" = "ditto_pyarrow.recorders:feather"
+"pyarrow.csv" = "ditto_pyarrow.recorders:csv"
 
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 
 [tool.hatch.build]
-include = ["src"]
-hooks.vcs.version-file = "src/ditto_pyarrow/_version.py"
-hooks.vcs.template = "__version__ = {version!r}"
 targets.wheel.packages = ["src/ditto_pyarrow"]
-targets.wheel.strict-naming = false
-targets.sdist.packages = ["src/ditto_pyarrow"]
-targets.sdist.strict-naming = false
+targets.sdist.only-include = ["src", "README.md", "LICENSE"]
 
+# Versioned in lockstep with pytest-ditto, from the same git tag.
 [tool.hatch.version]
 source = "code"
-path = "version_builder.py"
+path = "../../version_builder.py"
 expression = "_version()"
 
 
@@ -63,118 +57,13 @@ expression = "_version()"
 minversion = "8.3"
 testpaths = "tests/ci"
 addopts = [
-    "-lv",
-    "--tb=short",
-    "--color=yes",
-    "--code-highlight=yes",
-    "--junit-xml=.pytest/test-results.xml",
+  "-lv",
+  "--tb=short",
+  "--color=yes",
+  "--code-highlight=yes",
+  "--junit-xml=.pytest/test-results.xml",
 ]
 junit_family = "xunit2"
 filterwarnings = [
-    "ignore::UserWarning",
     "ignore::DeprecationWarning",
 ]
-
-
-[tool.coverage.run]
-branch = true
-source = ["src/ditto_pyarrow"]
-relative_files = true
-
-[tool.coverage.report]
-show_missing = true
-fail_under = 80
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-]
-
-[tool.ruff]
-preview = true
-src = ["src/ditto_pyarrow"]
-line-length = 88
-target-version = "py312"
-
-[tool.ruff.lint]
-select = ["E", "F", "PERF", "W"]
-ignore = ["F841"]
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-
-[tool.ruff.format]
-preview = true
-quote-style = "double"
-indent-style = "space"
-line-ending = "auto"
-
-[tool.ruff.lint.pydocstyle]
-convention = "numpy"
-
-[tool.pixi.workspace]
-channels = ["conda-forge"]
-platforms = ["linux-64"]
-
-[tool.pixi.pypi-dependencies]
-pytest-ditto = ">=1.0.0"
-pytest-ditto-pyarrow = { path = ".", editable = true }
-
-[tool.pixi.feature.lint.dependencies]
-pre-commit = ">=4.0.1,<5"
-ruff = ">=0.8.4,<1"
-
-[tool.pixi.feature.lint.tasks]
-lint = "pre-commit run --all"
-
-[tool.pixi.feature.test.dependencies]
-pytest = ">=8.3,<9"
-pytest-cov = ">=6.0,<7"
-
-[tool.pixi.feature.py312.dependencies]
-python = "3.12.*"
-# pyarrow's native C++ dependencies (Arrow, re2, etc.) are compiled against a newer C++ ABI
-# than the system libstdc++ provides on Ubuntu 22.04 / glibc 2.35. Without pinning
-# libstdcxx-ng >= 14 here, the dynamic linker picks up the system libstdc++.so.6 first,
-# which lacks CXXABI_1.3.15, causing an ImportError when sqlite3 transitively loads
-# libicui18n. The LD_PRELOAD in the task definitions below forces the conda-bundled
-# libstdc++ (which does have CXXABI_1.3.15) to be resolved first.
-libstdcxx-ng = ">=14"
-
-[tool.pixi.feature.py312.tasks]
-test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-test-cov = { cmd = "pytest --cov=ditto_pyarrow --cov-report=html --cov-report=term --cov-report=xml", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-
-[tool.pixi.feature.py313.dependencies]
-python = "3.13.*"
-libstdcxx-ng = ">=14"
-
-[tool.pixi.feature.py313.tasks]
-test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-test-cov = { cmd = "pytest --cov=ditto_pyarrow --cov-report=html --cov-report=term --cov-report=xml", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-
-[tool.pixi.feature.py314.dependencies]
-python = "3.14.*"
-libstdcxx-ng = ">=14"
-
-[tool.pixi.feature.py314.tasks]
-test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-test-cov = { cmd = "pytest --cov=ditto_pyarrow --cov-report=html --cov-report=term --cov-report=xml", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
-
-[tool.pixi.feature.build.dependencies]
-uv = ">=0.5"
-
-[tool.pixi.feature.build.tasks]
-build = "uv build --sdist && uv build --wheel"
-
-[tool.pixi.environments]
-default = { solve-group = "default" }
-lint = { features = ["lint"] }
-py312 = { features = ["py312", "test"] }
-py313 = { features = ["py313", "test"] }
-py314 = { features = ["py314", "test"] }
-build = { features = ["build"] }

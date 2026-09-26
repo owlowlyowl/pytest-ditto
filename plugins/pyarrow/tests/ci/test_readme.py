@@ -25,5 +25,6 @@ def fn(x: pa.Table):
 
 @ditto.pyarrow.parquet
 def test_fn_with_pyarrow_parquet_snapshot(snapshot, table):
+    """The README example: a filtered table matches its parquet snapshot."""
     result = fn(table)
     assert result.equals(snapshot(result, key="filtered"))

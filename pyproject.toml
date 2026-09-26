@@ -34,7 +34,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]
-pyarrow = ["pytest-ditto-pyarrow"]
+pyarrow = ["pytest-ditto-pyarrow>=2.0.0a0,<3"]
 dev = [
     "pre-commit",
     "hatch>=1.9.4",
@@ -145,7 +145,7 @@ convention = "numpy"
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src"]
+include = ["src", "plugins/pyarrow/src"]
 venvPath = ".pixi/envs"
 venv = "lint"
 
@@ -159,6 +159,8 @@ pytest-ditto = { path = ".", editable = true }
 [tool.pixi.feature.lint.dependencies]
 pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
+# For type-checking plugins/*/src.
+pyarrow = ">=16.1.0"
 
 [tool.pixi.feature.lint.pypi-dependencies]
 basedpyright = ">=1.29"
@@ -233,18 +235,26 @@ pytest-ditto-pandas = "==0.1.0"
 [tool.pixi.feature.pandas.tasks]
 test = "pytest"
 
+# First-party plugins are installed from plugins/<name> as editable path
+# dependencies, never through the pytest-ditto[<name>] extra, which would resolve
+# against PyPI. Each plugin's suite runs from its own directory, as a third-party
+# plugin's would.
+[tool.pixi.feature.pyarrow.pypi-dependencies]
+pytest-ditto-pyarrow = { path = "plugins/pyarrow", editable = true }
+
+[tool.pixi.feature.pyarrow.tasks]
+test-pyarrow = { cmd = "pytest", cwd = "plugins/pyarrow" }
+verify-pyarrow = { cmd = "ditto verify", cwd = "plugins/pyarrow" }
+
 [tool.pixi.feature.pyarrow.target.linux-64.dependencies]
 # pyarrow's C++ dependencies require a newer libstdc++ than the system provides on
 # Ubuntu 22.04 / glibc 2.35 — pin libstdcxx-ng >= 14 and preload it at runtime.
 # libstdcxx-ng is a Linux-only package; macOS and Windows use the system runtime.
 libstdcxx-ng = ">=14"
 
-[tool.pixi.feature.pyarrow.pypi-dependencies]
-pytest-ditto-pyarrow = "==0.1.0"
-# pytest-ditto-pyarrow = { path = "../pytest-ditto-pyarrow", editable = true }
-
-[tool.pixi.feature.pyarrow.tasks]
-test = { cmd = "pytest", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+[tool.pixi.feature.pyarrow.target.linux-64.tasks]
+test-pyarrow = { cmd = "pytest", cwd = "plugins/pyarrow", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+verify-pyarrow = { cmd = "ditto verify", cwd = "plugins/pyarrow", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 
 [tool.pixi.feature.docs.pypi-dependencies]
 zensical = ">=0.0.43"
@@ -259,7 +269,9 @@ default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 examples = { features = ["examples", "py312", "test"], solve-group = "default" }
 pandas = { features = ["pandas", "py312", "test"] }
-pyarrow = { features = ["pyarrow", "py312", "test"] }
+pyarrow-py312 = { features = ["pyarrow", "py312", "test"] }
+pyarrow-py313 = { features = ["pyarrow", "py313", "test"] }
+pyarrow-py314 = { features = ["pyarrow", "py314", "test"] }
 lint = { features = ["lint", "py312"] }
 py312 = { features = ["py312", "test"] }
 py313 = { features = ["py313", "test"] }

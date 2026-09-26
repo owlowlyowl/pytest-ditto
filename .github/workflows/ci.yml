@@ -79,6 +79,42 @@ jobs:
           path: .pytest/test-results.xml
           retention-days: 30
 
+  test-plugin:
+    name: Plugin ${{ matrix.plugin }} (Python 3.${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pyarrow]
+        python-version: ["12", "13", "14"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.77.0
+          cache: true
+          environments: ${{ matrix.plugin }}-py3${{ matrix.python-version }}
+
+      - name: Run plugin tests against this commit's core
+        run: pixi run -e ${{ matrix.plugin }}-py3${{ matrix.python-version }} test-${{ matrix.plugin }}
+
+      - name: Verify the plugin's snapshots match its ditto.lock
+        run: pixi run -e ${{ matrix.plugin }}-py3${{ matrix.python-version }} verify-${{ matrix.plugin }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.plugin }}-py3${{ matrix.python-version }}
+          path: plugins/${{ matrix.plugin }}/.pytest/test-results.xml
+          retention-days: 30
+
   portable-json:
     name: Strict JSON (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}

@@ -41,7 +41,7 @@ def table() -> pa.Table:
 
 
 def fn(x: pa.Table):
-    even_filter = (pc.bit_wise_and(pc.field("a"), pc.scalar(1)) == pc.scalar(0))
+    even_filter = pc.bit_wise_and(pc.field("a"), pc.scalar(1)) == pc.scalar(0)
     return x.filter(even_filter)
 
 

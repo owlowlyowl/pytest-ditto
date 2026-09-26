@@ -1,4 +1,5 @@
 import pyarrow as pa
+
 import ditto
 
 
@@ -22,28 +23,30 @@ def make_table() -> pa.Table:
 
 
 @ditto.pyarrow.parquet
-def test_table_parquet(snapshot) -> None:
+def test_parquet_snapshot_matches_the_recorded_table(snapshot) -> None:
+    """A table snapshotted as parquet equals the recorded snapshot."""
     table = make_table()
-    result = snapshot(table, "table")
-    assert table.equals(result)
 
+    actual = snapshot(table, "table")
 
-# @ditto.pyarrow.orc
-# def test_table_orc(snapshot) -> None:
-#     table = make_table()
-#     result = snapshot(table, "table")
-#     assert table.equals(result)
+    assert table.equals(actual)
 
 
 @ditto.pyarrow.feather
-def test_table_feather(snapshot) -> None:
+def test_feather_snapshot_matches_the_recorded_table(snapshot) -> None:
+    """A table snapshotted as feather equals the recorded snapshot."""
     table = make_table()
-    result = snapshot(table, "table")
-    assert table.equals(result)
+
+    actual = snapshot(table, "table")
+
+    assert table.equals(actual)
 
 
 @ditto.pyarrow.csv
-def test_table_csv(snapshot) -> None:
+def test_csv_snapshot_matches_the_recorded_table(snapshot) -> None:
+    """A table snapshotted as CSV equals the recorded snapshot."""
     table = make_table()
-    result = snapshot(table, "table")
-    assert table.equals(result)
+
+    actual = snapshot(table, "table")
+
+    assert table.equals(actual)
