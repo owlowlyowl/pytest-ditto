@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import MutableMapping
+from typing import NamedTuple
 
 import pytest
 
@@ -20,7 +21,14 @@ from ditto.exceptions import DittoLockFileError, DittoWarning
 from ._session import fail_session, session_state
 
 
-__all__ = ("run_verify", "run_prune")
+__all__ = ("Orphan", "run_verify", "find_orphans", "delete_orphans")
+
+
+class Orphan(NamedTuple):
+    """A backend key that is absent from `ditto.lock` and safe to prune."""
+
+    backend: MutableMapping[str, bytes]
+    key: str
 
 
 def _classify_target(
@@ -138,12 +146,13 @@ def _prune_report_error(message: str) -> None:
     print(f"ditto prune: {message}")
 
 
-def run_prune(session: pytest.Session, *, delete: bool) -> tuple[list[str], list[str]]:
-    """Lock-authoritative prune of exercised targets.
+def find_orphans(session: pytest.Session) -> list[Orphan]:
+    """Return the backend keys absent from `ditto.lock` in the exercised targets.
 
-    Deletes (or, in dry-run, lists) backend keys absent from the committed lock
-    (`orphan`); never touches keys created this run (`unsynced`). Requires a lock —
-    refuses (non-zero exit) when absent. Returns `(pruned, would_prune)`.
+    Keys created this run (`unsynced`) are never orphans; they, and keys the lock
+    records but the backend lacks (`missing`), are warned about instead. Requires
+    a lock: when it is absent or unreadable, reports why, fails the session, and
+    returns no orphans. A target that cannot be read is warned about and skipped.
     """
     config = session.config
     try:
@@ -151,13 +160,13 @@ def run_prune(session: pytest.Session, *, delete: bool) -> tuple[list[str], list
     except DittoLockFileError as exc:
         _prune_report_error(str(exc))
         fail_session(session)
-        return [], []
+        return []
     if lock is None:
         _prune_report_error(
             f"no {LOCKFILE_NAME} to prune against; run `ditto lock` to create one."
         )
         fail_session(session)
-        return [], []
+        return []
 
     tracker = session_state(config).tracker
     modules_by_target, created_by_target = _session_target_maps(tracker)
@@ -171,8 +180,7 @@ def run_prune(session: pytest.Session, *, delete: bool) -> tuple[list[str], list
             stacklevel=1,
         )
 
-    pruned: list[str] = []
-    would_prune: list[str] = []
+    orphans: list[Orphan] = []
     for target_id, (scheme, backend) in tracker.target_backends.items():
         try:
             missing, orphan, unsynced = _classify_target(
@@ -204,18 +212,25 @@ def run_prune(session: pytest.Session, *, delete: bool) -> tuple[list[str], list
                 category=DittoWarning,
                 stacklevel=1,
             )
-        for key in orphan:
-            if not delete:
-                would_prune.append(key)
-                continue
-            try:
-                del backend[key]
-            except Exception as exc:
-                warnings.warn(
-                    f"Failed to prune snapshot {key!r}: {exc}",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-            else:
-                pruned.append(key)
-    return pruned, would_prune
+        orphans.extend(Orphan(backend, key) for key in orphan)
+    return orphans
+
+
+def delete_orphans(orphans: list[Orphan]) -> list[str]:
+    """Delete each orphan from its backend and return the keys deleted.
+
+    A failed deletion is warned about and left out of the result.
+    """
+    pruned: list[str] = []
+    for backend, key in orphans:
+        try:
+            del backend[key]
+        except Exception as exc:
+            warnings.warn(
+                f"Failed to prune snapshot {key!r}: {exc}",
+                category=DittoWarning,
+                stacklevel=1,
+            )
+        else:
+            pruned.append(key)
+    return pruned

@@ -3,7 +3,7 @@ from typing import Any
 from pytest import MarkDecorator
 
 from ditto._version import __version__ as version
-from ditto.snapshot import Snapshot
+from ditto.snapshot import Snapshot, SnapshotMode
 from .exceptions import DuplicateSnapshotKeyError
 
 # Base mark and convenience marks — accessible as @ditto.record, @ditto.yaml, etc.
@@ -15,6 +15,7 @@ from .recorders import _plugins
 __all__ = (
     "version",
     "Snapshot",
+    "SnapshotMode",
     "DuplicateSnapshotKeyError",
     "record",
     "yaml",

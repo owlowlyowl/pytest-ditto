@@ -7,13 +7,21 @@ import pytest
 from ditto._lockfile import LOCKFILE_NAME
 from ditto._report import render_session_report
 from ditto.exceptions import DittoWarning
+from ditto.snapshot import SnapshotMode
 
-from ._drift import run_prune, run_verify
+from ._drift import delete_orphans, find_orphans, run_verify
 from ._introspect import write_introspect_manifest
-from ._lock import warn_if_lockfile_ignored, write_session_lockfile
+from ._lock import (
+    choose_lock_action,
+    is_authoritative_run,
+    warn_if_lockfile_ignored,
+    write_session_lockfile,
+)
 from ._options import (
+    PruneMode,
     add_options,
     is_xdist_worker,
+    read_run_options,
     validate_options,
     xdist_is_distributing,
 )
@@ -47,24 +55,20 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
+    options = read_run_options(config)
     pruned: list[str] = []
     would_prune: list[str] = []
 
-    if not is_xdist_worker(config) and not config.getoption(
-        "--ditto-introspect", default=""
-    ):
-        if config.getoption("--ditto-verify", default=False):
+    if not is_xdist_worker(config) and not options.introspect_path:
+        if options.snapshot_mode is SnapshotMode.VERIFY:
             run_verify(session)
             return
         warn_if_lockfile_ignored(config)
-        is_lock: bool = bool(config.getoption("--ditto-lock", default=False))
-        do_prune: bool = bool(config.getoption("--ditto-prune", default=False))
-        dry_run: bool = bool(config.getoption("--ditto-prune-dry-run", default=False))
         if xdist_is_distributing(config):
             # The controller saw no snapshots under distribution, so it cannot
             # write the lock correctly (see #83). Refuse an explicit rebuild;
             # only warn for the passive append path.
-            if is_lock:
+            if options.rebuild_lock:
                 warnings.warn(
                     "--ditto-lock cannot rebuild ditto.lock under pytest-xdist "
                     "distribution; run without -n.",
@@ -80,7 +84,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     category=DittoWarning,
                     stacklevel=1,
                 )
-            if do_prune or dry_run:
+            if options.prune is not PruneMode.OFF:
                 warnings.warn(
                     "ditto prune is not supported under pytest-xdist distribution "
                     "(-n); run single-process.",
@@ -88,17 +92,19 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     stacklevel=1,
                 )
         else:
-            pruning = do_prune or dry_run
-            write_session_lockfile(
-                session, exitstatus, is_lock=is_lock, pruning=pruning
-            )
-            if pruning:
-                pruned, would_prune = run_prune(session, delete=do_prune)
+            authoritative = is_authoritative_run(session, exitstatus)
+            write_session_lockfile(session, choose_lock_action(options, authoritative))
+            match options.prune:
+                case PruneMode.DELETE:
+                    pruned = delete_orphans(find_orphans(session))
+                case PruneMode.DRY_RUN:
+                    would_prune = [orphan.key for orphan in find_orphans(session)]
+                case PruneMode.OFF:
+                    pass
 
-    introspect_path = config.getoption("--ditto-introspect", default="")
-    if introspect_path:
+    if options.introspect_path:
         write_introspect_manifest(
-            introspect_path, session_state(config).introspect_backends
+            options.introspect_path, session_state(config).introspect_backends
         )
         return
 

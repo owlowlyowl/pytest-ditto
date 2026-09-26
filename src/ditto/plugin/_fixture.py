@@ -7,6 +7,7 @@ import pytest
 from ditto.snapshot import Snapshot
 from ditto._lockfile import portable_target_id
 
+from ._options import read_run_options
 from ._selection import parse_mark_target_selection, resolve_recorder
 from ._session import session_state
 from ._targets import resolve_target
@@ -21,8 +22,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     module = request.path.relative_to(rootdir).with_suffix("").as_posix()
     marks = list(request.node.iter_markers(name="record"))
     recorder = resolve_recorder(marks)
-    update: bool = request.config.getoption("--ditto-update", default=False)  # type: ignore[assignment]
-    readonly: bool = request.config.getoption("--ditto-verify", default=False)  # type: ignore[assignment]
+    options = read_run_options(request.config)
 
     mark_target, mark_profile = parse_mark_target_selection(marks)
     backend, abs_uri = resolve_target(mark_target, mark_profile, request)
@@ -33,7 +33,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         portable_target_id(abs_uri, rootdir), urlparse(abs_uri).scheme, backend
     )
 
-    if request.config.getoption("--ditto-introspect", default=""):
+    if options.introspect_path:
         state.introspect_backends.setdefault(abs_uri, backend)
 
     file_prefix = str(request.path.relative_to(rootdir)) + "::"
@@ -46,8 +46,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         target=abs_uri,
         _backend=backend,
         recorder=recorder,
-        update=update,
-        readonly=readonly,
+        mode=options.snapshot_mode,
         nodeid=request.node.nodeid,
         target_id=portable_target_id(abs_uri, rootdir),
         _tracker=state.tracker,

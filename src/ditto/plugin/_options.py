@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import cast
 
 import pytest
 
 from ditto.exceptions import DittoAmbiguousTargetError
+from ditto.snapshot import SnapshotMode
 
 
 __all__ = (
     "StorageOptions",
     "StorageOptionsByScheme",
+    "PruneMode",
+    "RunOptions",
+    "read_run_options",
     "add_options",
     "validate_options",
     "validate_target_config",
@@ -22,6 +28,64 @@ __all__ = (
 
 StorageOptions = dict[str, object]
 StorageOptionsByScheme = dict[str, StorageOptions]
+
+
+class PruneMode(Enum):
+    """Whether the session prunes orphaned snapshots when it finishes."""
+
+    OFF = "off"
+    DRY_RUN = "dry-run"
+    DELETE = "delete"
+
+
+@dataclass(frozen=True)
+class RunOptions:
+    """The ditto command-line options for one run, read once from the config.
+
+    Attributes
+    ----------
+    snapshot_mode : SnapshotMode
+        `UPDATE` with `--ditto-update`, `VERIFY` with `--ditto-verify`, otherwise
+        `RECORD`.
+    rebuild_lock : bool
+        `--ditto-lock`: rebuild `ditto.lock` from this run.
+    prune : PruneMode
+        `--ditto-prune` (`DELETE`) or `--ditto-prune-dry-run` (`DRY_RUN`).
+    introspect_path : str
+        `--ditto-introspect`: where to write the backend manifest, or `""`.
+    """
+
+    snapshot_mode: SnapshotMode
+    rebuild_lock: bool
+    prune: PruneMode
+    introspect_path: str
+
+
+def read_run_options(config: pytest.Config) -> RunOptions:
+    """Read ditto's command-line options from `config`.
+
+    Assumes `validate_options` has rejected conflicting combinations.
+    """
+    if config.getoption("--ditto-verify", default=False):
+        snapshot_mode = SnapshotMode.VERIFY
+    elif config.getoption("--ditto-update", default=False):
+        snapshot_mode = SnapshotMode.UPDATE
+    else:
+        snapshot_mode = SnapshotMode.RECORD
+
+    if config.getoption("--ditto-prune", default=False):
+        prune = PruneMode.DELETE
+    elif config.getoption("--ditto-prune-dry-run", default=False):
+        prune = PruneMode.DRY_RUN
+    else:
+        prune = PruneMode.OFF
+
+    return RunOptions(
+        snapshot_mode=snapshot_mode,
+        rebuild_lock=bool(config.getoption("--ditto-lock", default=False)),
+        prune=prune,
+        introspect_path=str(config.getoption("--ditto-introspect", default="")),
+    )
 
 
 def add_options(parser: pytest.Parser) -> None:

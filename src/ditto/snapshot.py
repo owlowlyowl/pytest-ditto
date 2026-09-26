@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 
@@ -9,7 +10,7 @@ from .exceptions import DuplicateSnapshotKeyError
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("LockSeen", "Snapshot", "SnapshotKey")
+__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "SnapshotMode")
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,26 @@ def _flat_key(sk: SnapshotKey) -> str:
     return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.identifier}"
 
 
+class SnapshotMode(Enum):
+    """How `resolve_snapshot` treats the stored value for a key.
+
+    Attributes
+    ----------
+    RECORD
+        Save the value when the key is absent; otherwise return the stored value.
+    UPDATE
+        Always save the value, overwriting a stored one. Set by `--ditto-update`.
+    VERIFY
+        Never write: return the stored value, or the given value when the key is
+        absent. Set by `--ditto-verify`, so a verify run cannot recreate a
+        deleted snapshot.
+    """
+
+    RECORD = "record"
+    UPDATE = "update"
+    VERIFY = "verify"
+
+
 @dataclass(frozen=True)
 class Snapshot:
     """Immutable configuration for a snapshot: where to store it and how to record it.
@@ -194,12 +215,9 @@ class Snapshot:
         `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
         Serialisation strategy. Defaults to strict JSON.
-    update : bool
-        When True, overwrite existing snapshots. Set by `--ditto-update`.
-    readonly : bool
-        When True, never write to the backend — `resolve_snapshot` returns the
-        stored value (or the given data, if absent) without persisting. Set by
-        `--ditto-verify` so a verify run cannot recreate a deleted snapshot.
+    mode : SnapshotMode
+        Whether a snapshot is recorded, updated, or only verified. Defaults to
+        `SnapshotMode.RECORD`.
     nodeid : str
         Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
         Used to build lock-file entries. Empty when constructed outside the fixture.
@@ -215,8 +233,7 @@ class Snapshot:
     target: str
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
-    update: bool = False
-    readonly: bool = False
+    mode: SnapshotMode = SnapshotMode.RECORD
     nodeid: str = ""
     target_id: str = ""
     _tracker: _SessionTracker = field(
@@ -285,7 +302,7 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     """Return the snapshot value for `key`, saving it first if absent.
 
-    When `snapshot.update` is True, always overwrites the existing value.
+    How the stored value is treated depends on `snapshot.mode`; see `SnapshotMode`.
 
     Raises
     ------
@@ -322,29 +339,29 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         else None
     )
 
-    if snapshot.readonly:
-        # In read-only mode (e.g. --ditto-verify) never write to the backend.
-        # Return the existing value if present, otherwise return `data` unchanged
-        # so the test assertion can still pass, but leave the backend untouched so
-        # the drift check can detect the missing key.
-        # Record as "created" when the key is absent so that the verify hook can
-        # identify intended-but-blocked new snapshots as unsynced.
-        if seen is not None:
-            tracker.record_lock_seen(seen, created=not exists)
-        if exists:
-            return store[storage_key]
-        return data
-
-    if not exists or snapshot.update:
-        store[storage_key] = data
-        (tracker.updated if (snapshot.update and exists) else tracker.created).append(
-            sk
-        )
-        if seen is not None:
-            tracker.record_lock_seen(seen, created=not exists)
-        return data
-
-    value = store[storage_key]
-    if seen is not None:
-        tracker.record_lock_seen(seen, created=False)
-    return value
+    match snapshot.mode:
+        case SnapshotMode.VERIFY:
+            # Never write to the backend. Return `data` for an absent key so the
+            # test assertion can still pass, but leave the backend untouched so
+            # the drift check can detect the missing key. Record it as "created"
+            # so the verify hook reports it as unsynced.
+            if seen is not None:
+                tracker.record_lock_seen(seen, created=not exists)
+            return store[storage_key] if exists else data
+        case SnapshotMode.UPDATE:
+            store[storage_key] = data
+            (tracker.updated if exists else tracker.created).append(sk)
+            if seen is not None:
+                tracker.record_lock_seen(seen, created=not exists)
+            return data
+        case SnapshotMode.RECORD if not exists:
+            store[storage_key] = data
+            tracker.created.append(sk)
+            if seen is not None:
+                tracker.record_lock_seen(seen, created=True)
+            return data
+        case SnapshotMode.RECORD:
+            value = store[storage_key]
+            if seen is not None:
+                tracker.record_lock_seen(seen, created=False)
+            return value
