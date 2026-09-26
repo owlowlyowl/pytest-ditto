@@ -80,3 +80,30 @@ def test_doctor_fails_on_contract_problems() -> None:
     assert result.returncode == 1
     assert "registered more than once, by plug-a 1.0, plug-b 2.0" in result.stdout
     assert "old-plug 0.1 uses the 1.x plugin contract" in result.stdout
+
+
+def test_recorders_reports_an_identifier_collision(
+    make_distribution, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ditto recorders` reports a collision only found by loading recorders."""
+    (ep,) = make_distribution(
+        "plug-c", "1.0", {"ditto_recorders": {"clash.json": "clashmod:recorder"}}
+    )
+    root = ep.dist.locate_file("")
+    (root / "clashmod.py").write_text(
+        "from ditto.recorders import Recorder\n"
+        "recorder = Recorder(identifier='json', save=print, load=print)\n"
+    )
+    monkeypatch.setenv(
+        "PYTHONPATH",
+        os.pathsep.join([str(root), *filter(None, [os.environ.get("PYTHONPATH")])]),
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", "from ditto.cli import cli; cli()", "recorders"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "COLUMNS": "200"},
+    )
+
+    assert "1 plugin contract problem(s)" in result.stdout

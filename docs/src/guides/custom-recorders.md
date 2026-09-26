@@ -96,9 +96,15 @@ These registrations conflict:
 ditto never picks one of the conflicting registrations. Each pytest run emits a
 `DittoWarning` for every conflict, a test that uses an affected recorder fails
 with `DittoRecorderConflictError` naming the distributions involved, and
-`ditto doctor` fails. Other recorders keep working. Identifier conflicts are
-found when both recorders load; `ditto doctor` loads every recorder, so it
-finds them all.
+`ditto doctor` fails. Other recorders keep working.
+
+An identifier conflict is found when a recorder loads with the identifier of a
+recorder already in use. The default JSON recorder is always in use, so a
+plugin recorder with the identifier `json` conflicts as soon as it loads. From
+then on, every plugin recorder involved fails, including one that loaded first;
+core's own recorders keep working. `ditto doctor` and `ditto recorders` load
+every recorder, so they report every identifier conflict. Names that alias the
+same recorder object do not conflict.
 
 Plugins written for the 1.x contract, which registered marks under the removed
 `ditto_marks` group, are reported the same way, with the version to install.

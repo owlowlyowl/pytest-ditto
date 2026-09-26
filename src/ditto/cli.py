@@ -55,6 +55,7 @@ from ._theme import (
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
 from ._inventory import InventoryError, build_inventory, lock_present
+from .exceptions import DittoException, DittoRecorderConflictError
 from .recorders._contract import NAME_PATTERN
 from .recorders._plugins import RecorderRegistry
 
@@ -633,7 +634,9 @@ def cmd_recorders():
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
         sys.exit(1)
     _render_recorders(infos, console)
-    problems = RecorderRegistry().problems
+    registry = RecorderRegistry()
+    _load_every_recorder(registry)
+    problems = registry.problems
     if problems:
         console.print(
             f"[{PRUNED}]{len(problems)} plugin contract problem(s); run "
@@ -723,24 +726,36 @@ def _doctor_checks() -> list[CheckResult]:
     return results
 
 
+def _load_every_recorder(registry: RecorderRegistry) -> None:
+    """Load every recorder through `registry`, so all its problems are found.
+
+    Identifier collisions are only found as recorders load. Load and conflict
+    errors are left for the caller to observe through `registry`.
+    """
+    for name in registry:
+        try:
+            registry[name]
+        except DittoException:
+            pass
+
+
 def _recorder_checks(registry: RecorderRegistry) -> list[CheckResult]:
     """Check each recorder loads and the registrations keep the plugin contract.
 
-    Every recorder is loaded through `registry`, so identifier collisions and
-    1.x-plugin upgrade hints are reported the way a test run would report them.
-    A contract problem gets one failing row; the recorders it affects are not
-    listed again.
+    Every recorder is loaded through `registry` before any result is built, so a
+    collision found late still affects the recorders it involves. A contract
+    problem gets one failing row; the recorders it affects are not listed again.
     """
-    affected = {name for problem in registry.problems for name in problem.names}
+    _load_every_recorder(registry)
     results = [
         CheckResult(name="plugin contract", ok=False, detail=problem.message)
         for problem in registry.problems
     ]
     for name in registry:
-        if name in affected:
-            continue
         try:
             registry[name]
+        except DittoRecorderConflictError:
+            continue
         except Exception as exc:
             results.append(
                 CheckResult(name=f"recorder: {name}", ok=False, detail=str(exc))
