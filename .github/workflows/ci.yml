@@ -101,10 +101,10 @@ jobs:
           cache: true
           environments: ${{ matrix.plugin }}-py3${{ matrix.python-version }}
 
-      - name: Run plugin tests against this commit's core
-        run: pixi run -e ${{ matrix.plugin }}-py3${{ matrix.python-version }} test-${{ matrix.plugin }}
-
-      - name: Verify the plugin's snapshots match its ditto.lock
+      # Read-only (`pytest --ditto-verify`): runs the whole plugin suite against this
+      # commit's core and fails on any drift from the plugin's ditto.lock. An
+      # ordinary run would recreate a missing committed snapshot and hide it.
+      - name: Run plugin tests read-only against its ditto.lock
         run: pixi run -e ${{ matrix.plugin }}-py3${{ matrix.python-version }} verify-${{ matrix.plugin }}
 
       - name: Upload test results

@@ -14018,13 +14018,13 @@ packages:
   - hatch>=1.9.4 ; extra == 'dev'
   - pre-commit ; extra == 'dev'
   - pytest-ditto-pandas ; extra == 'pandas'
-  - pytest-ditto-pyarrow>=1.1,<3 ; extra == 'pyarrow'
+  - pytest-ditto-pyarrow ; extra == 'pyarrow'
   requires_python: '>=3.12'
 - pypi: ./plugins/pyarrow
   name: pytest-ditto-pyarrow
   requires_dist:
   - pyarrow>=16.1.0
-  - pytest-ditto>=1.1,<3
+  - pytest-ditto>=1.1.0.post0.dev68,<3
   requires_python: '>=3.12'
 - pypi: https://files.pythonhosted.org/packages/00/d6/f49e3a48347cadffc5be673c91aa81c411fd67708f1488f87865558f75ee/uv-0.11.5-py3-none-win_amd64.whl
   name: uv
