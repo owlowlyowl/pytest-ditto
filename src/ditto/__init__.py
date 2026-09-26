@@ -49,42 +49,51 @@ def __getattr__(name: str) -> Any:
     AttributeError
         If `name` is neither a recorder name nor a recorder namespace.
     """
-    names = list(_plugins.RECORDER_REGISTRY)
-    if name in names:
+    if name in _plugins.RECORDER_REGISTRY:
         return record(name)
-    prefix = f"{name}."
-    formats = [n.removeprefix(prefix) for n in names if n.startswith(prefix)]
-    if formats:
-        return _MarkNamespace(name, formats)
+    if _formats_in(name):
+        return _MarkNamespace(name)
     raise AttributeError(f"module 'ditto' has no attribute {name!r}")
+
+
+def _formats_in(namespace: str) -> list[str]:
+    """Return the formats currently registered under `namespace`, sorted."""
+    prefix = f"{namespace}."
+    return sorted(
+        name.removeprefix(prefix)
+        for name in _plugins.RECORDER_REGISTRY
+        if name.startswith(prefix)
+    )
 
 
 class _MarkNamespace:
     """
     The marks of one recorder namespace, such as `ditto.pandas`.
 
+    Formats are read from the recorder registry on every access, so a retained
+    namespace reflects recorders registered or removed after it was created.
+
     Parameters
     ----------
     namespace : str
         The namespace segment shared by the recorder names.
-    formats : list[str]
-        The format segments registered under `namespace`.
     """
 
-    def __init__(self, namespace: str, formats: list[str]) -> None:
+    def __init__(self, namespace: str) -> None:
         self._namespace = namespace
-        self._formats = formats
 
     def __getattr__(self, fmt: str) -> MarkDecorator:
-        if fmt in self._formats:
-            return record(f"{self._namespace}.{fmt}")
+        name = f"{self._namespace}.{fmt}"
+        if name in _plugins.RECORDER_REGISTRY:
+            return record(name)
+        available = ", ".join(_formats_in(self._namespace)) or "none"
         raise AttributeError(
-            f"ditto.{self._namespace} has no recorder {fmt!r}; "
-            f"available: {', '.join(sorted(self._formats))}"
+            f"ditto.{self._namespace} has no recorder {fmt!r}; available: {available}"
         )
 
     def __dir__(self) -> list[str]:
-        return sorted(self._formats)
+        return _formats_in(self._namespace)
 
     def __repr__(self) -> str:
-        return f"<ditto marks {self._namespace}: {', '.join(sorted(self._formats))}>"
+        formats = ", ".join(_formats_in(self._namespace))
+        return f"<ditto marks {self._namespace}: {formats}>"

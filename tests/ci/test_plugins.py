@@ -148,6 +148,32 @@ def test_recorder_registered_at_runtime_derives_mark(
     assert ditto.runtime.fmt == pytest.mark.record("runtime.fmt")
 
 
+def test_retained_namespace_exposes_recorder_registered_after_it(
+    plugin_names: RecorderRegistry,
+) -> None:
+    """A namespace held before a registration still resolves the new format."""
+    import ditto
+
+    tabular = ditto.tabular
+    plugin_names["tabular.feather"] = json_recorder
+
+    assert tabular.feather == pytest.mark.record("tabular.feather")
+    assert dir(tabular) == ["csv", "feather", "parquet"]
+
+
+def test_retained_namespace_rejects_recorder_removed_after_it(
+    plugin_names: RecorderRegistry,
+) -> None:
+    """A namespace held before a removal no longer resolves the removed format."""
+    import ditto
+
+    tabular = ditto.tabular
+    del plugin_names["tabular.csv"]
+
+    with pytest.raises(AttributeError, match="'csv'.*available: parquet"):
+        _ = tabular.csv
+
+
 # ── Broken entry point resilience ─────────────────────────────────────────────
 
 
