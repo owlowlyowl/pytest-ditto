@@ -480,7 +480,7 @@ def test_plugin_recorder_sharing_the_default_identifier_is_rejected(
     )
     registry = RecorderRegistry(eps, [])
 
-    with pytest.raises(DittoRecorderConflictError, match="default recorder"):
+    with pytest.raises(DittoRecorderConflictError, match=r"'json' \(pytest-ditto "):
         registry["clash"]
 
 

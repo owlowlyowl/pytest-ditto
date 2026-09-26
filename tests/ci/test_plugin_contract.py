@@ -6,6 +6,7 @@ import ditto
 from ditto.recorders._contract import (
     NAME_PATTERN,
     RESERVED_NAMES,
+    Distribution,
     Registration,
     find_identifier_problems,
     find_legacy_problems,
@@ -13,8 +14,14 @@ from ditto.recorders._contract import (
 )
 
 
+def _dist(label: str) -> Distribution:
+    """Build a distribution from `"<name> <version>"`."""
+    name, _, version = label.partition(" ")
+    return Distribution(name, version)
+
+
 def _registrations(*pairs: tuple[str, str]) -> list[Registration]:
-    return [Registration(name, distribution) for name, distribution in pairs]
+    return [Registration(name, _dist(label)) for name, label in pairs]
 
 
 @pytest.mark.parametrize("name", ["json", "pandas.csv", "my_fmt2", "ns.fmt_2"])
@@ -34,6 +41,15 @@ def test_rejects_name_outside_the_grammar(name: str) -> None:
     (problem,) = find_name_problems(_registrations((name, "plug 2.0")))
 
     assert problem.names == {name}
+    assert "is not valid" in problem.message
+
+
+def test_reports_only_invalidity_for_an_invalid_name_registered_twice() -> None:
+    """An invalid name is not checked against the other rules."""
+    registrations = _registrations(("Bad", "plug-a 1.0"), ("Bad", "plug-b 2.0"))
+
+    (problem,) = find_name_problems(registrations)
+
     assert "is not valid" in problem.message
 
 
@@ -82,8 +98,8 @@ def test_reserved_names_cover_every_public_ditto_attribute() -> None:
 def test_rejects_two_recorders_sharing_an_identifier() -> None:
     """Recorders with one identifier would share files, so both are affected."""
     identifiers = [
-        (Registration("a.csv", "plug-a 1.0"), "csv"),
-        (Registration("b.csv", "plug-b 2.0"), "csv"),
+        (Registration("a.csv", _dist("plug-a 1.0")), "csv"),
+        (Registration("b.csv", _dist("plug-b 2.0")), "csv"),
     ]
 
     (problem,) = find_identifier_problems(identifiers)
@@ -95,8 +111,8 @@ def test_rejects_two_recorders_sharing_an_identifier() -> None:
 def test_accepts_distinct_identifiers() -> None:
     """Recorders with different identifiers break no rule."""
     identifiers = [
-        (Registration("pickle", "plug 2.0"), "pkl"),
-        (Registration("json", "pytest-ditto 2.0"), "json"),
+        (Registration("pickle", _dist("plug 2.0")), "pkl"),
+        (Registration("json", _dist("pytest-ditto 2.0")), "json"),
     ]
 
     actual = find_identifier_problems(identifiers)
@@ -107,7 +123,7 @@ def test_accepts_distinct_identifiers() -> None:
 
 def test_reports_a_distribution_still_on_the_1x_contract() -> None:
     """A distribution registering `ditto_marks` is told which version to install."""
-    (problem,) = find_legacy_problems(["pytest-ditto-pandas 0.1.1"])
+    (problem,) = find_legacy_problems([_dist("pytest-ditto-pandas 0.1.1")])
 
     expected = (
         "pytest-ditto-pandas 0.1.1 uses the 1.x plugin contract; install "

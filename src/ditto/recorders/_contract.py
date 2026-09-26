@@ -1,17 +1,19 @@
 import re
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 
 __all__ = (
     "NAME_PATTERN",
     "RESERVED_NAMES",
+    "Distribution",
     "Registration",
     "ContractProblem",
     "find_name_problems",
     "find_identifier_problems",
     "find_legacy_problems",
+    "upgrade_message",
 )
 
 
@@ -34,6 +36,25 @@ RESERVED_NAMES = frozenset({
 
 
 @dataclass(frozen=True)
+class Distribution:
+    """An installed distribution, as named in contract messages.
+
+    Attributes
+    ----------
+    name : str
+        The distribution's name, e.g. `"pytest-ditto-pandas"`.
+    version : str
+        Its version, or `""` when unknown.
+    """
+
+    name: str
+    version: str
+
+    def __str__(self) -> str:
+        return f"{self.name} {self.version}" if self.version else self.name
+
+
+@dataclass(frozen=True)
 class Registration:
     """One `ditto_recorders` entry point, as read from package metadata.
 
@@ -41,12 +62,12 @@ class Registration:
     ----------
     name : str
         The entry-point name, which is the recorder's user-facing name.
-    distribution : str
-        The registering distribution and its version, e.g. `"pytest-ditto 2.0.0"`.
+    distribution : Distribution
+        The distribution that registers it.
     """
 
     name: str
-    distribution: str
+    distribution: Distribution
 
 
 @dataclass(frozen=True)
@@ -65,64 +86,25 @@ class ContractProblem:
     message: str
 
 
+# Registering distributions keyed by recorder name.
+_ByName = Mapping[str, Sequence[Distribution]]
+
+
 def find_name_problems(registrations: Iterable[Registration]) -> list[ContractProblem]:
-    """Return the problems with a set of recorder registrations.
+    """Return the naming problems in a set of recorder registrations.
 
-    Checks, from metadata alone: names that break the grammar, a name registered
-    more than once, a bare name that is also a namespace, and a name whose first
-    segment shadows an attribute of the `ditto` module.
+    Names outside the grammar are reported as invalid and are not checked
+    further; the other rules apply to valid names only.
     """
-    by_name: dict[str, list[str]] = defaultdict(list)
-    for registration in registrations:
-        by_name[registration.name].append(registration.distribution)
-
-    problems: list[ContractProblem] = []
-    for name, distributions in by_name.items():
-        if not NAME_PATTERN.fullmatch(name):
-            problems.append(
-                ContractProblem(
-                    frozenset({name}),
-                    f"Recorder name {name!r} from {_join(distributions)} is not "
-                    "valid: use <format> or <namespace>.<format>, each segment a "
-                    "lowercase letter followed by lowercase letters, digits or "
-                    "underscores.",
-                )
-            )
-            continue
-        if len(distributions) > 1:
-            problems.append(
-                ContractProblem(
-                    frozenset({name}),
-                    f"Recorder name {name!r} is registered more than once, by "
-                    f"{_join(distributions)}.",
-                )
-            )
-        first_segment = name.partition(".")[0]
-        if first_segment in RESERVED_NAMES:
-            problems.append(
-                ContractProblem(
-                    frozenset({name}),
-                    f"Recorder name {name!r} from {_join(distributions)} shadows "
-                    f"ditto.{first_segment}; choose another name.",
-                )
-            )
-
-    valid = [name for name in by_name if NAME_PATTERN.fullmatch(name)]
-    for namespace in sorted({n.partition(".")[0] for n in valid if "." in n}):
-        if namespace not in by_name:
-            continue
-        members = sorted(n for n in valid if n.startswith(f"{namespace}."))
-        member_distributions = [d for n in members for d in by_name[n]]
-        problems.append(
-            ContractProblem(
-                frozenset({namespace, *members}),
-                f"{namespace!r} is both a recorder name (from "
-                f"{_join(by_name[namespace])}) and a namespace ({', '.join(members)} "
-                f"from {_join(member_distributions)}), so ditto.{namespace} is "
-                "ambiguous.",
-            )
-        )
-    return problems
+    by_name = _distributions_by_name(registrations)
+    valid = {n: d for n, d in by_name.items() if NAME_PATTERN.fullmatch(n)}
+    invalid = {n: d for n, d in by_name.items() if n not in valid}
+    return [
+        *_invalid_names(invalid),
+        *_duplicated_names(valid),
+        *_shadowing_names(valid),
+        *_ambiguous_namespaces(valid),
+    ]
 
 
 def find_identifier_problems(
@@ -154,27 +136,104 @@ def find_identifier_problems(
     ]
 
 
-def find_legacy_problems(marks_distributions: Iterable[str]) -> list[ContractProblem]:
+def find_legacy_problems(
+    marks_distributions: Iterable[Distribution],
+) -> list[ContractProblem]:
     """Return a problem for each distribution still on the 1.x plugin contract.
 
     Parameters
     ----------
-    marks_distributions : Iterable[str]
-        The name and version (`"<name> <version>"`) of each distribution that
-        registers the removed `ditto_marks` entry-point group.
+    marks_distributions : Iterable[Distribution]
+        Each distribution that registers the removed `ditto_marks` group.
     """
     return [
-        ContractProblem(
-            frozenset(),
-            f"{distribution} uses the 1.x plugin contract; install "
-            f"{distribution.partition(' ')[0]}>=2.0.",
-        )
-        for distribution in sorted(set(marks_distributions))
+        ContractProblem(frozenset(), upgrade_message(distribution))
+        for distribution in sorted(set(marks_distributions), key=str)
     ]
 
 
-def _join(distributions: Iterable[str]) -> str:
-    return ", ".join(sorted(set(distributions)))
+def upgrade_message(distribution: Distribution) -> str:
+    """Return the message telling a 1.x plugin's users which version to install."""
+    return (
+        f"{distribution} uses the 1.x plugin contract; install "
+        f"{distribution.name}>=2.0."
+    )
+
+
+def _distributions_by_name(
+    registrations: Iterable[Registration],
+) -> dict[str, list[Distribution]]:
+    by_name: dict[str, list[Distribution]] = defaultdict(list)
+    for registration in registrations:
+        by_name[registration.name].append(registration.distribution)
+    return by_name
+
+
+def _invalid_names(by_name: _ByName) -> list[ContractProblem]:
+    """Names that are not `<format>` or `<namespace>.<format>`."""
+    return [
+        ContractProblem(
+            frozenset({name}),
+            f"Recorder name {name!r} from {_join(distributions)} is not valid: "
+            "use <format> or <namespace>.<format>, each segment a lowercase "
+            "letter followed by lowercase letters, digits or underscores.",
+        )
+        for name, distributions in by_name.items()
+    ]
+
+
+def _duplicated_names(by_name: _ByName) -> list[ContractProblem]:
+    """Names registered more than once."""
+    return [
+        ContractProblem(
+            frozenset({name}),
+            f"Recorder name {name!r} is registered more than once, by "
+            f"{_join(distributions)}.",
+        )
+        for name, distributions in by_name.items()
+        if len(distributions) > 1
+    ]
+
+
+def _shadowing_names(by_name: _ByName) -> list[ContractProblem]:
+    """Names whose first segment is an attribute of the `ditto` module."""
+    return [
+        ContractProblem(
+            frozenset({name}),
+            f"Recorder name {name!r} from {_join(distributions)} shadows "
+            f"ditto.{_namespace(name)}; choose another name.",
+        )
+        for name, distributions in by_name.items()
+        if _namespace(name) in RESERVED_NAMES
+    ]
+
+
+def _ambiguous_namespaces(by_name: _ByName) -> list[ContractProblem]:
+    """Bare names that are also the namespace of other names."""
+    members: dict[str, list[str]] = defaultdict(list)
+    for name in by_name:
+        if "." in name:
+            members[_namespace(name)].append(name)
+
+    return [
+        ContractProblem(
+            frozenset({namespace, *names}),
+            f"{namespace!r} is both a recorder name (from "
+            f"{_join(by_name[namespace])}) and a namespace ({', '.join(sorted(names))} "
+            f"from {_join(d for n in names for d in by_name[n])}), so "
+            f"ditto.{namespace} is ambiguous.",
+        )
+        for namespace, names in sorted(members.items())
+        if namespace in by_name
+    ]
+
+
+def _namespace(name: str) -> str:
+    return name.partition(".")[0]
+
+
+def _join(distributions: Iterable[Distribution]) -> str:
+    return ", ".join(sorted({str(d) for d in distributions}))
 
 
 def _describe(registrations: Iterable[Registration]) -> str:

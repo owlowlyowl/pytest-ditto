@@ -3,12 +3,15 @@ import warnings
 from collections.abc import Iterable, Iterator, MutableMapping
 from importlib.metadata import EntryPoint
 
+from .._version import __version__
 from ._contract import (
     ContractProblem,
+    Distribution,
     Registration,
     find_identifier_problems,
     find_legacy_problems,
     find_name_problems,
+    upgrade_message,
 )
 from ._json import json as _default_recorder
 from ._protocol import Recorder
@@ -31,7 +34,7 @@ CORE_DISTRIBUTION = "pytest-ditto"
 
 # The recorder unmarked tests use. It is always in use, whether or not a test
 # looks it up by name, so identifier checks always compare against it.
-_DEFAULT = Registration("json", f"{CORE_DISTRIBUTION} (default recorder)")
+_DEFAULT = Registration("json", Distribution(CORE_DISTRIBUTION, __version__))
 
 
 class RecorderRegistry(MutableMapping[str, Recorder]):
@@ -90,7 +93,7 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
             for ep in entry_points
             if ep.dist is not None and ep.dist.name == CORE_DISTRIBUTION
         )
-        self._legacy_distributions = frozenset(d.partition(" ")[0] for d in legacy)
+        self._legacy_distributions = frozenset(d.name for d in legacy)
         self._problems = [
             *find_name_problems(
                 Registration(ep.name, _distribution(ep)) for ep in entry_points
@@ -102,7 +105,7 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
         }
         # Plugin recorders loaded so far, and their distributions, for the
         # identifier check.
-        self._loaded: dict[str, str] = {}
+        self._loaded: dict[str, Distribution] = {}
 
     @property
     def problems(self) -> tuple[ContractProblem, ...]:
@@ -132,7 +135,7 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
                     )
             except Exception as exc:
                 raise DittoRecorderLoadError(
-                    name, distribution, exc, self._upgrade_hint(entry)
+                    name, str(distribution), exc, self._upgrade_hint(distribution)
                 ) from exc
             self._entries[name] = recorder
             self._loaded[name] = distribution
@@ -211,20 +214,17 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
         if registration.name in affected:
             raise DittoRecorderConflictError(problem.message)
 
-    def _upgrade_hint(self, entry: EntryPoint) -> str:
-        if entry.dist is None or entry.dist.name not in self._legacy_distributions:
+    def _upgrade_hint(self, distribution: Distribution) -> str:
+        if distribution.name not in self._legacy_distributions:
             return ""
-        return (
-            f"{entry.dist.name} uses the 1.x plugin contract; install "
-            f"{entry.dist.name}>=2.0."
-        )
+        return upgrade_message(distribution)
 
 
-def _distribution(entry: EntryPoint) -> str:
-    """Return the name and version of the distribution registering `entry`."""
+def _distribution(entry: EntryPoint) -> Distribution:
+    """Return the distribution registering `entry`."""
     if entry.dist is None:
-        return "an unknown distribution"
-    return f"{entry.dist.name} {entry.dist.version}"
+        return Distribution("an unknown distribution", "")
+    return Distribution(entry.dist.name, entry.dist.version)
 
 
 def load_recorders() -> dict[str, Recorder]:
