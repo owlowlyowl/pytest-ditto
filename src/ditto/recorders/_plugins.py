@@ -23,6 +23,14 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
     Names come from `ditto_recorders` entry-point metadata, which needs no
     import, so membership tests and iteration never import a plugin. Recorders
     added with `registry[name] = recorder` take precedence over entry points.
+    Iteration preserves discovery order, followed by additional assigned names
+    in insertion order. Loading or overriding a recorder does not move its name.
+
+    Looking up values (including through `get`, `items`, `values`, or `pop`)
+    can load plugins and raise `DittoRecorderLoadError`. Assignment, `del`, and
+    `clear` never load plugins. Pytest's `monkeypatch.setitem` and `delitem`
+    first read the old value for restoration, so they also load an existing
+    entry point and fail if it is broken.
 
     Parameters
     ----------
@@ -61,10 +69,20 @@ class RecorderRegistry(MutableMapping[str, Recorder]):
         return name in self._recorders or name in self._entry_points
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._entry_points.keys() | self._recorders.keys())
+        yield from self._entry_points
+        for name in self._recorders:
+            if name not in self._entry_points:
+                yield name
 
     def __len__(self) -> int:
-        return len(self._entry_points.keys() | self._recorders.keys())
+        return len(self._entry_points) + sum(
+            name not in self._entry_points for name in self._recorders
+        )
+
+    def clear(self) -> None:
+        """Remove all registrations without loading any entry points."""
+        self._recorders.clear()
+        self._entry_points.clear()
 
 
 def load_recorders() -> dict[str, Recorder]:

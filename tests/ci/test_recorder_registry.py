@@ -84,6 +84,61 @@ def test_assigned_recorder_is_listed_alongside_entry_points() -> None:
     assert len(registry) == 2
 
 
+def test_iteration_preserves_order_across_loading_and_overrides() -> None:
+    first = _ep("z_first", load_return=json_recorder)
+    second = _ep("a_second", load_return=json_recorder)
+    registry = RecorderRegistry([first, second])
+    registry["z_extra"] = json_recorder
+    registry["a_extra"] = json_recorder
+
+    assert registry["a_second"] is json_recorder
+    registry["z_first"] = json_recorder
+    registry["z_extra"] = json_recorder
+
+    assert list(registry) == ["z_first", "a_second", "z_extra", "a_extra"]
+    assert len(registry) == 4
+    first.load.assert_not_called()
+    second.load.assert_called_once()
+
+    del registry["z_first"]
+    registry["z_first"] = json_recorder
+    assert list(registry) == ["a_second", "z_extra", "a_extra", "z_first"]
+    assert len(registry) == 4
+
+
+def test_clear_removes_all_registrations_without_loading_plugins() -> None:
+    loaded = _ep("loaded", load_return=json_recorder)
+    overridden = _ep("overridden", load_side_effect=ImportError("missing lib"))
+    broken = _ep("broken", load_side_effect=ImportError("missing lib"))
+    registry = RecorderRegistry([loaded, overridden, broken])
+    assert registry["loaded"] is json_recorder
+    registry["overridden"] = json_recorder
+    registry["extra"] = json_recorder
+
+    registry.clear()
+    registry.clear()
+
+    assert list(registry) == []
+    assert len(registry) == 0
+    for name in ("loaded", "overridden", "broken", "extra"):
+        assert name not in registry
+        with pytest.raises(KeyError):
+            registry[name]
+    loaded.load.assert_called_once()
+    overridden.load.assert_not_called()
+    broken.load.assert_not_called()
+
+
+def test_deleting_a_broken_entry_point_does_not_load_it() -> None:
+    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
+    registry = RecorderRegistry([ep])
+
+    del registry["broken"]
+
+    assert "broken" not in registry
+    ep.load.assert_not_called()
+
+
 def test_deleting_a_name_removes_it_entirely() -> None:
     registry = RecorderRegistry([_ep("fmt", load_return=json_recorder)])
     registry["fmt"] = json_recorder
@@ -104,6 +159,48 @@ def test_monkeypatched_recorder_is_removed_on_undo() -> None:
     mp.undo()
 
     assert "temp" not in registry
+
+
+@pytest.mark.parametrize("operation", ["setitem", "delitem"])
+def test_monkeypatch_loads_and_restores_existing_recorder(operation: str) -> None:
+    ep = _ep("fmt", load_return=json_recorder)
+    registry = RecorderRegistry([ep])
+    replacement = recorders.Recorder(
+        "replacement", json_recorder.save, json_recorder.load
+    )
+
+    with pytest.MonkeyPatch.context() as mp:
+        if operation == "setitem":
+            mp.setitem(registry, "fmt", replacement)
+            assert registry["fmt"] is replacement
+        else:
+            mp.delitem(registry, "fmt")
+            assert "fmt" not in registry
+        ep.load.assert_called_once()
+
+    assert registry["fmt"] is json_recorder
+    ep.load.assert_called_once()
+
+
+@pytest.mark.parametrize("operation", ["setitem", "delitem"])
+def test_monkeypatch_cannot_replace_or_remove_broken_entry_point(
+    operation: str,
+) -> None:
+    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
+    registry = RecorderRegistry([ep])
+
+    with pytest.MonkeyPatch.context() as mp:
+        with pytest.raises(DittoRecorderLoadError, match="missing lib"):
+            if operation == "setitem":
+                mp.setitem(registry, "broken", json_recorder)
+            else:
+                mp.delitem(registry, "broken")
+
+    assert "broken" in registry
+    ep.load.assert_called_once()
+    recorders.register("broken", json_recorder, registry=registry)
+    assert registry["broken"] is json_recorder
+    ep.load.assert_called_once()
 
 
 def _install_fake_plugin(root: Path) -> None:
