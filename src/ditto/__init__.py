@@ -9,6 +9,7 @@ from .exceptions import DuplicateSnapshotKeyError
 # Base mark and convenience marks — accessible as @ditto.record, @ditto.yaml, etc.
 from ._marks import record
 from ._marks import yaml, json
+from .recorders import _plugins
 
 
 __all__ = (
@@ -48,10 +49,6 @@ def __getattr__(name: str) -> Any:
     AttributeError
         If `name` is neither a recorder name nor a recorder namespace.
     """
-    # Imported here rather than at module level so the registry is never exposed
-    # as a public attribute of the `ditto` namespace.
-    from .recorders import _plugins
-
     names = list(_plugins.RECORDER_REGISTRY)
     if name in names:
         return record(name)
