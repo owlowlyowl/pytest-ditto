@@ -1,7 +1,7 @@
 # ditto doctor
 
 Runs health checks: verifies pytest is available, the ditto pytest plugin is
-registered, and all registered recorder and mark plugins load successfully.
+registered, and all registered recorder plugins load successfully.
 
 ## Usage
 
@@ -18,6 +18,5 @@ Checks:
   another installed plugin claims the same `pytest11` entry-point name, because
   pytest loads only one plugin per name and silently skips the others.
 - All registered recorder plugins (`ditto_recorders`) load without error
-- All registered mark plugins (`ditto_marks`) load without error
 
 Reports any issues found and exits non-zero if health checks fail.

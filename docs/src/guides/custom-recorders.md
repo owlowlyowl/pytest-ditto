@@ -54,18 +54,28 @@ def test_something(snapshot):
     assert data == snapshot(data, key="output")
 ```
 
-## Registering Custom Marks
+## Marks
 
-For a cleaner API (e.g., `@ditto.myplugin.myformat`), register marks via the
-`ditto_marks` entry point group:
+Every registered recorder gets a mark, derived from its entry-point name. A bare
+name `myformat` is exposed as `@ditto.myformat`. A dotted name
+`myplugin.myformat` is exposed as `@ditto.myplugin.myformat`. Both are
+shorthands for `@ditto.record("<name>")`:
 
 ```toml
-[project.entry-points.ditto_marks]
-myplugin = "my_package.marks:myplugin"
+[project.entry-points.ditto_recorders]
+"myplugin.myformat" = "my_package.recorders:myformat"
 ```
 
-The mark object should be a namespace that provides mark attributes. See the
-`pytest-ditto-pandas` source for a complete example.
+```python
+@ditto.myplugin.myformat
+def test_something(snapshot):
+    ...
+```
+
+Resolving a mark reads only the installed entry-point names; the recorder is
+imported the first time a test uses it. A misspelled format, such as
+`@ditto.myplugin.myfromat`, fails at collection with the formats that are
+available under `myplugin`.
 
 ## Example: MessagePack Recorder
 
