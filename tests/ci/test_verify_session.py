@@ -6,7 +6,7 @@ import types
 import pytest
 
 from ditto.exceptions import DittoWarning
-from ditto.plugin import _warn_if_lockfile_ignored
+from ditto.plugin._lock import warn_if_lockfile_ignored
 from ditto.snapshot import _SessionTracker
 
 pytest_plugins = ["pytester"]
@@ -21,7 +21,7 @@ def test_gitignore_guard_warns_with_ditto_category(tmp_path, recwarn):
     """The .gitignore guard emits its advisory under the DittoWarning category."""
     (tmp_path / ".gitignore").write_text("ditto.lock\n")
 
-    _warn_if_lockfile_ignored(types.SimpleNamespace(rootpath=tmp_path))
+    warn_if_lockfile_ignored(types.SimpleNamespace(rootpath=tmp_path))
 
     assert any(issubclass(w.category, DittoWarning) for w in recwarn.list)
 
