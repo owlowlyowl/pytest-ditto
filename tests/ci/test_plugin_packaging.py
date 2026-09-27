@@ -18,7 +18,7 @@ def _pyproject(plugin: Path) -> dict:
 def test_every_plugin_carries_the_same_core_floor_hook() -> None:
     hooks = {plugin.name: (plugin / "hatch_build.py").read_text() for plugin in PLUGINS}
 
-    assert set(hooks) == {"pandas", "pickle", "pyarrow"}
+    assert set(hooks) == {"pandas", "pickle", "polars", "pyarrow"}
     assert len(set(hooks.values())) == 1
 
 

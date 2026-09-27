@@ -84,9 +84,9 @@ pip install pytest-ditto[pandas]
 
 | Mark | Registry Key | Identifier |
 |------|-------------|-----------|
-| `@ditto.pandas.parquet` | `pandas_parquet` | `.pandas.parquet` |
-| `@ditto.pandas.json` | `pandas_json` | `.pandas.json` |
-| `@ditto.pandas.csv` | `pandas_csv` | `.pandas.csv` |
+| `@ditto.pandas.parquet` | `pandas.parquet` | `.pandas.parquet` |
+| `@ditto.pandas.json` | `pandas.json` | `.pandas.json` |
+| `@ditto.pandas.csv` | `pandas.csv` | `.pandas.csv` |
 
 ```python
 import pandas as pd
@@ -108,9 +108,9 @@ pip install pytest-ditto[pyarrow]
 
 | Mark | Registry Key | Identifier |
 |------|-------------|-----------|
-| `@ditto.pyarrow.parquet` | `pyarrow_parquet` | `.pyarrow.parquet` |
-| `@ditto.pyarrow.feather` | `pyarrow_feather` | `.pyarrow.feather` |
-| `@ditto.pyarrow.csv` | `pyarrow_csv` | `.pyarrow.csv` |
+| `@ditto.pyarrow.parquet` | `pyarrow.parquet` | `.pyarrow.parquet` |
+| `@ditto.pyarrow.feather` | `pyarrow.feather` | `.pyarrow.feather` |
+| `@ditto.pyarrow.csv` | `pyarrow.csv` | `.pyarrow.csv` |
 
 ```python
 import pyarrow as pa
@@ -122,6 +122,32 @@ def test_table(snapshot):
     table = pa.table({"x": [1, 2, 3]})
     result = process(table)
     assert result.equals(snapshot(result, key="processed"))
+```
+
+### Polars (`pytest-ditto-polars`)
+
+```bash
+pip install pytest-ditto[polars]
+```
+
+| Mark | Registry Key | Identifier |
+|------|-------------|-----------|
+| `@ditto.polars.parquet` | `polars.parquet` | `.polars.parquet` |
+| `@ditto.polars.ipc` | `polars.ipc` | `.polars.ipc` |
+| `@ditto.polars.csv` | `polars.csv` | `.polars.csv` |
+| `@ditto.polars.ndjson` | `polars.ndjson` | `.polars.ndjson` |
+
+```python
+import polars as pl
+import polars.testing
+import ditto
+
+
+@ditto.polars.parquet
+def test_dataframe(snapshot):
+    df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    result = transform(df)
+    pl.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
 ```
 
 ## The Generic `@ditto.record()` Mark
@@ -150,5 +176,6 @@ registry key, including custom ones.
 | Human-readable diffs in version control | `json` or `yaml` |
 | Values outside strict JSON | An explicitly installed suitable recorder |
 | pandas DataFrames with type fidelity | `pandas.parquet` |
+| Polars DataFrames with type fidelity | `polars.parquet` |
 | Large datasets, fast I/O | `parquet` variants |
 | Interop with other tools | `json` or `csv` |

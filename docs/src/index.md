@@ -66,6 +66,7 @@ With optional recorder plugins:
 
 ```bash
 pip install pytest-ditto[pandas]    # pandas DataFrames
+pip install pytest-ditto[polars]    # polars DataFrames
 pip install pytest-ditto[pyarrow]   # PyArrow Tables
 ```
 

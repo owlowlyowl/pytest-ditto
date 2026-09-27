@@ -132,7 +132,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plugin: [pandas, pickle, pyarrow]
+        plugin: [pandas, pickle, polars, pyarrow]
         python-version: ["12", "13", "14"]
 
     steps:

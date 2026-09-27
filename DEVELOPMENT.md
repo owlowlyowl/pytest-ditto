@@ -34,6 +34,7 @@ pixi manages multiple isolated environments for different tasks:
 | `py314` | Test on Python 3.14 | pytest, pytest-cov, hypothesis |
 | `pandas-py312`–`py314` | Test the pandas plugin | pytest-ditto-pandas (editable) |
 | `pickle-py312`–`py314` | Test the pickle plugin | pytest-ditto-pickle (editable) |
+| `polars-py312`–`py314` | Test the polars plugin | pytest-ditto-polars (editable) |
 | `pyarrow-py312`–`py314` | Test the PyArrow plugin | pytest-ditto-pyarrow (editable) |
 | `lint` | Linting and type checking | pre-commit, ruff, basedpyright |
 | `docs` | Documentation | zensical, mkdocstrings-python |
@@ -78,6 +79,8 @@ pixi run -e pandas-py312 test-pandas       # pandas plugin tests
 pixi run -e pandas-py312 verify-pandas     # its snapshots against its ditto.lock
 pixi run -e pickle-py312 test-pickle       # pickle plugin tests
 pixi run -e pickle-py312 verify-pickle     # its snapshots against its ditto.lock
+pixi run -e polars-py312 test-polars       # polars plugin tests
+pixi run -e polars-py312 verify-polars     # its snapshots against its ditto.lock
 pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
 pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
 ```
@@ -88,7 +91,7 @@ Plugins share core's version, computed from the same git tag.
 A plugin's requirement on core is generated at build time: each plugin's
 `hatch_build.py` adds `pytest-ditto>=<the plugin's version>,<3` to the
 dependencies listed under `[tool.hatch.metadata.hooks.custom]` in its
-`pyproject.toml`. Don't declare `pytest-ditto` there. The three `hatch_build.py`
+`pyproject.toml`. Don't declare `pytest-ditto` there. All plugin `hatch_build.py`
 files are identical copies, so each ships in its plugin's sdist; change them
 together.
 

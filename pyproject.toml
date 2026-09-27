@@ -34,6 +34,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]
+polars = ["pytest-ditto-polars"]
 pyarrow = ["pytest-ditto-pyarrow"]
 dev = [
     "pre-commit",
@@ -145,7 +146,7 @@ convention = "numpy"
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src", "plugins/pandas/src", "plugins/pickle/src", "plugins/pyarrow/src"]
+include = ["src", "plugins/pandas/src", "plugins/pickle/src", "plugins/polars/src", "plugins/pyarrow/src"]
 venvPath = ".pixi/envs"
 venv = "lint"
 
@@ -163,6 +164,7 @@ pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
 # For type-checking plugins/*/src.
 pandas = "*"
+polars = ">=1.0"
 pyarrow = ">=16.1.0"
 
 [tool.pixi.feature.lint.pypi-dependencies]
@@ -278,6 +280,22 @@ libstdcxx-ng = ">=14"
 test-pyarrow = { cmd = "pytest", cwd = "plugins/pyarrow", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 verify-pyarrow = { cmd = "ditto verify", cwd = "plugins/pyarrow", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 
+[tool.pixi.feature.polars.pypi-dependencies]
+pytest-ditto-polars = { path = "plugins/polars", editable = true }
+
+[tool.pixi.feature.polars.tasks]
+test-polars = { cmd = "pytest", cwd = "plugins/polars" }
+verify-polars = { cmd = "ditto verify", cwd = "plugins/polars" }
+
+[tool.pixi.feature.polars.target.linux-64.dependencies]
+# Polars wheels need a newer libstdc++ than the system provides on Ubuntu 22.04
+# / glibc 2.35 — pin libstdcxx-ng >= 14 and preload it at runtime, same as pyarrow.
+libstdcxx-ng = ">=14"
+
+[tool.pixi.feature.polars.target.linux-64.tasks]
+test-polars = { cmd = "pytest", cwd = "plugins/polars", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+verify-polars = { cmd = "ditto verify", cwd = "plugins/polars", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
+
 [tool.pixi.feature.docs.pypi-dependencies]
 zensical = ">=0.0.43"
 mkdocstrings-python = ">=1.0"
@@ -296,6 +314,9 @@ pandas-py314 = { features = ["pandas", "py314", "test"] }
 pickle-py312 = { features = ["pickle", "py312", "test"] }
 pickle-py313 = { features = ["pickle", "py313", "test"] }
 pickle-py314 = { features = ["pickle", "py314", "test"] }
+polars-py312 = { features = ["polars", "py312", "test"] }
+polars-py313 = { features = ["polars", "py313", "test"] }
+polars-py314 = { features = ["polars", "py314", "test"] }
 pyarrow-py312 = { features = ["pyarrow", "py312", "test"] }
 pyarrow-py313 = { features = ["pyarrow", "py313", "test"] }
 pyarrow-py314 = { features = ["pyarrow", "py314", "test"] }

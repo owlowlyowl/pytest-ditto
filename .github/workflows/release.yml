@@ -27,6 +27,7 @@ jobs:
           - { environment: py312, task: test }
           - { environment: pandas-py312, task: verify-pandas }
           - { environment: pickle-py312, task: verify-pickle }
+          - { environment: polars-py312, task: verify-polars }
           - { environment: pyarrow-py312, task: verify-pyarrow }
     steps:
       - name: Checkout repository
