@@ -50,21 +50,16 @@ def test_parquet_mark_selects_the_parquet_recorder(snapshot) -> None:
 
 
 @pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
-def test_round_trips_a_dataframe(tmp_path: Path, name: str) -> None:
+def test_round_trips_a_dataframe(name: str) -> None:
     """Parquet and JSON load back exactly the DataFrame they saved."""
     df = _sample_dataframe()
     recorder = recorders.get(name)
-    filepath = tmp_path / f"snapshot.{name}"
-
-    recorder.save(df, filepath)
-    actual = recorder.load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     pd.testing.assert_frame_equal(actual, df)
 
 
-def test_csv_round_trips_a_dataframe_except_for_the_index_type(
-    tmp_path: Path,
-) -> None:
+def test_csv_round_trips_a_dataframe_except_for_the_index_type() -> None:
     """CSV loads back the saved values, with the RangeIndex read back as Int64.
 
     check_index_type=False because CSV has no type metadata: a RangeIndex is written
@@ -73,31 +68,65 @@ def test_csv_round_trips_a_dataframe_except_for_the_index_type(
     and MultiIndex are not supported.
     """
     df = _sample_dataframe()
-    filepath = tmp_path / "snapshot.pandas.csv"
+    recorder = recorders.get("pandas.csv")
 
-    recorders.get("pandas.csv").save(df, filepath)
-    actual = recorders.get("pandas.csv").load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     pd.testing.assert_frame_equal(actual, df, check_index_type=False)
 
 
-def test_csv_reads_the_index_back_as_the_index(tmp_path: Path) -> None:
+def test_csv_ends_lines_with_newlines_on_every_platform() -> None:
+    """CSV bytes don't depend on the platform's line separator."""
+    actual = recorders.get("pandas.csv").dumps(_sample_dataframe())
+
+    assert b"\n" in actual
+    assert b"\r" not in actual
+
+
+def test_csv_reads_the_index_back_as_the_index() -> None:
     """The saved index is restored as the index, not as a data column (#40)."""
     df = _sample_dataframe()
-    filepath = tmp_path / "snapshot.pandas.csv"
+    recorder = recorders.get("pandas.csv")
 
-    recorders.get("pandas.csv").save(df, filepath)
-    actual = recorders.get("pandas.csv").load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     assert list(actual.columns) == ["a", "b"]
 
 
-def test_csv_round_trips_a_string_index_exactly(tmp_path: Path) -> None:
+def test_csv_round_trips_a_string_index_exactly() -> None:
     """A named string index survives a CSV round trip unchanged."""
     df = _sample_dataframe().set_index(pd.Index(["x", "y", "z"], name="key"))
-    filepath = tmp_path / "snapshot.pandas.csv"
+    recorder = recorders.get("pandas.csv")
 
-    recorders.get("pandas.csv").save(df, filepath)
-    actual = recorders.get("pandas.csv").load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     pd.testing.assert_frame_equal(actual, df)
+
+
+# ── Committed snapshots ───────────────────────────────────────────────────────
+
+SNAPSHOTS = Path(__file__).parent / ".ditto"
+
+
+def _recorder_name(path: Path) -> str:
+    """The recorder name that ends a snapshot filename, e.g. `pandas.csv`."""
+    return path.name.rpartition("@")[2].partition(".")[2]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        p
+        for p in sorted(SNAPSHOTS.iterdir())
+        if _recorder_name(p) in {"pandas.csv", "pandas.json"}
+    ],
+    ids=lambda p: p.name,
+)
+def test_rewriting_a_committed_text_snapshot_reproduces_its_bytes(path: Path) -> None:
+    """Loading a committed snapshot and dumping it again gives the same bytes."""
+    recorder = recorders.get(_recorder_name(path))
+    raw = path.read_bytes()
+
+    actual = recorder.dumps(recorder.loads(raw))
+
+    assert actual == raw

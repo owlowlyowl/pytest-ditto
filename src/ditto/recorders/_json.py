@@ -1,6 +1,5 @@
 import json as _json
 import math
-from pathlib import Path
 from typing import Any
 
 from ditto.exceptions import DittoJSONSerializationError
@@ -77,7 +76,7 @@ def _validate(data: Any, path: str = "$", active: set[int] | None = None) -> Non
     )
 
 
-def _save(data: Any, filepath: Path) -> None:
+def _dumps(data: Any) -> bytes:
     _validate(data)
     text = _json.dumps(
         data,
@@ -87,7 +86,7 @@ def _save(data: Any, filepath: Path) -> None:
         indent=2,
         separators=(",", ": "),
     )
-    filepath.write_bytes(text.encode("utf-8") + b"\n")
+    return text.encode("utf-8") + b"\n"
 
 
 def _object_from_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -107,8 +106,8 @@ def _reject_constant(token: str) -> Any:
     )
 
 
-def _load(filepath: Path) -> Any:
-    text = filepath.read_bytes().decode("utf-8", errors="strict")
+def _loads(raw: bytes) -> Any:
+    text = raw.decode("utf-8", errors="strict")
     data = _json.loads(
         text,
         object_pairs_hook=_object_from_pairs,
@@ -118,4 +117,4 @@ def _load(filepath: Path) -> Any:
     return data
 
 
-json = Recorder(save=_save, load=_load)
+json = Recorder(dumps=_dumps, loads=_loads)

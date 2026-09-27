@@ -161,8 +161,9 @@ class RecorderRegistry(Mapping[str, Recorder]):
                     "not a ditto.recorders.Recorder"
                 )
         except Exception as exc:
+            hints = (self._upgrade_hint(distribution), _path_based_hint(exc))
             raise DittoRecorderLoadError(
-                entry.name, str(distribution), exc, self._upgrade_hint(distribution)
+                entry.name, str(distribution), exc, " ".join(filter(None, hints))
             ) from exc
         return recorder
 
@@ -170,6 +171,22 @@ class RecorderRegistry(Mapping[str, Recorder]):
         if distribution.name not in self._legacy_distributions:
             return ""
         return upgrade_message(distribution)
+
+
+def _path_based_hint(exc: Exception) -> str:
+    """Explain a failure to build a `Recorder` from path-based `save`/`load`."""
+    message = str(exc)
+    if not (
+        isinstance(exc, TypeError)
+        and message.startswith("Recorder.__init__()")
+        and ("'save'" in message or "'load'" in message)
+    ):
+        return ""
+    return (
+        "It was built for the path-based Recorder(save=..., load=...); rebuild it "
+        "with Recorder(dumps=..., loads=...), or wrap its functions with "
+        "ditto.recorders.recorder_from_files."
+    )
 
 
 def _distribution(entry: EntryPoint) -> Distribution:

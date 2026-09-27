@@ -69,7 +69,7 @@ def test_resolves_to_json_when_json_mark_is_present() -> None:
 
 def test_resolves_synthetic_external_recorder() -> None:
     """Raw marks resolve recorders added to the registry, with their name."""
-    external = recorders.Recorder(save=json_recorder.save, load=json_recorder.load)
+    external = recorders.Recorder(dumps=json_recorder.dumps, loads=json_recorder.loads)
     registry = recorders.RecorderRegistry([], [])
     registry.register("external", external)
 

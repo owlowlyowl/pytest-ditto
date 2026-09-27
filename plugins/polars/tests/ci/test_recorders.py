@@ -1,6 +1,7 @@
 """The polars recorders, as registered through the 2.0 plugin contract."""
 
 from datetime import datetime
+
 from pathlib import Path
 
 import polars as pl
@@ -70,26 +71,49 @@ def test_parquet_mark_selects_the_parquet_recorder(snapshot) -> None:
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_round_trips_a_dataframe(tmp_path: Path, name: str) -> None:
+def test_round_trips_a_dataframe(name: str) -> None:
     """Each recorder loads back exactly the DataFrame it saved."""
     df = _sample_dataframe()
     recorder = recorders.get(name)
-    filepath = tmp_path / f"snapshot.{name}"
-
-    recorder.save(df, filepath)
-    actual = recorder.load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     pl.testing.assert_frame_equal(actual, df)
 
 
 @pytest.mark.parametrize("name", ["polars.parquet", "polars.ipc"])
-def test_round_trips_nulls_datetimes_and_lists(tmp_path: Path, name: str) -> None:
+def test_round_trips_nulls_datetimes_and_lists(name: str) -> None:
     """Parquet and IPC preserve nulls, datetimes, and list columns."""
     df = _rich_dataframe()
     recorder = recorders.get(name)
-    filepath = tmp_path / f"snapshot.{name}"
-
-    recorder.save(df, filepath)
-    actual = recorder.load(filepath)
+    actual = recorder.loads(recorder.dumps(df))
 
     pl.testing.assert_frame_equal(actual, df)
+
+
+# ── Committed snapshots ───────────────────────────────────────────────────────
+
+SNAPSHOTS = Path(__file__).parent / ".ditto"
+
+
+def _recorder_name(path: Path) -> str:
+    """The recorder name that ends a snapshot filename, e.g. `polars.csv`."""
+    return path.name.rpartition("@")[2].partition(".")[2]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        p
+        for p in sorted(SNAPSHOTS.iterdir())
+        if _recorder_name(p) in {"polars.csv", "polars.ndjson"}
+    ],
+    ids=lambda p: p.name,
+)
+def test_rewriting_a_committed_text_snapshot_reproduces_its_bytes(path: Path) -> None:
+    """Loading a committed snapshot and dumping it again gives the same bytes."""
+    recorder = recorders.get(_recorder_name(path))
+    raw = path.read_bytes()
+
+    actual = recorder.dumps(recorder.loads(raw))
+
+    assert actual == raw

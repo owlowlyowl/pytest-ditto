@@ -2,7 +2,6 @@
 
 import datetime
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -51,13 +50,10 @@ def test_mark_selects_the_pickle_recorder(snapshot) -> None:
         pytest.param(Decimal("1.10"), id="decimal"),
     ],
 )
-def test_round_trips_values_json_cannot(tmp_path: Path, value: object) -> None:
+def test_round_trips_values_json_cannot(value: object) -> None:
     """Values strict JSON rejects or changes load back unchanged."""
     recorder = recorders.get("pickle")
-    filepath = tmp_path / "value.pickle"
-
-    recorder.save(value, filepath)
-    actual = recorder.load(filepath)
+    actual = recorder.loads(recorder.dumps(value))
 
     assert actual == value
     assert type(actual) is type(value)

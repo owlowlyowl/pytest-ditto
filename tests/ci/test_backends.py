@@ -11,7 +11,6 @@ from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.memory import MemoryFileSystem
 
 from ditto.backends import FsspecMapping, PrefixedMapping, TransformMapping
-from ditto.backends._transform import _make_recorder_transform
 from ditto.recorders import default as _default_recorder
 
 
@@ -204,8 +203,8 @@ def test_fsspec_mapping_raises_when_key_resolves_to_root() -> None:
 
 def test_transform_mapping_stores_and_retrieves_via_recorder() -> None:
     """Values written through a recorder transform round-trip correctly."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder(), "json"
+    store = TransformMapping(mapping=_mem()) | TransformMapping(
+        save=_default_recorder().dumps, load=_default_recorder().loads
     )
 
     store["key.json"] = {"x": 42}
@@ -241,8 +240,8 @@ def test_transform_mapping_contains_does_not_deserialise() -> None:
 
 def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
     """| combines a backend wrapper with a recorder transform into a usable store."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder(), "json"
+    store = TransformMapping(mapping=_mem()) | TransformMapping(
+        save=_default_recorder().dumps, load=_default_recorder().loads
     )
 
     store["k.json"] = [1, 2, 3]
@@ -252,8 +251,8 @@ def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
 
 def test_transform_mapping_missing_key_raises() -> None:
     """Reading an absent key raises KeyError (propagated from the inner mapping)."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder(), "json"
+    store = TransformMapping(mapping=_mem()) | TransformMapping(
+        save=_default_recorder().dumps, load=_default_recorder().loads
     )
 
     with pytest.raises(KeyError):

@@ -3,6 +3,7 @@ from typing import Final, cast
 
 from ditto.exceptions import DittoUnknownRecorderError
 
+from ._files import recorder_from_files
 from ._protocol import Recorder
 from ._json import json as _default
 from ._plugins import RECORDER_REGISTRY, RecorderRegistry
@@ -10,6 +11,7 @@ from ._plugins import RECORDER_REGISTRY, RecorderRegistry
 
 __all__ = (
     "Recorder",
+    "recorder_from_files",
     "RECORDER_REGISTRY",
     "RecorderRegistry",
     "register",

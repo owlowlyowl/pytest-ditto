@@ -243,6 +243,67 @@ def _legacy_backend_snapshot(backend: MutableMapping[str, bytes], **kwargs) -> S
     )
 
 
+class _CountingRecorder:
+    """A recorder whose `dumps` and `loads` count their calls."""
+
+    def __init__(self) -> None:
+        self.dumps_calls = 0
+        self.loads_calls = 0
+        self.recorder = recorders.Recorder(dumps=self._dumps, loads=self._loads)
+
+    def _dumps(self, value: object) -> bytes:
+        self.dumps_calls += 1
+        return f"raw:{value}".encode()
+
+    def _loads(self, raw: bytes) -> object:
+        self.loads_calls += 1
+        return raw.decode().removeprefix("raw:")
+
+
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_write_stores_exactly_the_recorders_bytes(mode: SnapshotMode) -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({})
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=counting.recorder, recorder_name="raw", mode=mode
+    )
+
+    snapshot("value", "k")
+
+    assert backend.values == {"m/group@k.raw": b"raw:value"}
+    assert (counting.dumps_calls, counting.loads_calls) == (1, 0)
+
+
+def test_reading_a_stored_snapshot_decodes_it_once() -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({"m/group@k.raw": b"raw:stored"})
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=counting.recorder, recorder_name="raw"
+    )
+
+    actual = snapshot("ignored", "k")
+
+    assert actual == "stored"
+    assert (counting.dumps_calls, counting.loads_calls) == (0, 1)
+
+
+def test_verifying_an_absent_snapshot_neither_encodes_nor_decodes() -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({})
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=counting.recorder,
+        recorder_name="raw",
+        mode=SnapshotMode.VERIFY,
+    )
+
+    actual = snapshot("value", "k")
+
+    assert actual == "value"
+    assert backend.values == {}
+    assert (counting.dumps_calls, counting.loads_calls) == (0, 0)
+
+
 @pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
 def test_missing_json_records_normally_without_reading_legacy_key(
     mode: SnapshotMode,
