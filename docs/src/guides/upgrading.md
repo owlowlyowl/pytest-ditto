@@ -65,6 +65,19 @@ endings on every platform, as JSON already was. On Windows, snapshots those
 recorders wrote before used `"\r\n"`. They still load; the next
 `--ditto-update` rewrites them with `"\n"`, a one-time line-ending diff.
 
+Git on Windows often converts line endings on checkout (`core.autocrlf`), which
+gives a working copy with `"\r\n"` while ditto writes `"\n"`. Snapshots still
+load, but to keep them byte-for-byte what ditto wrote, add this to your
+repository's `.gitattributes`:
+
+```gitattributes
+# Snapshots are byte-exact: never convert their line endings.
+**/.ditto/** -text
+```
+
+If snapshots live in a directory other than `.ditto`, for example one set with
+`ditto_target`, add a line for that directory too.
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by
