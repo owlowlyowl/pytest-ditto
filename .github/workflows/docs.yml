@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   build:
+    name: Build documentation
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
@@ -42,6 +43,7 @@ jobs:
           path: docs/site/
 
   deploy:
+    name: Deploy documentation
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: build
     runs-on: ubuntu-26.04
