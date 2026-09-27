@@ -1,6 +1,6 @@
 [project]
 name = "pytest-ditto-pickle"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 description = "pytest-ditto plugin for pickle snapshots."
 keywords = ["pytest", "testing", "pickle", "snapshot"]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
@@ -22,12 +22,6 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    # TODO(2.0 release): raise to >=2.0 once 2.0.0 is tagged. Until then main
-    # builds as 1.1.0.post0.devN; dev68 is the first with the 2.0 plugin
-    # contract (Recorder.identifier and derived marks, #118 and #120).
-    "pytest-ditto>=1.1.0.post0.dev68,<3",
-]
 
 [project.urls]
 Homepage = "https://github.com/owlowlyowl/pytest-ditto"
@@ -46,7 +40,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build]
 targets.wheel.packages = ["src/ditto_pickle"]
-targets.sdist.only-include = ["src", "README.md", "LICENSE"]
+targets.sdist.only-include = ["src", "README.md", "LICENSE", "hatch_build.py"]
+
+# hatch_build.py adds pytest-ditto>=<this version>,<3 to these.
+[tool.hatch.metadata.hooks.custom]
+dependencies = []
 
 # Versioned in lockstep with pytest-ditto, from the same git tag.
 [tool.hatch.version]

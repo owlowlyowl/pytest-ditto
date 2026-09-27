@@ -80,6 +80,13 @@ pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.loc
 The core environments (`default`, `py312`–`py314`) never install a plugin.
 Plugins share core's version, computed from the same git tag.
 
+A plugin's requirement on core is generated at build time: each plugin's
+`hatch_build.py` adds `pytest-ditto>=<the plugin's version>,<3` to the
+dependencies listed under `[tool.hatch.metadata.hooks.custom]` in its
+`pyproject.toml`. Don't declare `pytest-ditto` there. The three `hatch_build.py`
+files are identical copies, so each ships in its plugin's sdist; change them
+together.
+
 ## Linting & Type Checking
 
 Run all linters (ruff check, ruff format, basedpyright) via pre-commit:
