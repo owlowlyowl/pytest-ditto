@@ -32,7 +32,9 @@ class Recorder(Generic[T]):
     Parameters
     ----------
     dumps : Callable[[T], bytes]
-        Function that serialises a value of type `T` to bytes.
+        Function that serialises a value of type `T` to bytes. It must not
+        modify the value: the caller compares that value with what
+        `loads(dumps(value))` returns.
     loads : Callable[[bytes], T]
         Function that deserialises bytes produced by `dumps` into a value of
         type `T`.

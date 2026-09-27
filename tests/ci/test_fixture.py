@@ -42,6 +42,22 @@ def test_returns_value_on_first_call(pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
+def test_lossy_snapshot_fails_on_the_run_that_records_it(pytester) -> None:
+    """A value the recorder changes fails when first recorded, not a run later."""
+    pytester.makepyfile("""
+        import ditto
+
+        @ditto.yaml
+        def test_inner(snapshot):
+            actual = (1, 2)
+            assert snapshot(actual, key="pair") == actual
+    """)
+
+    result = pytester.runpytest()
+
+    result.assert_outcomes(failed=1)
+
+
 def test_returns_stored_value_on_subsequent_calls(pytester) -> None:
     """A second run returns stored JSON rather than its new argument."""
     test_file = pytester.path / "test_inner.py"

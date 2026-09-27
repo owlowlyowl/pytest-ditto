@@ -42,7 +42,8 @@ The first run records the result. Subsequent runs assert it hasn't changed.
 ## How It Works
 
 1. **Request the `snapshot` fixture** in your test function
-2. **Call `snapshot(value, key="name")`** — the value is persisted on first run
+2. **Call `snapshot(value, key="name")`** — the value is persisted on first run,
+   and every run returns it as the recorder reads it back
 3. **Assert equality** — subsequent runs compare against the stored snapshot
 4. **Choose a recorder** — use `@ditto.yaml`, `@ditto.json`, or any registered format
 

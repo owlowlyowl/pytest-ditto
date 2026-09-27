@@ -208,6 +208,111 @@ def test_overwrites_stored_value_when_mode_is_update(tmp_dir) -> None:
     assert load_snapshot(snapshot, key) == "updated"
 
 
+# --- round-tripped return values ---
+
+yaml_recorder = recorders.get("yaml")
+
+
+def _unreadable_recorder() -> recorders.Recorder:
+    """A recorder whose `loads` cannot read what its `dumps` produced."""
+
+    def loads(raw: bytes) -> object:
+        raise ValueError("unreadable")
+
+    return recorders.Recorder(dumps=lambda value: str(value).encode(), loads=loads)
+
+
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_returns_restored_value_when_writing_snapshot(mode: SnapshotMode) -> None:
+    """A value yaml cannot round-trip is returned as yaml reads it back."""
+    snapshot = _legacy_backend_snapshot(
+        {}, recorder=yaml_recorder, recorder_name="yaml", mode=mode
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+
+
+def test_returns_restored_new_value_when_updating_existing_snapshot() -> None:
+    backend = {"m/group@k.yaml": yaml_recorder.dumps("original")}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=yaml_recorder,
+        recorder_name="yaml",
+        mode=SnapshotMode.UPDATE,
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+    assert yaml_recorder.loads(backend["m/group@k.yaml"]) == [1, 2]
+
+
+def test_returns_restored_value_for_absent_snapshot_in_verify() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=yaml_recorder,
+        recorder_name="yaml",
+        mode=SnapshotMode.VERIFY,
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+    assert backend == {}
+
+
+def test_unreadable_new_snapshot_is_not_written_or_tracked() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=_unreadable_recorder(),
+        recorder_name="raw",
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_unreadable",
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        snapshot("value", "k")
+
+    assert backend == {}
+    assert snapshot._tracker.created == []
+    assert snapshot._tracker.lock_accessed == set()
+
+
+def test_preserves_existing_snapshot_when_update_is_unreadable() -> None:
+    backend = {"m/group@k.raw": b"original"}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=_unreadable_recorder(),
+        recorder_name="raw",
+        mode=SnapshotMode.UPDATE,
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_unreadable",
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        snapshot("updated", "k")
+
+    assert backend == {"m/group@k.raw": b"original"}
+    assert snapshot._tracker.updated == []
+    assert snapshot._tracker.lock_accessed == set()
+
+
+def test_save_snapshot_does_not_write_unreadable_bytes() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=_unreadable_recorder(), recorder_name="raw"
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        save_snapshot(snapshot, "value", "k")
+
+    assert backend == {}
+
+
 # --- legacy recorder isolation ---
 
 
@@ -271,7 +376,7 @@ def test_write_stores_exactly_the_recorders_bytes(mode: SnapshotMode) -> None:
     snapshot("value", "k")
 
     assert backend.values == {"m/group@k.raw": b"raw:value"}
-    assert (counting.dumps_calls, counting.loads_calls) == (1, 0)
+    assert (counting.dumps_calls, counting.loads_calls) == (1, 1)
 
 
 def test_reading_a_stored_snapshot_decodes_it_once() -> None:
@@ -287,7 +392,7 @@ def test_reading_a_stored_snapshot_decodes_it_once() -> None:
     assert (counting.dumps_calls, counting.loads_calls) == (0, 1)
 
 
-def test_verifying_an_absent_snapshot_neither_encodes_nor_decodes() -> None:
+def test_verifying_an_absent_snapshot_round_trips_without_writing() -> None:
     counting = _CountingRecorder()
     backend = _TrackingBackend({})
     snapshot = _legacy_backend_snapshot(
@@ -301,7 +406,7 @@ def test_verifying_an_absent_snapshot_neither_encodes_nor_decodes() -> None:
 
     assert actual == "value"
     assert backend.values == {}
-    assert (counting.dumps_calls, counting.loads_calls) == (0, 0)
+    assert (counting.dumps_calls, counting.loads_calls) == (1, 1)
 
 
 @pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])

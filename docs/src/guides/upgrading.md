@@ -60,6 +60,16 @@ library's in-memory functions, or wrap its file functions with
 `ditto.recorders.recorder_from_files`. See
 [Custom Recorders](custom-recorders.md).
 
+`snapshot()` now returns the value as the recorder reads it back on every run.
+Before, the run that recorded or updated a snapshot, or verified a missing one,
+returned the value passed in. A value the recorder doesn't store exactly used
+to pass on that run and fail on the next one; it now fails straight away. For
+example, the YAML recorder reads a tuple back as a list, so
+`assert (1, 2) == snapshot((1, 2), key="pair")` under `@ditto.yaml` now fails
+when first recorded. Snapshot a list instead, or use a recorder that keeps the
+distinction. A recorder whose `loads` can't read the bytes its `dumps` produced
+now raises before anything is written.
+
 YAML and `pytest-ditto-pandas` CSV snapshots are now written with `"\n"` line
 endings on every platform, as JSON already was. On Windows, snapshots those
 recorders wrote before used `"\r\n"`. They still load; the next
