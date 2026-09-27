@@ -4,7 +4,7 @@ Create your own recorder to support any serialisation format.
 
 ## Recorder Definition
 
-A `Recorder` is a frozen dataclass with three fields:
+A `Recorder` is a frozen dataclass with two fields:
 
 ```python
 from pathlib import Path
@@ -21,16 +21,11 @@ def _load(filepath: Path) -> MyType:
     ...
 
 
-my_recorder: Recorder[MyType] = Recorder(
-    identifier="myformat",
-    save=_save,
-    load=_load,
-)
+my_recorder: Recorder[MyType] = Recorder(save=_save, load=_load)
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `identifier` | `str` | Persisted identifier appended to snapshot names and recorded in `ditto.lock` |
 | `save` | `Callable[[T, Path], None]` | Serialises a value to a file path |
 | `load` | `Callable[[Path], T]` | Deserialises a value from a file path |
 
@@ -84,30 +79,41 @@ A recorder's entry-point name is its user-facing name. It must be `<format>` or
 lowercase letters, digits or underscores. Name a plugin's recorders
 `<namespace>.<format>`, with the plugin's name as the namespace.
 
+A recorder's name is also its persisted identifier: it ends the recorder's
+snapshot filenames and is recorded in `ditto.lock`. Renaming a recorder
+therefore renames its snapshot files.
+
 These registrations conflict:
 
-- the same name registered by more than one distribution
-- two recorders with the same `identifier`, which would read and write each
-  other's snapshot files
+- the same name registered by more than one distribution, which would read and
+  write each other's snapshot files
 - a bare name that is also a namespace, such as `tabular` alongside
   `tabular.csv`, which makes `@ditto.tabular` ambiguous
 - a name that shadows an attribute of `ditto`, such as `record` or `version`
 
-ditto never picks one of the conflicting registrations. Each pytest run emits a
-`DittoWarning` for every conflict, a test that uses an affected recorder fails
-with `DittoRecorderConflictError` naming the distributions involved, and
-`ditto doctor` fails. Other recorders keep working.
-
-An identifier conflict is found when a recorder loads with the identifier of a
-recorder already in use. The default JSON recorder is always in use, so a
-plugin recorder with the identifier `json` conflicts as soon as it loads. From
-then on, every plugin recorder involved fails, including one that loaded first;
-core's own recorders keep working. `ditto doctor` and `ditto recorders` load
-every recorder, so they report every identifier conflict. Names that alias the
-same recorder object do not conflict.
+Conflicts are found from the installed entry-point metadata, without importing
+any recorder, so a conflicting plugin is found even if no test uses it. ditto
+never picks one of the conflicting registrations: pytest stops before
+collecting any tests, listing every conflict and the distributions involved,
+and `ditto doctor` fails.
 
 Plugins written for the 1.x contract, which registered marks under the removed
 `ditto_marks` group, are reported the same way, with the version to install.
+
+## Registering in `conftest.py`
+
+A project can register a recorder without packaging it:
+
+```python
+# conftest.py
+from ditto import recorders
+
+recorders.register("myproject.myformat", my_recorder)
+```
+
+`register` follows the same naming rules and raises
+`DittoRecorderConflictError` if the name conflicts with one already
+registered. It never replaces an installed recorder.
 
 ## Example: MessagePack Recorder
 
@@ -125,11 +131,7 @@ def _load_msgpack(filepath: Path) -> dict:
     return msgpack.unpackb(filepath.read_bytes())
 
 
-msgpack_recorder: Recorder[dict] = Recorder(
-    identifier="msgpack",
-    save=_save_msgpack,
-    load=_load_msgpack,
-)
+msgpack_recorder: Recorder[dict] = Recorder(save=_save_msgpack, load=_load_msgpack)
 ```
 
 Register it:
@@ -148,12 +150,4 @@ def test_with_msgpack(snapshot):
     assert data == snapshot(data, key="packed")
 ```
 
-## Identifier Naming
-
-The `identifier` field is appended to snapshot keys and recorded in `ditto.lock`.
-It may contain dots for namespaced recorders:
-
-- Built-in: `json`, `yaml`
-- Plugin: `pandas.parquet`, `pandas.csv`, `pyarrow.feather`
-
-The identifier does not need to match the mark alias or registry key.
+Its snapshots are saved as `<key>.msgpack`.

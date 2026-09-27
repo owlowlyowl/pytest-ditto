@@ -158,9 +158,10 @@ core_recorders = {
     if entry.group == "ditto_recorders"
 }
 assert core_recorders == {"json", "yaml"}
-assert recorders.default().identifier == "json"
-assert recorders.get("synthetic").identifier == "synthetic"
-assert recorders.get("verify.dotted").identifier == "verify.dotted"
+assert recorders.RECORDER_REGISTRY.problems == ()
+assert recorders.get("json") is recorders.default()
+assert isinstance(recorders.get("synthetic"), recorders.Recorder)
+assert isinstance(recorders.get("verify.dotted"), recorders.Recorder)
 assert ditto.synthetic == pytest.mark.record("synthetic")
 assert ditto.verify.dotted == pytest.mark.record("verify.dotted")
 """
@@ -176,21 +177,21 @@ import ditto
 
 def test_no_mark_json_round_trip(snapshot):
     value = {"unicode": "\u03bb", "nested": [1, True, None]}
-    assert snapshot.recorder.identifier == "json"
+    assert snapshot.recorder_name == "json"
     assert snapshot(value, key="value") == value
 
 
 @ditto.synthetic
 def test_external_recorder_and_dynamic_mark(snapshot):
     value = {"external": True}
-    assert snapshot.recorder.identifier == "synthetic"
+    assert snapshot.recorder_name == "synthetic"
     assert snapshot(value, key="value") == value
 
 
 @ditto.verify.dotted
 def test_external_recorder_and_namespaced_mark(snapshot):
     value = {"namespaced": True}
-    assert snapshot.recorder.identifier == "verify.dotted"
+    assert snapshot.recorder_name == "verify.dotted"
     assert snapshot(value, key="value") == value
 """,
         encoding="utf-8",
@@ -358,8 +359,9 @@ names, modules = sys.argv[1].split(","), sys.argv[2].split(",")
 imported = [module for module in modules if module in sys.modules]
 assert not imported, f"import ditto imported {imported}"
 
+assert recorders.RECORDER_REGISTRY.problems == ()
 for name in names:
-    assert recorders.get(name).identifier, name
+    assert isinstance(recorders.get(name), recorders.Recorder), name
     mark = ditto
     for part in name.split("."):
         mark = getattr(mark, part)

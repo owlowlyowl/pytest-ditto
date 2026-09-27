@@ -1,17 +1,17 @@
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping
 from typing import Final, cast
 
 from ditto.exceptions import DittoUnknownRecorderError
 
 from ._protocol import Recorder
 from ._json import json as _default
-from ._plugins import RECORDER_REGISTRY, load_recorders
+from ._plugins import RECORDER_REGISTRY, RecorderRegistry
 
 
 __all__ = (
     "Recorder",
     "RECORDER_REGISTRY",
-    "load_recorders",
+    "RecorderRegistry",
     "register",
     "get",
     "default",
@@ -21,22 +21,34 @@ __all__ = (
 def register(
     name: str,
     recorder: Recorder,
-    registry: MutableMapping[str, Recorder] = RECORDER_REGISTRY,
+    registry: RecorderRegistry = RECORDER_REGISTRY,
 ) -> None:
     """
-    Add or replace a recorder in the given registry.
+    Add a recorder to the given registry under a new name.
+
+    The name is also the recorder's persisted identifier: it ends the
+    recorder's snapshot filenames and is recorded in `ditto.lock`.
 
     Parameters
     ----------
     name : str
-        Key under which the recorder is registered.
+        Name to register the recorder under, following the recorder name
+        grammar (`<format>` or `<namespace>.<format>`).
     recorder : Recorder
         The recorder instance to register.
-    registry : MutableMapping[str, Recorder], optional
-        Registry to mutate. Defaults to the shared `RECORDER_REGISTRY`.
-        Pass an isolated dict in tests to avoid mutating shared state.
+    registry : RecorderRegistry, optional
+        Registry to add to. Defaults to the shared `RECORDER_REGISTRY`.
+        Pass an isolated `RecorderRegistry([], [])` in tests to avoid mutating
+        shared state.
+
+    Raises
+    ------
+    DittoRecorderConflictError
+        If `name` is already registered, or breaks another naming rule together
+        with the names already registered. Registered recorders cannot be
+        replaced.
     """
-    registry[name] = recorder
+    registry.register(name, recorder)
 
 
 _MISSING: Final = object()

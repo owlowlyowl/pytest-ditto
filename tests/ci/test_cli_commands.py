@@ -12,8 +12,7 @@ from click.testing import CliRunner
 
 from ditto._lockfile import LOCKFILE_VERSION
 from ditto._manifest import BackendManifest, ManifestEntry
-from ditto import recorders
-from ditto.recorders._plugins import RecorderRegistry
+from ditto.recorders import RecorderRegistry
 from ditto.cli import (
     RecorderInfo,
     _doctor_checks,
@@ -219,23 +218,6 @@ def test_reports_a_contract_problem_once_instead_of_per_recorder(
     (check,) = checks
     assert (check.name, check.ok) == ("plugin contract", False)
     assert "plug-a 1.0, plug-b 2.0" in check.detail
-
-
-def test_checks_a_recorder_that_replaced_a_conflicted_registration(
-    make_distribution,
-) -> None:
-    """After an explicit replacement, doctor checks the replacement normally."""
-    json_ep = "ditto.recorders._json:json"
-    first = make_distribution("plug-a", "1.0", {"ditto_recorders": {"fmt": json_ep}})
-    second = make_distribution("plug-b", "2.0", {"ditto_recorders": {"fmt": json_ep}})
-    registry = RecorderRegistry([*first, *second], [])
-    registry["fmt"] = recorders.default()
-
-    checks = _recorder_checks(registry)
-
-    actual = [(c.name, c.ok) for c in checks]
-    expected = [("recorder: fmt", True)]
-    assert actual == expected
 
 
 def test_accepts_aliases_alongside_other_recorders(make_distribution) -> None:

@@ -1,13 +1,11 @@
-import warnings
 from importlib.metadata import EntryPoint
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ditto import recorders
 from ditto.exceptions import DittoRecorderLoadError, DittoUnknownRecorderError
 from ditto.recorders import _plugins
-from ditto.recorders._plugins import RecorderRegistry, load_recorders
+from ditto.recorders import RecorderRegistry
 
 json_recorder = recorders.default()
 
@@ -18,23 +16,6 @@ def test_builtin_recorder_is_present_in_registry_after_import(
 ) -> None:
     """Each built-in recorder is discoverable from the module-level registry."""
     assert recorder_name in recorders.RECORDER_REGISTRY
-
-
-def test_load_recorders_discovers_all_builtin_handlers() -> None:
-    """load_recorders returns both built-in recorders."""
-    registry = recorders.load_recorders()
-
-    assert set(registry.keys()) >= {"yaml", "json"}
-    assert "pickle" not in registry
-
-
-def test_mutating_loaded_recorders_does_not_affect_shared_registry() -> None:
-    """Mutating a load_recorders result leaves RECORDER_REGISTRY unchanged."""
-    registry = recorders.load_recorders()
-
-    registry["custom"] = json_recorder
-
-    assert "custom" not in recorders.RECORDER_REGISTRY
 
 
 def test_get_resolves_recorder_from_supplied_registry() -> None:
@@ -59,7 +40,7 @@ def test_get_raises_when_name_absent_without_explicit_fallback() -> None:
 
 def test_register_adds_recorder_to_supplied_registry_only() -> None:
     """recorders.register writes to the supplied registry, not the global one."""
-    isolated = {}
+    isolated = RecorderRegistry([], [])
 
     recorders.register("custom", json_recorder, registry=isolated)
 
@@ -138,12 +119,12 @@ def test_namespace_is_not_itself_a_mark(plugin_names) -> None:
 
 
 def test_recorder_registered_at_runtime_derives_mark(
-    monkeypatch: pytest.MonkeyPatch,
+    plugin_names: RecorderRegistry,
 ) -> None:
     """Recorders added to the registry at runtime get marks too."""
     import ditto
 
-    monkeypatch.setitem(recorders.RECORDER_REGISTRY, "runtime.fmt", json_recorder)
+    plugin_names.register("runtime.fmt", json_recorder)
 
     assert ditto.runtime.fmt == pytest.mark.record("runtime.fmt")
 
@@ -155,53 +136,7 @@ def test_retained_namespace_exposes_recorder_registered_after_it(
     import ditto
 
     tabular = ditto.tabular
-    plugin_names["tabular.feather"] = json_recorder
+    plugin_names.register("tabular.feather", json_recorder)
 
     assert tabular.feather == pytest.mark.record("tabular.feather")
     assert dir(tabular) == ["csv", "feather", "parquet"]
-
-
-def test_retained_namespace_rejects_recorder_removed_after_it(
-    plugin_names: RecorderRegistry,
-) -> None:
-    """A namespace held before a removal no longer resolves the removed format."""
-    import ditto
-
-    tabular = ditto.tabular
-    del plugin_names["tabular.csv"]
-
-    with pytest.raises(AttributeError, match="'csv'.*available: parquet"):
-        _ = tabular.csv
-
-
-# ── Broken entry point resilience ─────────────────────────────────────────────
-
-
-def _make_ep(name: str, load_side_effect=None, load_return=None):
-    """Build a fake entry point mock."""
-    ep = MagicMock()
-    ep.name = name
-    if load_side_effect is not None:
-        ep.load.side_effect = load_side_effect
-    else:
-        ep.load.return_value = load_return
-    return ep
-
-
-def test_load_recorders_skips_broken_entry_point_and_warns() -> None:
-    """A broken recorder entry point is skipped; a warning is emitted; good ones
-    still load."""
-    good_recorder = recorders.default()
-    good_ep = _make_ep("good", load_return=good_recorder)
-    bad_ep = _make_ep("bad", load_side_effect=ImportError("missing lib"))
-
-    with patch("importlib.metadata.entry_points", return_value=[bad_ep, good_ep]):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            result = load_recorders()
-
-    assert "good" in result
-    assert "bad" not in result
-    assert len(caught) == 1
-    assert "bad" in str(caught[0].message)
-    assert "missing lib" in str(caught[0].message)

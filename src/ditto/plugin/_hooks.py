@@ -49,12 +49,15 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "record(recorder): snapshot with a specific recorder",
     )
+    problems = RECORDER_REGISTRY.problems
+    if problems:
+        raise pytest.UsageError(
+            "ditto: the installed recorder plugins break the plugin contract:\n"
+            + "\n".join(f"  - {problem.message}" for problem in problems)
+        )
     options = read_run_options(config)
     validate_ini_options(config)
     config.stash[RUN_OPTIONS] = options
-    if not is_xdist_worker(config):
-        for problem in RECORDER_REGISTRY.problems:
-            config.issue_config_time_warning(DittoWarning(problem.message), 2)
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

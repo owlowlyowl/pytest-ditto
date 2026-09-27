@@ -28,8 +28,6 @@ Homepage = "https://github.com/owlowlyowl/pytest-ditto"
 Source = "https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pickle"
 
 [project.entry-points.ditto_recorders]
-# Named `pickle` (mark `ditto.pickle`) but persisted with identifier `pkl`,
-# the extension pytest-ditto 1.x used, so 1.x .pkl files load unchanged.
 pickle = "ditto_pickle.recorders:pickle"
 
 

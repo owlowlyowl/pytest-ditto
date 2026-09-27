@@ -13,8 +13,7 @@ import pytest
 
 from ditto import recorders
 from ditto.exceptions import DittoRecorderConflictError, DittoRecorderLoadError
-from ditto.recorders import Recorder
-from ditto.recorders._plugins import RecorderRegistry
+from ditto.recorders import Recorder, RecorderRegistry
 
 json_recorder = recorders.default()
 _JSON = "ditto.recorders._json:json"
@@ -69,16 +68,6 @@ def test_broken_entry_point_fails_only_when_looked_up() -> None:
         registry["bad"]
 
 
-def test_assigned_recorder_overrides_entry_point_without_loading_it() -> None:
-    ep = _ep("fmt", load_return=object())
-    registry = RecorderRegistry([ep])
-
-    registry["fmt"] = json_recorder
-
-    assert registry["fmt"] is json_recorder
-    ep.load.assert_not_called()
-
-
 def test_load_error_without_distribution_preserves_cause() -> None:
     ep = EntryPoint(
         name="broken",
@@ -127,162 +116,10 @@ def test_shallow_copy_preserves_cached_recorders_and_loads_independently() -> No
     assert pending.load.call_count == 2
 
 
-def test_shallow_copy_mutations_do_not_change_original() -> None:
-    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
-    registry = RecorderRegistry([ep])
-    registry["assigned"] = json_recorder
-    copied = copy(registry)
-    replacement = recorders.Recorder(
-        "replacement", json_recorder.save, json_recorder.load
-    )
-
-    copied["assigned"] = replacement
-    copied["extra"] = replacement
-    del copied["broken"]
-    assert registry["assigned"] is json_recorder
-    assert list(registry) == ["broken", "assigned"]
-    assert list(copied) == ["assigned", "extra"]
-
-    registry["original_only"] = json_recorder
-    assert "original_only" not in copied
-    copied.clear()
-    assert len(copied) == 0
-    assert list(registry) == ["broken", "assigned", "original_only"]
-    ep.load.assert_not_called()
-
-
-def test_assigned_recorder_is_listed_alongside_entry_points() -> None:
-    registry = RecorderRegistry([_ep("fmt", load_return=json_recorder)])
-
-    registry["extra"] = json_recorder
-
-    assert sorted(registry) == ["extra", "fmt"]
-    assert len(registry) == 2
-
-
-def test_iteration_preserves_order_across_loading_and_overrides() -> None:
-    first = _ep("z_first", load_return=json_recorder)
-    second = _ep("a_second", load_return=json_recorder)
-    registry = RecorderRegistry([first, second])
-    registry["z_extra"] = json_recorder
-    registry["a_extra"] = json_recorder
-
-    assert registry["a_second"] is json_recorder
-    registry["z_first"] = json_recorder
-    registry["z_extra"] = json_recorder
-
-    assert list(registry) == ["z_first", "a_second", "z_extra", "a_extra"]
-    assert len(registry) == 4
-    first.load.assert_not_called()
-    second.load.assert_called_once()
-
-    del registry["z_first"]
-    registry["z_first"] = json_recorder
-    assert list(registry) == ["a_second", "z_extra", "a_extra", "z_first"]
-    assert len(registry) == 4
-
-
-def test_clear_removes_all_registrations_without_loading_plugins() -> None:
-    loaded = _ep("loaded", load_return=json_recorder)
-    overridden = _ep("overridden", load_side_effect=ImportError("missing lib"))
-    broken = _ep("broken", load_side_effect=ImportError("missing lib"))
-    registry = RecorderRegistry([loaded, overridden, broken])
-    assert registry["loaded"] is json_recorder
-    registry["overridden"] = json_recorder
-    registry["extra"] = json_recorder
-
-    registry.clear()
-    registry.clear()
-
-    assert list(registry) == []
-    assert len(registry) == 0
-    for name in ("loaded", "overridden", "broken", "extra"):
-        assert name not in registry
-        with pytest.raises(KeyError):
-            registry[name]
-    loaded.load.assert_called_once()
-    overridden.load.assert_not_called()
-    broken.load.assert_not_called()
-
-
-def test_deleting_a_broken_entry_point_does_not_load_it() -> None:
-    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
-    registry = RecorderRegistry([ep])
-
-    del registry["broken"]
-
-    assert "broken" not in registry
-    ep.load.assert_not_called()
-
-
-def test_deleting_a_name_removes_it_entirely() -> None:
-    registry = RecorderRegistry([_ep("fmt", load_return=json_recorder)])
-    registry["fmt"] = json_recorder
-
-    del registry["fmt"]
-
-    assert "fmt" not in registry
-    with pytest.raises(KeyError):
-        del registry["fmt"]
-
-
-def test_monkeypatched_recorder_is_removed_on_undo() -> None:
-    registry = RecorderRegistry([])
-    mp = pytest.MonkeyPatch()
-
-    mp.setitem(registry, "temp", json_recorder)
-    assert registry["temp"] is json_recorder
-    mp.undo()
-
-    assert "temp" not in registry
-
-
-@pytest.mark.parametrize("operation", ["setitem", "delitem"])
-def test_monkeypatch_loads_and_restores_existing_recorder(operation: str) -> None:
-    ep = _ep("fmt", load_return=json_recorder)
-    registry = RecorderRegistry([ep])
-    replacement = recorders.Recorder(
-        "replacement", json_recorder.save, json_recorder.load
-    )
-
-    with pytest.MonkeyPatch.context() as mp:
-        if operation == "setitem":
-            mp.setitem(registry, "fmt", replacement)
-            assert registry["fmt"] is replacement
-        else:
-            mp.delitem(registry, "fmt")
-            assert "fmt" not in registry
-        ep.load.assert_called_once()
-
-    assert registry["fmt"] is json_recorder
-    ep.load.assert_called_once()
-
-
-@pytest.mark.parametrize("operation", ["setitem", "delitem"])
-def test_monkeypatch_cannot_replace_or_remove_broken_entry_point(
-    operation: str,
-) -> None:
-    ep = _ep("broken", load_side_effect=ImportError("missing lib"))
-    registry = RecorderRegistry([ep])
-
-    with pytest.MonkeyPatch.context() as mp:
-        with pytest.raises(DittoRecorderLoadError, match="missing lib"):
-            if operation == "setitem":
-                mp.setitem(registry, "broken", json_recorder)
-            else:
-                mp.delitem(registry, "broken")
-
-    assert "broken" in registry
-    ep.load.assert_called_once()
-    recorders.register("broken", json_recorder, registry=registry)
-    assert registry["broken"] is json_recorder
-    ep.load.assert_called_once()
-
-
 def _install_fake_plugin(root: Path) -> None:
     (root / "fakeplug_mod.py").write_text(
         "from ditto.recorders import Recorder\n"
-        "recorder = Recorder(identifier='fakeplug', save=print, load=print)\n"
+        "recorder = Recorder(save=print, load=print)\n"
     )
     dist_info = root / "fakeplug-0.1.dist-info"
     dist_info.mkdir()
@@ -294,7 +131,7 @@ def _install_fake_plugin(root: Path) -> None:
     )
 
 
-def test_import_ditto_does_not_import_installed_recorder_plugins(
+def test_only_first_use_imports_an_installed_recorder_plugin(
     tmp_path: Path,
 ) -> None:
     _install_fake_plugin(tmp_path)
@@ -305,7 +142,9 @@ def test_import_ditto_does_not_import_installed_recorder_plugins(
         from ditto import recorders
 
         assert "fakeplug" in recorders.RECORDER_REGISTRY
-        assert "fakeplug_mod" not in sys.modules, "imported at import ditto"
+        assert recorders.RECORDER_REGISTRY.problems == ()
+        assert ditto.fakeplug is not None
+        assert "fakeplug_mod" not in sys.modules, "imported before first use"
         recorders.get("fakeplug")
         assert "fakeplug_mod" in sys.modules, "not imported on first use"
         """
@@ -327,10 +166,24 @@ def test_import_ditto_does_not_import_installed_recorder_plugins(
 # ── Plugin contract ────────────────────────────────────────────────────────────
 
 
-CLASHING_JSON = Recorder(identifier="json", save=print, load=print)
-CSV_A = Recorder(identifier="csv", save=print, load=print)
-CSV_B = Recorder(identifier="csv", save=print, load=print)
 NOT_A_RECORDER = object()
+OTHER_RECORDER = Recorder(save=print, load=print)
+
+
+def test_problems_are_complete_before_any_recorder_loads(make_distribution) -> None:
+    """A clash is found from metadata, even if no recorder involved is ever used."""
+    core = make_distribution(
+        "pytest-ditto", "2.0", {"ditto_recorders": {"json": _JSON}}
+    )
+    plugin = make_distribution(
+        "plug", "1.0", {"ditto_recorders": {"json": "ditto_no_such_module:json"}}
+    )
+    registry = RecorderRegistry([*core, *plugin], [])
+
+    (problem,) = registry.problems
+
+    assert problem.names == {"json"}
+    assert "plug 1.0, pytest-ditto 2.0" in problem.message
 
 
 def test_looking_up_a_name_registered_twice_raises_naming_both_distributions(
@@ -357,46 +210,29 @@ def test_a_conflict_leaves_other_recorders_usable(make_distribution) -> None:
     assert actual is json_recorder
 
 
-def test_assigning_a_recorder_resolves_a_conflict(make_distribution) -> None:
-    """An explicit assignment replaces the conflicting registrations."""
-    first = make_distribution("plug-a", "1.0", {"ditto_recorders": {"fmt": _JSON}})
-    second = make_distribution("plug-b", "2.0", {"ditto_recorders": {"fmt": _JSON}})
-    registry = RecorderRegistry([*first, *second], [])
-
-    registry["fmt"] = json_recorder
-
-    assert registry["fmt"] is json_recorder
-
-
-def test_loading_a_recorder_that_shares_a_loaded_identifier_raises(
-    make_distribution,
-) -> None:
-    """A second plugin recorder with a loaded one's identifier is rejected."""
+def test_loading_recorders_never_changes_the_problems(make_distribution) -> None:
+    """Problems depend on the registrations alone, not on what has loaded."""
     eps = make_distribution(
         "plug",
         "1.0",
-        {"ditto_recorders": {"json": _JSON, "clash": f"{__name__}:CLASHING_JSON"}},
+        {"ditto_recorders": {"a": _JSON, "b": f"{__name__}:OTHER_RECORDER"}},
     )
     registry = RecorderRegistry(eps, [])
-    registry["json"]
 
-    with pytest.raises(DittoRecorderConflictError, match="share the identifier"):
-        registry["clash"]
+    registry["a"], registry["b"]
+
+    assert registry.problems == ()
 
 
-def test_one_recorder_under_two_names_is_not_an_identifier_collision(
-    make_distribution,
-) -> None:
-    """Two names for the same recorder object share files by design."""
+def test_one_recorder_under_two_names_is_not_a_conflict(make_distribution) -> None:
+    """Two names for one recorder are two identifiers, so they never clash."""
     eps = make_distribution(
         "plug", "1.0", {"ditto_recorders": {"json": _JSON, "alias": _JSON}}
     )
     registry = RecorderRegistry(eps, [])
-    registry["json"]
 
-    actual = registry["alias"]
-
-    assert actual is json_recorder
+    assert registry["alias"] is registry["json"]
+    assert registry.problems == ()
 
 
 def test_entry_point_that_is_not_a_recorder_fails_to_load(make_distribution) -> None:
@@ -446,137 +282,88 @@ def test_problems_list_each_1x_plugin_distribution(make_distribution) -> None:
     assert actual == expected
 
 
-def test_aliases_of_one_recorder_do_not_block_an_unrelated_recorder(
-    make_distribution,
+# ── Registering recorders ──────────────────────────────────────────────────────
+
+
+def test_registered_recorder_is_listed_after_entry_points() -> None:
+    registry = RecorderRegistry([_ep("z_fmt", load_return=json_recorder)], [])
+
+    registry.register("a_fmt", OTHER_RECORDER)
+
+    assert list(registry) == ["z_fmt", "a_fmt"]
+    assert registry["a_fmt"] is OTHER_RECORDER
+
+
+def test_registering_an_installed_name_is_rejected_without_loading_it() -> None:
+    """An installed recorder cannot be replaced, and is not imported to check."""
+    ep = _ep("fmt", load_return=json_recorder, dist="plug")
+    registry = RecorderRegistry([ep], [])
+
+    with pytest.raises(
+        DittoRecorderConflictError, match=r"'fmt' is registered more than once"
+    ):
+        registry.register("fmt", OTHER_RECORDER)
+
+    ep.load.assert_not_called()
+    assert registry["fmt"] is json_recorder
+
+
+def test_registering_a_name_twice_is_rejected() -> None:
+    registry = RecorderRegistry([], [])
+    registry.register("fmt", json_recorder)
+
+    with pytest.raises(DittoRecorderConflictError, match="more than once"):
+        registry.register("fmt", OTHER_RECORDER)
+
+    assert registry["fmt"] is json_recorder
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        pytest.param("Bad-Name", "is not valid", id="invalid"),
+        pytest.param("snapshot", "shadows ditto.snapshot", id="reserved"),
+        pytest.param("tabular", "ditto.tabular is ambiguous", id="namespace"),
+    ],
+)
+def test_registering_a_name_that_breaks_the_contract_is_rejected(
+    name: str, message: str
 ) -> None:
-    """Two names for one recorder never collide with a third, different one."""
-    eps = make_distribution(
-        "plug",
-        "1.0",
-        {
-            "ditto_recorders": {
-                "csv": f"{__name__}:CSV_A",
-                "csv_alias": f"{__name__}:CSV_A",
-                "yaml": "ditto.recorders._yaml:yaml",
-            }
-        },
-    )
-    registry = RecorderRegistry(eps, [])
-    registry["csv"]
-    registry["csv_alias"]
+    registry = RecorderRegistry([_ep("tabular.csv", load_return=json_recorder)], [])
 
-    actual = registry["yaml"].identifier
+    with pytest.raises(DittoRecorderConflictError, match=message):
+        registry.register(name, OTHER_RECORDER)
 
-    expected = "yaml"
-    assert actual == expected
-
-
-def test_plugin_recorder_sharing_the_default_identifier_is_rejected(
-    make_distribution,
-) -> None:
-    """A plugin recorder cannot take `json`, which unmarked tests always use."""
-    eps = make_distribution(
-        "plug", "1.0", {"ditto_recorders": {"clash": f"{__name__}:CLASHING_JSON"}}
-    )
-    registry = RecorderRegistry(eps, [])
-
-    with pytest.raises(DittoRecorderConflictError, match=r"'json' \(pytest-ditto "):
-        registry["clash"]
-
-
-def test_core_recorder_stays_usable_after_a_plugin_collides_with_it(
-    make_distribution,
-) -> None:
-    """A plugin's collision with a core recorder disables only the plugin's name."""
-    core = make_distribution(
-        "pytest-ditto", "2.0", {"ditto_recorders": {"json": _JSON}}
-    )
-    plugin = make_distribution(
-        "plug", "1.0", {"ditto_recorders": {"clash": f"{__name__}:CLASHING_JSON"}}
-    )
-    registry = RecorderRegistry([*core, *plugin], [])
-    with pytest.raises(DittoRecorderConflictError):
-        registry["clash"]
-
-    actual = registry["json"]
-
-    assert actual is json_recorder
-
-
-def test_a_discovered_collision_disables_every_recorder_involved(
-    make_distribution,
-) -> None:
-    """Once found, a collision affects the first-loaded recorder too."""
-    eps = make_distribution(
-        "plug",
-        "1.0",
-        {"ditto_recorders": {"a": f"{__name__}:CSV_A", "b": f"{__name__}:CSV_B"}},
-    )
-    registry = RecorderRegistry(eps, [])
-    registry["a"]
-    with pytest.raises(DittoRecorderConflictError):
-        registry["b"]
-
-    with pytest.raises(DittoRecorderConflictError, match="share the identifier"):
-        registry["a"]
-
-
-def test_a_discovered_collision_is_listed_in_problems(make_distribution) -> None:
-    """An identifier collision found on load joins the registry's problems."""
-    eps = make_distribution(
-        "plug",
-        "1.0",
-        {"ditto_recorders": {"a": f"{__name__}:CSV_A", "b": f"{__name__}:CSV_B"}},
-    )
-    registry = RecorderRegistry(eps, [])
-    registry["a"]
-    with pytest.raises(DittoRecorderConflictError):
-        registry["b"]
-
-    (problem,) = registry.problems
-
-    assert problem.names == {"a", "b"}
-
-
-def test_assigning_every_conflicted_name_clears_the_problem(make_distribution) -> None:
-    """A problem is no longer listed once its names are explicitly reassigned."""
-    first = make_distribution("plug-a", "1.0", {"ditto_recorders": {"fmt": _JSON}})
-    second = make_distribution("plug-b", "2.0", {"ditto_recorders": {"fmt": _JSON}})
-    registry = RecorderRegistry([*first, *second], [])
-
-    registry["fmt"] = json_recorder
-
+    assert name not in registry
     assert registry.problems == ()
 
 
-def test_clear_removes_every_problem(make_distribution) -> None:
-    """Clearing the registry also clears its problems, including 1.x plugins."""
-    marks_eps = make_distribution(
-        "pytest-ditto-pandas", "0.1.1", {"ditto_marks": {"pandas": "m:marks"}}
-    )
-    registry = RecorderRegistry([], marks_eps)
+def test_a_rejected_registration_leaves_earlier_ones_usable() -> None:
+    """A later registration can never make an earlier one unusable."""
+    registry = RecorderRegistry([], [])
+    registry.register("tabular.csv", json_recorder)
 
-    registry.clear()
-
-    assert registry.problems == ()
-
-
-def test_a_collision_is_recorded_once_when_more_recorders_load(
-    make_distribution,
-) -> None:
-    """Loading the default recorder by name after a clash adds no second problem."""
-    core = make_distribution(
-        "pytest-ditto", "2.0", {"ditto_recorders": {"json": _JSON}}
-    )
-    plugin = make_distribution(
-        "plug", "1.0", {"ditto_recorders": {"clash": f"{__name__}:CLASHING_JSON"}}
-    )
-    registry = RecorderRegistry([*core, *plugin], [])
     with pytest.raises(DittoRecorderConflictError):
-        registry["clash"]
-    registry["json"]
+        registry.register("tabular", OTHER_RECORDER)
 
-    actual = len(registry.problems)
+    assert registry["tabular.csv"] is json_recorder
 
-    expected = 1
-    assert actual == expected
+
+def test_registering_something_other_than_a_recorder_is_rejected() -> None:
+    registry = RecorderRegistry([], [])
+
+    with pytest.raises(TypeError, match="not a ditto.recorders.Recorder"):
+        registry.register("fmt", NOT_A_RECORDER)
+
+    assert "fmt" not in registry
+
+
+def test_registering_in_a_copy_leaves_the_original_unchanged() -> None:
+    registry = RecorderRegistry([], [])
+
+    copied = copy(registry)
+    copied.register("fmt", json_recorder)
+
+    assert "fmt" in copied
+    assert "fmt" not in registry
+    registry.register("fmt", OTHER_RECORDER)

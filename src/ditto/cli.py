@@ -55,7 +55,7 @@ from ._theme import (
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
 from ._inventory import InventoryError, build_inventory, lock_present
-from .exceptions import DittoException, DittoRecorderConflictError
+from .exceptions import DittoRecorderConflictError
 from .recorders._contract import NAME_PATTERN
 from .recorders._plugins import RecorderRegistry
 
@@ -154,17 +154,18 @@ class RecorderInfo:
 
 
 def _load_recorder_infos() -> list[RecorderInfo]:
-    """Load all registered recorder entry points."""
-    infos = []
-    for ep in importlib.metadata.entry_points(group="ditto_recorders"):
-        try:
-            recorder = ep.load()
-            ext = f".{recorder.identifier}"
-            dist = ep.dist.name if ep.dist else "unknown"
-        except Exception:
-            ext, dist = "?", "unknown"
-        infos.append(RecorderInfo(name=ep.name, identifier=ext, package=dist))
-    return infos
+    """Read every registered recorder from entry-point metadata, importing none.
+
+    A recorder's identifier is its entry-point name.
+    """
+    return [
+        RecorderInfo(
+            name=ep.name,
+            identifier=f".{ep.name}",
+            package=ep.dist.name if ep.dist else "unknown",
+        )
+        for ep in importlib.metadata.entry_points(group="ditto_recorders")
+    ]
 
 
 def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
@@ -634,9 +635,7 @@ def cmd_recorders():
         console.print(f"[{MUTED}]No recorders registered.[/{MUTED}]")
         sys.exit(1)
     _render_recorders(infos, console)
-    registry = RecorderRegistry()
-    _load_every_recorder(registry)
-    problems = registry.problems
+    problems = RecorderRegistry().problems
     if problems:
         console.print(
             f"[{PRUNED}]{len(problems)} plugin contract problem(s); run "
@@ -726,27 +725,12 @@ def _doctor_checks() -> list[CheckResult]:
     return results
 
 
-def _load_every_recorder(registry: RecorderRegistry) -> None:
-    """Load every recorder through `registry`, so all its problems are found.
-
-    Identifier collisions are only found as recorders load. Load and conflict
-    errors are left for the caller to observe through `registry`.
-    """
-    for name in registry:
-        try:
-            registry[name]
-        except DittoException:
-            pass
-
-
 def _recorder_checks(registry: RecorderRegistry) -> list[CheckResult]:
     """Check each recorder loads and the registrations keep the plugin contract.
 
-    Every recorder is loaded through `registry` before any result is built, so a
-    collision found late still affects the recorders it involves. A contract
-    problem gets one failing row; the recorders it affects are not listed again.
+    A contract problem gets one failing row; the recorders it affects are not
+    listed again.
     """
-    _load_every_recorder(registry)
     results = [
         CheckResult(name="plugin contract", ok=False, detail=problem.message)
         for problem in registry.problems

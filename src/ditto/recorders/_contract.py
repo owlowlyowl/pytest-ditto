@@ -11,7 +11,6 @@ __all__ = (
     "Registration",
     "ContractProblem",
     "find_name_problems",
-    "find_identifier_problems",
     "find_legacy_problems",
     "upgrade_message",
 )
@@ -94,9 +93,11 @@ def find_name_problems(registrations: Iterable[Registration]) -> list[ContractPr
     """Return the naming problems in a set of recorder registrations.
 
     Names outside the grammar are reported as invalid and are not checked
-    further; the other rules apply to valid names only.
+    further; the other rules apply to valid names only. Within each rule,
+    problems are listed in name order, so the result does not depend on the
+    order in which the registrations were found.
     """
-    by_name = _distributions_by_name(registrations)
+    by_name = dict(sorted(_distributions_by_name(registrations).items()))
     valid = {n: d for n, d in by_name.items() if NAME_PATTERN.fullmatch(n)}
     invalid = {n: d for n, d in by_name.items() if n not in valid}
     return [
@@ -104,35 +105,6 @@ def find_name_problems(registrations: Iterable[Registration]) -> list[ContractPr
         *_duplicated_names(valid),
         *_shadowing_names(valid),
         *_ambiguous_namespaces(valid),
-    ]
-
-
-def find_identifier_problems(
-    identifiers: Iterable[tuple[Registration, str]],
-) -> list[ContractProblem]:
-    """Return the problems with recorders' persisted identifiers.
-
-    Two recorders with the same identifier would read and write each other's
-    snapshot files.
-
-    Parameters
-    ----------
-    identifiers : Iterable[tuple[Registration, str]]
-        Each loaded recorder's registration and its `Recorder.identifier`.
-    """
-    by_identifier: dict[str, list[Registration]] = defaultdict(list)
-    for registration, identifier in identifiers:
-        by_identifier[identifier].append(registration)
-
-    return [
-        ContractProblem(
-            frozenset(r.name for r in registrations),
-            f"Recorders {_describe(registrations)} share the identifier "
-            f"{identifier!r}, so they would read and write each other's snapshot "
-            "files.",
-        )
-        for identifier, registrations in by_identifier.items()
-        if len(registrations) > 1
     ]
 
 
@@ -188,7 +160,9 @@ def _duplicated_names(by_name: _ByName) -> list[ContractProblem]:
         ContractProblem(
             frozenset({name}),
             f"Recorder name {name!r} is registered more than once, by "
-            f"{_join(distributions)}.",
+            f"{_join(distributions)}. Snapshot files are named after their "
+            "recorder, so the registrations would read and write each other's "
+            "snapshots.",
         )
         for name, distributions in by_name.items()
         if len(distributions) > 1
@@ -234,10 +208,3 @@ def _namespace(name: str) -> str:
 
 def _join(distributions: Iterable[Distribution]) -> str:
     return ", ".join(sorted({str(d) for d in distributions}))
-
-
-def _describe(registrations: Iterable[Registration]) -> str:
-    return ", ".join(
-        f"{r.name!r} ({r.distribution})"
-        for r in sorted(registrations, key=lambda r: r.name)
-    )

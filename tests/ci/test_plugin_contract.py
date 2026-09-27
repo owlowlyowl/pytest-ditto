@@ -8,7 +8,6 @@ from ditto.recorders._contract import (
     RESERVED_NAMES,
     Distribution,
     Registration,
-    find_identifier_problems,
     find_legacy_problems,
     find_name_problems,
 )
@@ -95,29 +94,31 @@ def test_reserved_names_cover_every_public_ditto_attribute() -> None:
     assert unreserved == set()
 
 
-def test_rejects_two_recorders_sharing_an_identifier() -> None:
-    """Recorders with one identifier would share files, so both are affected."""
-    identifiers = [
-        (Registration("a.csv", _dist("plug-a 1.0")), "csv"),
-        (Registration("b.csv", _dist("plug-b 2.0")), "csv"),
-    ]
+def test_reports_every_distribution_registering_one_name() -> None:
+    """Three claimants to one name are all reported, whatever their order."""
+    claimants = [("fmt", "plug-c 3.0"), ("fmt", "plug-a 1.0"), ("fmt", "plug-b 2.0")]
 
-    (problem,) = find_identifier_problems(identifiers)
+    (problem,) = find_name_problems(_registrations(*claimants))
+    (reversed_problem,) = find_name_problems(_registrations(*reversed(claimants)))
 
-    assert problem.names == {"a.csv", "b.csv"}
-    assert "'a.csv' (plug-a 1.0), 'b.csv' (plug-b 2.0)" in problem.message
+    assert "plug-a 1.0, plug-b 2.0, plug-c 3.0" in problem.message
+    assert reversed_problem == problem
 
 
-def test_accepts_distinct_identifiers() -> None:
-    """Recorders with different identifiers break no rule."""
-    identifiers = [
-        (Registration("pickle", _dist("plug 2.0")), "pkl"),
-        (Registration("json", _dist("pytest-ditto 2.0")), "json"),
-    ]
+def test_problems_do_not_depend_on_discovery_order() -> None:
+    """The same registrations found in another order give the same problems."""
+    registrations = _registrations(
+        ("zeta", "plug-a 1.0"),
+        ("zeta", "plug-b 2.0"),
+        ("alpha", "plug-a 1.0"),
+        ("alpha", "plug-c 3.0"),
+        ("Bad", "plug-a 1.0"),
+        ("version", "plug-d 4.0"),
+    )
 
-    actual = find_identifier_problems(identifiers)
+    actual = find_name_problems(reversed(registrations))
 
-    expected = []
+    expected = find_name_problems(registrations)
     assert actual == expected
 
 

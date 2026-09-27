@@ -23,7 +23,7 @@ class TransformMapping(MutableMapping):
     Partial instances (mapping-only or save/load-only) are combined via `|`:
 
     ```python
-    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder, name)
     ```
     """
 
@@ -91,17 +91,19 @@ class TransformMapping(MutableMapping):
         return key in self._mapping
 
 
-def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
+def _make_recorder_transform(recorder: Recorder, name: str) -> TransformMapping:
     """Return a TransformMapping whose save/load go through a temp-file bridge.
 
     The Recorder protocol requires a Path argument. The bridge writes/reads a
     temporary file so any `Recorder` can be used with any bytes-based backend.
+    The file is named with the suffix `.<name>`, the recorder's registered
+    name, as a snapshot file would be.
 
     Examples
     --------
     Combine with a mapping backend via `|`:
     ```python
-    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder)
+    store = TransformMapping(mapping=backend) | _make_recorder_transform(recorder, name)
     ```
     """
 
@@ -110,9 +112,7 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
         # Windows, where an open file cannot be reopened by name (sharing violation).
         # Fix: write to a BytesIO/buffer and pass that to recorder.save(), or use
         # tempfile.mkstemp() and handle the fd lifetime explicitly.
-        with tempfile.NamedTemporaryFile(
-            suffix=f".{recorder.identifier}", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(suffix=f".{name}", delete=False) as f:
             tmp = Path(f.name)
         try:
             recorder.save(data, tmp)
@@ -122,9 +122,7 @@ def _make_recorder_transform(recorder: Recorder) -> TransformMapping:
 
     def _load(raw: bytes) -> Any:
         # TODO: same Windows sharing-violation risk as _save above.
-        with tempfile.NamedTemporaryFile(
-            suffix=f".{recorder.identifier}", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(suffix=f".{name}", delete=False) as f:
             tmp = Path(f.name)
         try:
             tmp.write_bytes(raw)

@@ -22,14 +22,6 @@ def test_registration_keeps_the_plugin_contract() -> None:
     assert "pickle" not in affected
 
 
-def test_persists_under_the_1x_identifier() -> None:
-    """Snapshot files keep the `.pkl` extension pytest-ditto 1.x used."""
-    actual = recorders.get("pickle").identifier
-
-    expected = "pkl"
-    assert actual == expected
-
-
 def test_derives_a_bare_mark() -> None:
     """`ditto.pickle` is the mark for `record("pickle")`."""
     actual = ditto.pickle
@@ -40,10 +32,12 @@ def test_derives_a_bare_mark() -> None:
 
 @ditto.pickle
 def test_mark_selects_the_pickle_recorder(snapshot) -> None:
-    """The mark gives the snapshot fixture the pickle recorder."""
+    """The mark gives the snapshot fixture the pickle recorder, named `pickle`
+    in snapshot filenames."""
     actual = snapshot.recorder
 
     assert actual is recorders.get("pickle")
+    assert snapshot.recorder_name == "pickle"
 
 
 @pytest.mark.parametrize(
@@ -60,7 +54,7 @@ def test_mark_selects_the_pickle_recorder(snapshot) -> None:
 def test_round_trips_values_json_cannot(tmp_path: Path, value: object) -> None:
     """Values strict JSON rejects or changes load back unchanged."""
     recorder = recorders.get("pickle")
-    filepath = tmp_path / f"value.{recorder.identifier}"
+    filepath = tmp_path / "value.pickle"
 
     recorder.save(value, filepath)
     actual = recorder.load(filepath)

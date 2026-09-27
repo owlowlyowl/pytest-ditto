@@ -21,7 +21,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     rootdir = request.config.rootpath
     module = request.path.relative_to(rootdir).with_suffix("").as_posix()
     marks = list(request.node.iter_markers(name="record"))
-    recorder = resolve_recorder(marks)
+    recorder_name, recorder = resolve_recorder(marks)
     options = run_options(request.config)
 
     mark_target, mark_profile = parse_mark_target_selection(marks)
@@ -46,6 +46,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         target=abs_uri,
         _backend=backend,
         recorder=recorder,
+        recorder_name=recorder_name,
         mode=options.snapshot_mode,
         nodeid=request.node.nodeid,
         target_id=portable_target_id(abs_uri, rootdir),

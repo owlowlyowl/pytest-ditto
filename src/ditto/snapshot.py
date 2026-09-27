@@ -13,6 +13,13 @@ from .recorders import Recorder, default as _default_recorder
 __all__ = ("LockSeen", "Snapshot", "SnapshotKey", "SnapshotMode")
 
 
+# The name of the recorder unmarked tests use.
+DEFAULT_RECORDER_NAME = "json"
+
+# Stands in for a `Snapshot` recorder or recorder name that was not passed.
+_UNSET: Any = object()
+
+
 @dataclass(frozen=True)
 class SnapshotKey:
     """Fully-qualified identity for a single snapshot value.
@@ -215,6 +222,13 @@ class Snapshot:
         `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
         Serialisation strategy. Defaults to strict JSON.
+    recorder_name : str
+        The recorder's registered name, which is its persisted identifier: it
+        ends snapshot filenames and is recorded in `ditto.lock`. The fixture
+        passes the name the recorder was selected by. A directly constructed
+        `Snapshot` passes `recorder` and `recorder_name` together, or neither
+        for strict JSON (`"json"`). The name may be omitted with the strict JSON
+        recorder itself, whose name is `"json"`.
     mode : SnapshotMode
         Whether a snapshot is recorded, updated, or only verified. Defaults to
         `SnapshotMode.RECORD`.
@@ -232,7 +246,8 @@ class Snapshot:
     module: str
     target: str
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
-    recorder: Recorder = field(default_factory=_default_recorder)
+    recorder: Recorder = _UNSET
+    recorder_name: str = _UNSET
     mode: SnapshotMode = SnapshotMode.RECORD
     nodeid: str = ""
     target_id: str = ""
@@ -253,11 +268,30 @@ class Snapshot:
                 "Use SnapshotMode.UPDATE in place of update=True and "
                 "SnapshotMode.VERIFY in place of readonly=True."
             )
+        recorder, name = self.recorder, self.recorder_name
+        if name is _UNSET:
+            if recorder is _UNSET:
+                recorder = _default_recorder()
+            elif recorder is not _default_recorder():
+                raise TypeError(
+                    "Snapshot requires recorder_name= with recorder=. Pass the "
+                    "name the recorder is registered under, e.g. "
+                    "recorder_name='yaml'; it names the snapshot files."
+                )
+            name = DEFAULT_RECORDER_NAME
+        elif recorder is _UNSET:
+            raise TypeError(
+                "Snapshot requires recorder= with recorder_name=. Pass the "
+                f"recorder registered as {name!r}, e.g. "
+                f"recorder=recorders.get({name!r})."
+            )
+        object.__setattr__(self, "recorder", recorder)
+        object.__setattr__(self, "recorder_name", name)
 
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        return SnapshotKey(self.module, self.group_name, key, self.recorder.identifier)
+        return SnapshotKey(self.module, self.group_name, key, self.recorder_name)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
         # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
@@ -268,7 +302,7 @@ class Snapshot:
         from .backends import TransformMapping, _make_recorder_transform
 
         return TransformMapping(mapping=self._backend) | _make_recorder_transform(
-            self.recorder
+            self.recorder, self.recorder_name
         )
 
     def __call__(self, data: Any, key: str) -> Any:
@@ -339,7 +373,7 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             scheme=urlparse(snapshot.target).scheme,
             nodeid=snapshot.nodeid,
             key=key,
-            recorder=snapshot.recorder.identifier,
+            recorder=snapshot.recorder_name,
         )
         if snapshot.target_id
         else None

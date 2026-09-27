@@ -70,9 +70,11 @@ class DittoRecorderLoadError(DittoException):
 
 
 class DittoRecorderConflictError(DittoException):
-    """Raised when a recorder is used whose registration breaks the plugin contract.
+    """Raised when a recorder registration breaks the plugin contract.
 
-    The message describes the conflict and names the distributions involved.
+    Raised when a conflicted recorder is looked up, and when `register` is
+    given a name that would conflict. The message describes the conflict and
+    names the distributions involved.
     """
 
 

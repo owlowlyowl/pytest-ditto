@@ -23,6 +23,4 @@ def _load(filepath: Path) -> Any:
         return _pickle.load(f)
 
 
-# The identifier is `pkl`, not the recorder's name, `pickle`: it is the file
-# extension pytest-ditto 1.x used, so 1.x snapshots keep loading.
-pickle: Recorder[Any] = Recorder(identifier="pkl", save=_save, load=_load)
+pickle: Recorder[Any] = Recorder(save=_save, load=_load)

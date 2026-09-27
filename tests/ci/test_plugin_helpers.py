@@ -50,37 +50,32 @@ def test_resolves_to_json_when_no_marks_present() -> None:
     """No record marks defaults to the strict JSON recorder."""
     actual = resolve_recorder([])
 
-    assert actual is json_recorder
+    assert actual == ("json", json_recorder)
 
 
 def test_resolves_to_yaml_when_yaml_mark_is_present() -> None:
     """A record mark naming 'yaml' resolves to the yaml recorder."""
     actual = resolve_recorder([_mark("yaml")])
 
-    assert actual is yaml_recorder
+    assert actual == ("yaml", yaml_recorder)
 
 
 def test_resolves_to_json_when_json_mark_is_present() -> None:
     """A record mark naming 'json' resolves to the json recorder."""
     actual = resolve_recorder([_mark("json")])
 
-    assert actual is json_recorder
+    assert actual == ("json", json_recorder)
 
 
-def test_resolves_synthetic_external_recorder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Raw marks continue to resolve recorders installed through the registry."""
-    external = recorders.Recorder(
-        identifier="external",
-        save=json_recorder.save,
-        load=json_recorder.load,
-    )
-    monkeypatch.setitem(recorders.RECORDER_REGISTRY, "external", external)
+def test_resolves_synthetic_external_recorder() -> None:
+    """Raw marks resolve recorders added to the registry, with their name."""
+    external = recorders.Recorder(save=json_recorder.save, load=json_recorder.load)
+    registry = recorders.RecorderRegistry([], [])
+    registry.register("external", external)
 
-    actual = resolve_recorder([_mark("external")])
+    actual = resolve_recorder([_mark("external")], registry)
 
-    assert actual is external
+    assert actual == ("external", external)
 
 
 def test_raises_when_mark_carries_no_args() -> None:
