@@ -38,3 +38,11 @@ repos:
         require_serial: true
         pass_filenames: false
         verbose: true
+      - id: zizmor
+        name: zizmor
+        entry: pixi run -e lint zizmor .github
+        language: system
+        files: ^\.github/
+        require_serial: true
+        pass_filenames: false
+        verbose: true

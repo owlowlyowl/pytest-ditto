@@ -157,6 +157,8 @@ platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64", "win-64"]
 pytest-ditto = { path = ".", editable = true }
 
 [tool.pixi.feature.lint.dependencies]
+# Audits the GitHub Actions workflows and Dependabot config (.github/zizmor.yml).
+zizmor = ">=1.30"
 pre-commit = ">=4.0.1,<5"
 ruff = ">=0.8.4,<1"
 # For type-checking plugins/*/src.
@@ -170,6 +172,7 @@ basedpyright = ">=1.29"
 lint = "pre-commit run --all"
 typecheck = "pre-commit run basedpyright --all-files"
 ruff-lint = "pre-commit run ruff-check --all-files"
+workflow-lint = "pre-commit run zizmor --all-files"
 
 [tool.pixi.feature.test.dependencies]
 pytest = ">=8.3,<9"
