@@ -16,3 +16,6 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "ci"
+    # Files the PR under Packaging, CI and security in the release notes
+    # (.github/release.yml).
+    labels: ["kind: chore", "area: ci"]

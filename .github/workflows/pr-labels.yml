@@ -1,0 +1,37 @@
+name: PR labels
+
+run-name: "[Labels] ${{ github.event.pull_request.title }}"
+
+# Every PR needs a `kind:` label, which sorts it into a section of the generated
+# release notes (.github/release.yml). PRs labelled `release: skip` are exempt.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  kind-label:
+    name: Kind label
+    runs-on: ubuntu-26.04
+    steps:
+      # Labels are read from the event file, not interpolated into the script.
+      - name: Require a kind label
+        run: |
+          labels=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+          if grep -qx 'release: skip' <<< "$labels"; then
+            echo "Labelled 'release: skip'; no kind label needed."
+            exit 0
+          fi
+          kinds=$(grep '^kind: ' <<< "$labels" || true)
+          if [ -z "$kinds" ]; then
+            echo "::error::Add a kind: label (feature, enhancement, bug or chore). It sorts this PR into the release notes; see .github/release.yml."
+            exit 1
+          fi
+          echo "Kind: ${kinds//$'\n'/, }"
