@@ -36,6 +36,43 @@ def test_snapshot_defaults_to_strict_json(tmp_path: Path) -> None:
     assert snapshot.recorder_name == "json"
 
 
+def test_strict_json_recorder_needs_no_name(tmp_path: Path) -> None:
+    """The strict JSON recorder's name is unambiguous, so it may be omitted."""
+    snapshot = _file_snapshot(tmp_path, recorder=json_recorder)
+
+    actual = snapshot.recorder_name
+
+    expected = "json"
+    assert actual == expected
+
+
+def test_custom_recorder_without_a_name_is_rejected(tmp_path: Path) -> None:
+    """A recorder passed without its name is never saved under `json`."""
+    with pytest.raises(TypeError, match="requires recorder_name= with recorder="):
+        _file_snapshot(tmp_path, recorder=recorders.get("yaml"))
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_recorder_name_without_a_recorder_is_rejected(tmp_path: Path) -> None:
+    """A name passed without its recorder never saves JSON under that name."""
+    with pytest.raises(TypeError, match=r"recorder=recorders.get\('yaml'\)"):
+        _file_snapshot(tmp_path, recorder_name="yaml")
+
+
+def test_recorder_and_name_together_name_the_snapshot_file(tmp_path: Path) -> None:
+    """The snapshot file ends with the given name and holds the recorder's output."""
+    snapshot = _file_snapshot(
+        tmp_path, recorder=recorders.get("yaml"), recorder_name="yaml"
+    )
+
+    snapshot({"answer": 42}, "value")
+
+    actual = (tmp_path / "m.group@value.yaml").read_text()
+    expected = "answer: 42\n"
+    assert actual == expected
+
+
 def test_snapshot_is_immutable() -> None:
     """Snapshot rejects attribute assignment — frozen dataclass contract."""
     snapshot = _file_snapshot(Path("/tests"), group_name="test")

@@ -47,8 +47,10 @@ A directly constructed `Snapshot` takes a single `mode` in place of the
 `update` and `readonly` flags: `Snapshot(..., mode=SnapshotMode.UPDATE)` replaces
 `update=True`, and `mode=SnapshotMode.VERIFY` replaces `readonly=True`. The
 default, `SnapshotMode.RECORD`, matches the old defaults. Import `SnapshotMode`
-from `ditto`. It also takes `recorder_name=`, the name its `recorder` is
-registered under, which names its snapshot files; it defaults to `"json"`.
+from `ditto`. A `Snapshot` given a `recorder` also needs `recorder_name=`, the
+name the recorder is registered under, which names its snapshot files:
+`Snapshot(..., recorder=recorders.get("yaml"), recorder_name="yaml")`. Passing
+one without the other raises `TypeError`. Omit both for strict JSON.
 
 ## Snapshot Key Format Change
 

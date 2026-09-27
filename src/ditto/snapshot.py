@@ -16,6 +16,9 @@ __all__ = ("LockSeen", "Snapshot", "SnapshotKey", "SnapshotMode")
 # The name of the recorder unmarked tests use.
 DEFAULT_RECORDER_NAME = "json"
 
+# Stands in for a `Snapshot` recorder or recorder name that was not passed.
+_UNSET: Any = object()
+
 
 @dataclass(frozen=True)
 class SnapshotKey:
@@ -221,10 +224,11 @@ class Snapshot:
         Serialisation strategy. Defaults to strict JSON.
     recorder_name : str
         The recorder's registered name, which is its persisted identifier: it
-        ends snapshot filenames and is recorded in `ditto.lock`. Defaults to
-        `"json"`. The fixture passes the name the recorder was selected by; a
-        directly constructed `Snapshot` should pass the name `recorder` is
-        registered under.
+        ends snapshot filenames and is recorded in `ditto.lock`. The fixture
+        passes the name the recorder was selected by. A directly constructed
+        `Snapshot` passes `recorder` and `recorder_name` together, or neither
+        for strict JSON (`"json"`). The name may be omitted with the strict JSON
+        recorder itself, whose name is `"json"`.
     mode : SnapshotMode
         Whether a snapshot is recorded, updated, or only verified. Defaults to
         `SnapshotMode.RECORD`.
@@ -242,8 +246,8 @@ class Snapshot:
     module: str
     target: str
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
-    recorder: Recorder = field(default_factory=_default_recorder)
-    recorder_name: str = DEFAULT_RECORDER_NAME
+    recorder: Recorder = _UNSET
+    recorder_name: str = _UNSET
     mode: SnapshotMode = SnapshotMode.RECORD
     nodeid: str = ""
     target_id: str = ""
@@ -264,6 +268,25 @@ class Snapshot:
                 "Use SnapshotMode.UPDATE in place of update=True and "
                 "SnapshotMode.VERIFY in place of readonly=True."
             )
+        recorder, name = self.recorder, self.recorder_name
+        if name is _UNSET:
+            if recorder is _UNSET:
+                recorder = _default_recorder()
+            elif recorder is not _default_recorder():
+                raise TypeError(
+                    "Snapshot requires recorder_name= with recorder=. Pass the "
+                    "name the recorder is registered under, e.g. "
+                    "recorder_name='yaml'; it names the snapshot files."
+                )
+            name = DEFAULT_RECORDER_NAME
+        elif recorder is _UNSET:
+            raise TypeError(
+                "Snapshot requires recorder= with recorder_name=. Pass the "
+                f"recorder registered as {name!r}, e.g. "
+                f"recorder=recorders.get({name!r})."
+            )
+        object.__setattr__(self, "recorder", recorder)
+        object.__setattr__(self, "recorder_name", name)
 
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
