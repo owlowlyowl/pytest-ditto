@@ -17,6 +17,11 @@ pixi install
 
 The package is installed in editable mode automatically via the workspace config.
 
+Clone with full history, not `--depth`: every package's version comes from
+`git describe`, which fails in a shallow clone. To fix one, run
+`git fetch --unshallow --tags`. The install writes `src/ditto/_version.py`, which
+isn't tracked.
+
 ## Environments
 
 pixi manages multiple isolated environments for different tasks:
@@ -173,7 +178,9 @@ pixi run -e build verify-artifacts   # add --version X.Y.Z to require a version
 
 Output goes to `dist/<distribution>/`, e.g. `dist/pytest-ditto/` and
 `dist/pytest-ditto-pandas/`. Every package is versioned from the same git tag by
-`version_builder.py`, through [hatch](https://hatch.pypa.io/).
+`version_builder.py`, through [hatch](https://hatch.pypa.io/): a tagged commit gets
+the tag (`2.0.0`, `2.0.0rc1`), and the Nth commit after it gets
+`<tag>.post0.dev<N>+<sha>`.
 
 `verify-artifacts` checks every package's wheel and sdist, and a wheel rebuilt
 from the sdist, then installs each one in a clean venv. For core, it checks the
