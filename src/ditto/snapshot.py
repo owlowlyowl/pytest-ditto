@@ -189,6 +189,9 @@ class SnapshotMode(Enum):
         Never write: return the stored value, or the given value when the key is
         absent. Set by `--ditto-verify`, so a verify run cannot recreate a
         deleted snapshot.
+
+    A value that is saved, or returned under VERIFY for an absent key, is
+    serialised and deserialised first, and the deserialised value is returned.
     """
 
     RECORD = "record"
@@ -302,16 +305,31 @@ class Snapshot:
         """Save or load the snapshot for `key`.
 
         Delegates to `resolve_snapshot`: saves `data` on first call and
-        returns the stored value on subsequent calls.
+        returns the stored value on subsequent calls. Either way the value
+        returned is what the recorder reads back, not `data` itself.
         """
         return resolve_snapshot(self, data, key)
 
 
+def _round_trip(recorder: Recorder, data: Any) -> tuple[bytes, Any]:
+    """Serialise `data`, then deserialise those bytes.
+
+    Returns the bytes to store and the value they restore to, so a caller writes
+    exactly the bytes it has shown the recorder can read.
+    """
+    raw = recorder.dumps(data)
+    return raw, recorder.loads(raw)
+
+
 def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
-    """Persist `data` to the backend as the snapshot for `key`."""
+    """Persist `data` to the backend as the snapshot for `key`.
+
+    Nothing is written if the recorder cannot deserialise the bytes it produced.
+    """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    snapshot._backend[storage_key] = snapshot.recorder.dumps(data)
+    raw, _ = _round_trip(snapshot.recorder, data)
+    snapshot._backend[storage_key] = raw
 
 
 def load_snapshot(snapshot: Snapshot, key: str) -> Any:
@@ -333,9 +351,12 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
-    """Return the snapshot value for `key`, saving it first if absent.
+    """Return the snapshot value for `key`, first writing `data` if the mode requires.
 
     How the stored value is treated depends on `snapshot.mode`; see `SnapshotMode`.
+    Whenever `data` is returned in place of a stored value, it is first passed
+    through the recorder (`dumps`, then `loads`), so the caller's assertion sees
+    what a later run would read back.
 
     Raises
     ------
@@ -372,29 +393,20 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         else None
     )
 
-    match snapshot.mode:
-        case SnapshotMode.VERIFY:
-            # Never write to the backend. Return `data` for an absent key so the
-            # test assertion can still pass, but leave the backend untouched so
-            # the drift check can detect the missing key. Record it as "created"
-            # so the verify hook reports it as unsynced.
-            if seen is not None:
-                tracker.record_lock_seen(seen, created=not exists)
-            return recorder.loads(backend[storage_key]) if exists else data
-        case SnapshotMode.UPDATE:
-            backend[storage_key] = recorder.dumps(data)
-            (tracker.updated if exists else tracker.created).append(sk)
-            if seen is not None:
-                tracker.record_lock_seen(seen, created=not exists)
-            return data
-        case SnapshotMode.RECORD if not exists:
-            backend[storage_key] = recorder.dumps(data)
-            tracker.created.append(sk)
-            if seen is not None:
-                tracker.record_lock_seen(seen, created=True)
-            return data
-        case SnapshotMode.RECORD:
+    match snapshot.mode, exists:
+        case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
             value = recorder.loads(backend[storage_key])
-            if seen is not None:
-                tracker.record_lock_seen(seen, created=False)
-            return value
+        case SnapshotMode.VERIFY, False:
+            # Never write to the backend: leave it untouched so the drift check
+            # can detect the missing key.
+            _, value = _round_trip(recorder, data)
+        case _:
+            raw, value = _round_trip(recorder, data)
+            backend[storage_key] = raw
+            (tracker.updated if exists else tracker.created).append(sk)
+
+    # A missing key under VERIFY is recorded as "created" so the verify hook
+    # reports it as unsynced.
+    if seen is not None:
+        tracker.record_lock_seen(seen, created=not exists)
+    return value

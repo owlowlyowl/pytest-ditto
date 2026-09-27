@@ -28,6 +28,12 @@ my_recorder: Recorder[MyType] = Recorder(dumps=_dumps, loads=_loads)
 | `dumps` | `Callable[[T], bytes]` | Serialises a value to bytes |
 | `loads` | `Callable[[bytes], T]` | Deserialises bytes back to a value |
 
+`snapshot()` always returns `loads(dumps(value))`, including on the run that
+records or updates the snapshot, so a test sees what later runs will read back.
+If `loads` can't read the bytes `dumps` produced, nothing is written. `dumps`
+must not modify the value it is given, because the test compares that value
+with the one `snapshot()` returns.
+
 The bytes are the snapshot file's contents, stored as they are: a text format
 stays readable and diffable. Write text with `"\n"` line endings rather than the
 platform's, so a snapshot's bytes are the same on every machine.
