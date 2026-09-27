@@ -19,7 +19,7 @@ permissions:
 jobs:
   build:
     name: Build and verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Full history and tags: every package's version comes from `git describe`.
       - name: Checkout repository
