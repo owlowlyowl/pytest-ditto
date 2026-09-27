@@ -29,6 +29,12 @@ its recorder explicitly. Loading pickle data can execute arbitrary code, so
 only load trusted snapshots. Core provides no pickle warning, guard, migration
 command, or convenience extra.
 
+`pytest-ditto-pickle` names its snapshot files after the recorder, so they end
+in `.pickle`, not `.pkl`. A 1.x `.pkl` file must already be renamed to its 2.0
+key to be found; give the renamed file the `.pickle` ending. If you used
+`pytest-ditto-pickle` 2.0.0b1, which still wrote `.pkl`, rename those snapshots
+to end in `.pickle` and run `ditto lock`.
+
 Version 2.0 registers the pytest plugin under the name `ditto` instead of
 `recording`, which collided with the `pytest-recording` plugin. To disable
 pytest-ditto for a run, use `-p no:ditto` in place of `-p no:recording`.
@@ -41,7 +47,8 @@ A directly constructed `Snapshot` takes a single `mode` in place of the
 `update` and `readonly` flags: `Snapshot(..., mode=SnapshotMode.UPDATE)` replaces
 `update=True`, and `mode=SnapshotMode.VERIFY` replaces `readonly=True`. The
 default, `SnapshotMode.RECORD`, matches the old defaults. Import `SnapshotMode`
-from `ditto`.
+from `ditto`. It also takes `recorder_name=`, the name its `recorder` is
+registered under, which names its snapshot files; it defaults to `"json"`.
 
 ## Snapshot Key Format Change
 

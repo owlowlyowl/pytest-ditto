@@ -29,15 +29,6 @@ def test_registrations_keep_the_plugin_contract() -> None:
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_persists_under_an_identifier_equal_to_its_name(name: str) -> None:
-    """Snapshot files carry the recorder's name as their identifier."""
-    actual = recorders.get(name).identifier
-
-    expected = name
-    assert actual == expected
-
-
-@pytest.mark.parametrize("name", NAMES)
 def test_derives_a_namespaced_mark_for_each_recorder(name: str) -> None:
     """`ditto.pandas.<format>` is the mark for `record("pandas.<format>")`."""
     fmt = name.removeprefix("pandas.")
@@ -50,10 +41,12 @@ def test_derives_a_namespaced_mark_for_each_recorder(name: str) -> None:
 
 @ditto.pandas.parquet
 def test_parquet_mark_selects_the_parquet_recorder(snapshot) -> None:
-    """The parquet mark gives the snapshot fixture the parquet recorder."""
+    """The parquet mark gives the snapshot fixture the parquet recorder, named
+    `pandas.parquet` in snapshot filenames."""
     actual = snapshot.recorder
 
     assert actual is recorders.get("pandas.parquet")
+    assert snapshot.recorder_name == "pandas.parquet"
 
 
 @pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
@@ -61,7 +54,7 @@ def test_round_trips_a_dataframe(tmp_path: Path, name: str) -> None:
     """Parquet and JSON load back exactly the DataFrame they saved."""
     df = _sample_dataframe()
     recorder = recorders.get(name)
-    filepath = tmp_path / f"snapshot.{recorder.identifier}"
+    filepath = tmp_path / f"snapshot.{name}"
 
     recorder.save(df, filepath)
     actual = recorder.load(filepath)

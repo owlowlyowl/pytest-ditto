@@ -13,6 +13,10 @@ from .recorders import Recorder, default as _default_recorder
 __all__ = ("LockSeen", "Snapshot", "SnapshotKey", "SnapshotMode")
 
 
+# The name of the recorder unmarked tests use.
+DEFAULT_RECORDER_NAME = "json"
+
+
 @dataclass(frozen=True)
 class SnapshotKey:
     """Fully-qualified identity for a single snapshot value.
@@ -215,6 +219,12 @@ class Snapshot:
         `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
         Serialisation strategy. Defaults to strict JSON.
+    recorder_name : str
+        The recorder's registered name, which is its persisted identifier: it
+        ends snapshot filenames and is recorded in `ditto.lock`. Defaults to
+        `"json"`. The fixture passes the name the recorder was selected by; a
+        directly constructed `Snapshot` should pass the name `recorder` is
+        registered under.
     mode : SnapshotMode
         Whether a snapshot is recorded, updated, or only verified. Defaults to
         `SnapshotMode.RECORD`.
@@ -233,6 +243,7 @@ class Snapshot:
     target: str
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
     recorder: Recorder = field(default_factory=_default_recorder)
+    recorder_name: str = DEFAULT_RECORDER_NAME
     mode: SnapshotMode = SnapshotMode.RECORD
     nodeid: str = ""
     target_id: str = ""
@@ -257,7 +268,7 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        return SnapshotKey(self.module, self.group_name, key, self.recorder.identifier)
+        return SnapshotKey(self.module, self.group_name, key, self.recorder_name)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
         # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
@@ -268,7 +279,7 @@ class Snapshot:
         from .backends import TransformMapping, _make_recorder_transform
 
         return TransformMapping(mapping=self._backend) | _make_recorder_transform(
-            self.recorder
+            self.recorder, self.recorder_name
         )
 
     def __call__(self, data: Any, key: str) -> Any:
@@ -339,7 +350,7 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             scheme=urlparse(snapshot.target).scheme,
             nodeid=snapshot.nodeid,
             key=key,
-            recorder=snapshot.recorder.identifier,
+            recorder=snapshot.recorder_name,
         )
         if snapshot.target_id
         else None

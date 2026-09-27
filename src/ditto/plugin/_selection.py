@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from ditto.exceptions import (
     AdditionalMarkError,
     DittoAmbiguousTargetError,
@@ -7,13 +9,19 @@ from ditto.exceptions import (
     DittoUnknownRecorderError,
 )
 from ditto.recorders import Recorder, RECORDER_REGISTRY, default as _default_recorder
+from ditto.snapshot import DEFAULT_RECORDER_NAME
 
 
 __all__ = ("resolve_recorder", "parse_mark_target_selection")
 
 
-def resolve_recorder(marks: list) -> Recorder:
-    """Resolve the recorder from a list of pytest marks.
+def resolve_recorder(
+    marks: list, registry: Mapping[str, Recorder] = RECORDER_REGISTRY
+) -> tuple[str, Recorder]:
+    """Resolve the recorder's name and recorder from a list of pytest marks.
+
+    The name is the recorder's persisted identifier. An unmarked test uses the
+    default recorder, `json`.
 
     Raises
     ------
@@ -26,14 +34,14 @@ def resolve_recorder(marks: list) -> Recorder:
     """
     match len(marks):
         case 0:
-            return _default_recorder()
+            return DEFAULT_RECORDER_NAME, _default_recorder()
         case 1:
             if not marks[0].args:
                 raise DittoMarkHasNoIOType()
             name = marks[0].args[0]
-            if name not in RECORDER_REGISTRY:
-                raise DittoUnknownRecorderError(name, list(RECORDER_REGISTRY))
-            return RECORDER_REGISTRY[name]
+            if name not in registry:
+                raise DittoUnknownRecorderError(name, list(registry))
+            return name, registry[name]
         case _:
             raise AdditionalMarkError()
 

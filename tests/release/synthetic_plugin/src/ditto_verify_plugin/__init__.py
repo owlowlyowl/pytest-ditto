@@ -13,5 +13,5 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-recorder = Recorder(identifier="synthetic", save=_save, load=_load)
-dotted = Recorder(identifier="verify.dotted", save=_save, load=_load)
+recorder = Recorder(save=_save, load=_load)
+dotted = Recorder(save=_save, load=_load)

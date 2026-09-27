@@ -40,31 +40,22 @@ def conflicting_plugins(make_distribution, monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.usefixtures("conflicting_plugins")
-def test_run_warns_about_each_contract_problem(pytester: pytest.Pytester) -> None:
-    """A pytest run reports every contract problem as a DittoWarning."""
-    pytester.makepyfile(test_mod=CONTRACT_MODULE)
-
-    result = pytester.runpytest_subprocess()
-
-    result.stdout.fnmatch_lines([
-        "*DittoWarning: Recorder name 'tab.csv' is registered more than once, "
-        "by plug-a 1.0, plug-b 2.0.*",
-        "*DittoWarning: old-plug 0.1 uses the 1.x plugin contract; install "
-        "old-plug>=2.0.*",
-    ])
-
-
-@pytest.mark.usefixtures("conflicting_plugins")
-def test_run_fails_only_the_test_using_a_conflicted_recorder(
+def test_run_stops_before_collection_listing_each_contract_problem(
     pytester: pytest.Pytester,
 ) -> None:
-    """The conflicted recorder errors at setup; other tests are unaffected."""
+    """A pytest run lists every contract problem and collects no tests."""
     pytester.makepyfile(test_mod=CONTRACT_MODULE)
 
     result = pytester.runpytest_subprocess()
 
-    result.assert_outcomes(passed=1, errors=1)
-    result.stdout.fnmatch_lines(["*DittoRecorderConflictError: *'tab.csv'*"])
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines([
+        "*ditto: the installed recorder plugins break the plugin contract:",
+        "*Recorder name 'tab.csv' is registered more than once, by plug-a 1.0, "
+        "plug-b 2.0.*",
+        "*old-plug 0.1 uses the 1.x plugin contract; install old-plug>=2.0.",
+    ])
+    assert not (pytester.path / ".ditto").exists()
 
 
 @pytest.mark.usefixtures("conflicting_plugins")
@@ -82,23 +73,58 @@ def test_doctor_fails_on_contract_problems() -> None:
     assert "old-plug 0.1 uses the 1.x plugin contract" in result.stdout
 
 
-def test_recorders_reports_an_identifier_collision(
-    make_distribution, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`ditto recorders` reports a collision only found by loading recorders."""
+@pytest.fixture
+def unused_clashing_plugin(make_distribution, monkeypatch: pytest.MonkeyPatch):
+    """Install a plugin that registers core's `json` name, and return its root.
+
+    Importing the plugin's module leaves an `imported` file in the root.
+    """
     (ep,) = make_distribution(
-        "plug-c", "1.0", {"ditto_recorders": {"clash.json": "clashmod:recorder"}}
+        "plug-c", "1.0", {"ditto_recorders": {"json": "clashmod:recorder"}}
     )
     root = ep.dist.locate_file("")
     (root / "clashmod.py").write_text(
+        "import pathlib\n"
+        "pathlib.Path(__file__).with_name('imported').touch()\n"
         "from ditto.recorders import Recorder\n"
-        "recorder = Recorder(identifier='json', save=print, load=print)\n"
+        "recorder = Recorder(save=print, load=print)\n"
     )
     monkeypatch.setenv(
         "PYTHONPATH",
         os.pathsep.join([str(root), *filter(None, [os.environ.get("PYTHONPATH")])]),
     )
+    return root
 
+
+def test_unused_clashing_plugin_stops_the_run_without_being_imported(
+    pytester: pytest.Pytester, unused_clashing_plugin
+) -> None:
+    """A clash with core is found from metadata before any snapshot is written."""
+    pytester.makepyfile(
+        test_mod="""
+        import ditto
+
+
+        @ditto.yaml
+        def test_uses_yaml(snapshot):
+            assert snapshot(1, key="k") == 1
+        """
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines([
+        "*Recorder name 'json' is registered more than once, by plug-c 1.0, "
+        "pytest-ditto *"
+    ])
+    assert not (pytester.path / ".ditto").exists()
+    assert not (unused_clashing_plugin / "imported").exists()
+
+
+@pytest.mark.usefixtures("unused_clashing_plugin")
+def test_recorders_reports_a_clash_without_importing_plugins() -> None:
+    """`ditto recorders` reports a clash found from metadata alone."""
     result = subprocess.run(
         [sys.executable, "-c", "from ditto.cli import cli; cli()", "recorders"],
         capture_output=True,

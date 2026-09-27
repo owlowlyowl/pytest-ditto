@@ -12,11 +12,6 @@ from ditto.exceptions import DittoJSONSerializationError, DuplicateSnapshotKeyEr
 from ditto.snapshot import load_snapshot, save_snapshot
 
 json_recorder = recorders.get("json")
-qualified_json_recorder = recorders.Recorder(
-    identifier="plugin.json",
-    save=json_recorder.save,
-    load=json_recorder.load,
-)
 
 
 def _file_snapshot(path: Path, **kwargs) -> Snapshot:
@@ -38,6 +33,7 @@ def test_snapshot_defaults_to_strict_json(tmp_path: Path) -> None:
     snapshot = _file_snapshot(tmp_path)
 
     assert snapshot.recorder is json_recorder
+    assert snapshot.recorder_name == "json"
 
 
 def test_snapshot_is_immutable() -> None:
@@ -134,12 +130,13 @@ def test_returns_stored_value_when_snapshot_already_exists(tmp_dir) -> None:
     assert actual == stored
 
 
-def test_file_backed_snapshot_preserves_dotted_recorder_identifier(tmp_dir) -> None:
-    """A dotted recorder identifier is preserved in the persisted snapshot name."""
+def test_file_backed_snapshot_preserves_dotted_recorder_name(tmp_dir) -> None:
+    """A dotted recorder name is preserved in the persisted snapshot name."""
     snapshot = _file_snapshot(
         tmp_dir,
         group_name="group",
-        recorder=qualified_json_recorder,
+        recorder=json_recorder,
+        recorder_name="plugin.json",
     )
 
     actual = snapshot({"answer": 42}, "result")

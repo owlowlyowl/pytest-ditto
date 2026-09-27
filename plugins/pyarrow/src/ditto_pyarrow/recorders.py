@@ -19,9 +19,7 @@ def _parquet_load(filepath: Path) -> pa.Table:
     return pa_parquet.read_table(filepath)
 
 
-parquet: Recorder[pa.Table] = Recorder(
-    identifier="pyarrow.parquet", save=_parquet_save, load=_parquet_load
-)
+parquet: Recorder[pa.Table] = Recorder(save=_parquet_save, load=_parquet_load)
 
 
 def _feather_save(data: pa.Table, filepath: Path) -> None:
@@ -32,9 +30,7 @@ def _feather_load(filepath: Path) -> pa.Table:
     return pa_feather.read_table(filepath)
 
 
-feather: Recorder[pa.Table] = Recorder(
-    identifier="pyarrow.feather", save=_feather_save, load=_feather_load
-)
+feather: Recorder[pa.Table] = Recorder(save=_feather_save, load=_feather_load)
 
 
 def _csv_save(data: pa.Table, filepath: Path) -> None:
@@ -45,6 +41,4 @@ def _csv_load(filepath: Path) -> pa.Table:
     return pa_csv.read_csv(filepath)
 
 
-csv: Recorder[pa.Table] = Recorder(
-    identifier="pyarrow.csv", save=_csv_save, load=_csv_load
-)
+csv: Recorder[pa.Table] = Recorder(save=_csv_save, load=_csv_load)

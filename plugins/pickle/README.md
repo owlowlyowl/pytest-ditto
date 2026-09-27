@@ -4,8 +4,8 @@ Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto
 
 > [!WARNING]
 > Loading pickle data can execute arbitrary code. Only load snapshots you
-> trust, and never load a `.pkl` snapshot from an untrusted source, such as a
-> pull request from someone you don't know. Review changes to `.pkl` files as
+> trust, and never load a `.pickle` snapshot from an untrusted source, such as a
+> pull request from someone you don't know. Review changes to `.pickle` files as
 > carefully as changes to code.
 
 pytest-ditto records snapshots as strict JSON by default. Use pickle only when
@@ -39,9 +39,10 @@ def test_schedule(snapshot):
 ## Snapshots from pytest-ditto 1.x
 
 pytest-ditto 1.x used pickle by default and saved snapshots with the `.pkl`
-extension. This recorder keeps that extension and file format, so a 1.x
-`.pkl` file loads unchanged.
+extension. This recorder reads and writes the same file format, so a 1.x
+snapshot's contents load unchanged.
 
 pytest-ditto 2.0 names snapshot files differently, though, so 2.0 won't find a
-1.x file where 1.x left it. See the pytest-ditto upgrade guide for the new
-names.
+1.x file where 1.x left it. Rename each file to its 2.0 key, which ends in
+`.pickle` (the recorder's name) instead of `.pkl`. See the pytest-ditto upgrade
+guide for the new names.

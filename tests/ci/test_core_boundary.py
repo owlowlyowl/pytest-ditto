@@ -52,9 +52,18 @@ def test_core_metadata_has_only_json_and_yaml_recorder_entry_points() -> None:
 
 
 def test_core_tracks_no_pickle_snapshots() -> None:
-    # The pickle plugin under plugins/ legitimately commits .pkl snapshots.
+    # The pickle plugin under plugins/ legitimately commits pickle snapshots.
     tracked_paths = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "--", "*.pkl", ":(exclude)plugins/"],
+        [
+            "git",
+            "-C",
+            str(ROOT),
+            "ls-files",
+            "--",
+            "*.pkl",
+            "*.pickle",
+            ":(exclude)plugins/",
+        ],
         check=True,
         capture_output=True,
         text=True,
