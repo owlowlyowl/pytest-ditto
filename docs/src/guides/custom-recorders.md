@@ -28,8 +28,10 @@ my_recorder: Recorder[MyType] = Recorder(dumps=_dumps, loads=_loads)
 | `dumps` | `Callable[[T], bytes]` | Serialises a value to bytes |
 | `loads` | `Callable[[bytes], T]` | Deserialises bytes back to a value |
 
-`snapshot()` always returns `loads(dumps(value))`, including on the run that
-records or updates the snapshot, so a test sees what later runs will read back.
+When recording or updating a snapshot, or verifying a missing snapshot,
+`snapshot()` returns `loads(dumps(value))`, so a test sees what later runs will
+read back. In RECORD or VERIFY mode, an existing snapshot returns
+`loads(stored_bytes)` without serialising the supplied value.
 If `loads` can't read the bytes `dumps` produced, nothing is written. `dumps`
 must not modify the value it is given, because the test compares that value
 with the one `snapshot()` returns.
