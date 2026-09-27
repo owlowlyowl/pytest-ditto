@@ -1,0 +1,5 @@
+rules:
+  # Suggests `uses: $/...` for this repo's own reusable workflows; keep the
+  # documented `./.github/workflows/...` form.
+  self-repository:
+    disable: true
