@@ -89,7 +89,7 @@ together.
 
 ## Linting & Type Checking
 
-Run all linters (ruff check, ruff format, basedpyright) via pre-commit:
+Run all linters (ruff check, ruff format, basedpyright, zizmor) via pre-commit:
 
 ```bash
 pixi run -e lint lint
@@ -100,6 +100,17 @@ Run the type checker standalone:
 ```bash
 pixi run -e lint typecheck
 ```
+
+Audit the GitHub Actions workflows and Dependabot config with
+[zizmor](https://docs.zizmor.sh). Without a `GH_TOKEN` it skips the online audits,
+which CI runs:
+
+```bash
+pixi run -e lint workflow-lint
+```
+
+Workflows pin every action to a commit SHA with the version in a comment
+(`uses: owner/action@<sha> # vX.Y.Z`); Dependabot updates both.
 
 ### Pre-commit hooks
 
