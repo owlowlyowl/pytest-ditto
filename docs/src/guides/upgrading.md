@@ -52,6 +52,32 @@ name the recorder is registered under, which names its snapshot files:
 `Snapshot(..., recorder=recorders.get("yaml"), recorder_name="yaml")`. Passing
 one without the other raises `TypeError`. Omit both for strict JSON.
 
+Recorders serialise to bytes: a `Recorder` is `Recorder(dumps=..., loads=...)`,
+where `dumps` turns a value into the snapshot file's bytes and `loads` turns
+them back. The path-based `Recorder(save=..., load=...)` is gone. A plugin still
+built on it fails to load with a message saying so. Rebuild it on the
+library's in-memory functions, or wrap its file functions with
+`ditto.recorders.recorder_from_files`. See
+[Custom Recorders](custom-recorders.md).
+
+YAML and `pytest-ditto-pandas` CSV snapshots are now written with `"\n"` line
+endings on every platform, as JSON already was. On Windows, snapshots those
+recorders wrote before used `"\r\n"`. They still load; the next
+`--ditto-update` rewrites them with `"\n"`, a one-time line-ending diff.
+
+Git on Windows often converts line endings on checkout (`core.autocrlf`), which
+gives a working copy with `"\r\n"` while ditto writes `"\n"`. Snapshots still
+load, but to keep them byte-for-byte what ditto wrote, add this to your
+repository's `.gitattributes`:
+
+```gitattributes
+# Snapshots are byte-exact: never convert their line endings.
+**/.ditto/** -text
+```
+
+If snapshots live in a directory other than `.ditto`, for example one set with
+`ditto_target`, add a line for that directory too.
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by

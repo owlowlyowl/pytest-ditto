@@ -1,4 +1,4 @@
-from pathlib import Path
+import io
 
 import pandas as pd
 
@@ -8,36 +8,42 @@ from ditto.recorders import Recorder
 __all__ = ("parquet", "json", "csv")
 
 
-def _parquet_save(data: pd.DataFrame, filepath: Path) -> None:
-    data.to_parquet(filepath)
+def _parquet_dumps(data: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    data.to_parquet(buffer)
+    return buffer.getvalue()
 
 
-def _parquet_load(filepath: Path) -> pd.DataFrame:
-    return pd.read_parquet(filepath)
+def _parquet_loads(raw: bytes) -> pd.DataFrame:
+    return pd.read_parquet(io.BytesIO(raw))
 
 
-parquet: Recorder[pd.DataFrame] = Recorder(save=_parquet_save, load=_parquet_load)
+parquet: Recorder[pd.DataFrame] = Recorder(dumps=_parquet_dumps, loads=_parquet_loads)
 
 
-def _json_save(data: pd.DataFrame, filepath: Path) -> None:
-    data.to_json(filepath, orient="table")
+def _json_dumps(data: pd.DataFrame) -> bytes:
+    buffer = io.StringIO()
+    data.to_json(buffer, orient="table")
+    return buffer.getvalue().encode("utf-8")
 
 
-def _json_load(filepath: Path) -> pd.DataFrame:
-    return pd.read_json(filepath, orient="table")
+def _json_loads(raw: bytes) -> pd.DataFrame:
+    return pd.read_json(io.StringIO(raw.decode("utf-8")), orient="table")
 
 
-json: Recorder[pd.DataFrame] = Recorder(save=_json_save, load=_json_load)
+json: Recorder[pd.DataFrame] = Recorder(dumps=_json_dumps, loads=_json_loads)
 
 
-def _csv_save(data: pd.DataFrame, filepath: Path) -> None:
-    data.to_csv(filepath)
+def _csv_dumps(data: pd.DataFrame) -> bytes:
+    # "\n" rather than the platform's line separator, so the bytes are the same
+    # on every platform.
+    return data.to_csv(lineterminator="\n").encode("utf-8")
 
 
-def _csv_load(filepath: Path) -> pd.DataFrame:
+def _csv_loads(raw: bytes) -> pd.DataFrame:
     # to_csv writes the index as the first column; read it back as the index,
     # not as an "Unnamed: 0" data column (#40).
-    return pd.read_csv(filepath, index_col=0)
+    return pd.read_csv(io.BytesIO(raw), index_col=0)
 
 
-csv: Recorder[pd.DataFrame] = Recorder(save=_csv_save, load=_csv_load)
+csv: Recorder[pd.DataFrame] = Recorder(dumps=_csv_dumps, loads=_csv_loads)

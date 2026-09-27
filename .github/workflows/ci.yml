@@ -190,11 +190,12 @@ jobs:
           environments: py3${{ matrix.python-version }}
           cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Run strict JSON and plugin discovery tests
+      - name: Run recorder and plugin discovery tests
         run: >-
           pixi run -e py3${{ matrix.python-version }} pytest
           tests/ci/test_recorders.py
           tests/ci/test_recorder_properties.py
+          tests/ci/test_recorder_files.py
           tests/ci/test_plugins.py
 
   lock-file:

@@ -298,13 +298,6 @@ class Snapshot:
         # stays a flat directory. All other backends use slash-namespaced keys.
         return _flat_key if urlparse(self.target).scheme == "file" else str
 
-    def _store(self) -> Any:
-        from .backends import TransformMapping, _make_recorder_transform
-
-        return TransformMapping(mapping=self._backend) | _make_recorder_transform(
-            self.recorder, self.recorder_name
-        )
-
     def __call__(self, data: Any, key: str) -> Any:
         """Save or load the snapshot for `key`.
 
@@ -318,7 +311,7 @@ def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
     """Persist `data` to the backend as the snapshot for `key`."""
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    snapshot._store()[storage_key] = data
+    snapshot._backend[storage_key] = snapshot.recorder.dumps(data)
 
 
 def load_snapshot(snapshot: Snapshot, key: str) -> Any:
@@ -331,12 +324,12 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
     """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    store = snapshot._store()
-    if storage_key not in store:
+    backend = snapshot._backend
+    if storage_key not in backend:
         raise FileNotFoundError(
             f"No snapshot file found for key {key!r} (storage key: {storage_key!r})"
         )
-    return store[storage_key]
+    return snapshot.recorder.loads(backend[storage_key])
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
@@ -361,8 +354,8 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     tracker.used_keys.add(used_key)
     tracker.register_access(backend, key_of, sk)
 
-    store = snapshot._store()
-    exists = storage_key in store
+    recorder = snapshot.recorder
+    exists = storage_key in backend
 
     # Build the lock observation up front (pure), but only record it AFTER the
     # backend access succeeds — recording before the write would leave a phantom
@@ -387,21 +380,21 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             # so the verify hook reports it as unsynced.
             if seen is not None:
                 tracker.record_lock_seen(seen, created=not exists)
-            return store[storage_key] if exists else data
+            return recorder.loads(backend[storage_key]) if exists else data
         case SnapshotMode.UPDATE:
-            store[storage_key] = data
+            backend[storage_key] = recorder.dumps(data)
             (tracker.updated if exists else tracker.created).append(sk)
             if seen is not None:
                 tracker.record_lock_seen(seen, created=not exists)
             return data
         case SnapshotMode.RECORD if not exists:
-            store[storage_key] = data
+            backend[storage_key] = recorder.dumps(data)
             tracker.created.append(sk)
             if seen is not None:
                 tracker.record_lock_seen(seen, created=True)
             return data
         case SnapshotMode.RECORD:
-            value = store[storage_key]
+            value = recorder.loads(backend[storage_key])
             if seen is not None:
                 tracker.record_lock_seen(seen, created=False)
             return value

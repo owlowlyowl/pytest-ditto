@@ -1,4 +1,4 @@
-from ._transform import TransformMapping, _make_recorder_transform
+from ._transform import TransformMapping
 from ._prefix import PrefixedMapping
 from ._fsspec import FsspecMapping
 from ._plugins import BACKEND_REGISTRY, load_backends

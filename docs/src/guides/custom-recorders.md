@@ -7,27 +7,60 @@ Create your own recorder to support any serialisation format.
 A `Recorder` is a frozen dataclass with two fields:
 
 ```python
-from pathlib import Path
 from ditto.recorders import Recorder
 
 
-def _save(data: MyType, filepath: Path) -> None:
-    """Write data to filepath."""
+def _dumps(data: MyType) -> bytes:
+    """Serialise data to bytes."""
     ...
 
 
-def _load(filepath: Path) -> MyType:
-    """Read and return data from filepath."""
+def _loads(raw: bytes) -> MyType:
+    """Deserialise bytes produced by _dumps."""
     ...
 
 
-my_recorder: Recorder[MyType] = Recorder(save=_save, load=_load)
+my_recorder: Recorder[MyType] = Recorder(dumps=_dumps, loads=_loads)
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `save` | `Callable[[T, Path], None]` | Serialises a value to a file path |
-| `load` | `Callable[[Path], T]` | Deserialises a value from a file path |
+| `dumps` | `Callable[[T], bytes]` | Serialises a value to bytes |
+| `loads` | `Callable[[bytes], T]` | Deserialises bytes back to a value |
+
+The bytes are the snapshot file's contents, stored as they are: a text format
+stays readable and diffable. Write text with `"\n"` line endings rather than the
+platform's, so a snapshot's bytes are the same on every machine.
+
+Snapshots are handled whole: the value and its serialised bytes must fit in
+memory together.
+
+### Libraries that only read and write files
+
+If a library can't serialise to bytes, wrap its file functions with
+`recorder_from_files`:
+
+```python
+from pathlib import Path
+from ditto.recorders import recorder_from_files
+
+
+def _save(data: MyType, path: Path) -> None: ...
+
+
+def _load(path: Path) -> MyType: ...
+
+
+my_recorder = recorder_from_files(save=_save, load=_load, suffix=".myformat")
+```
+
+Each call writes or reads a temporary file named `snapshot<suffix>` in its own
+temporary directory, which is removed afterwards even if the call fails. The
+suffix only names that temporary file; the snapshot's filename still comes
+from the recorder's registered name. Only single-file formats work, and a value
+returned by `_load` must not depend on the file after `_load` returns, so lazy
+or memory-mapped readers are unsuitable. Prefer an in-memory API where the
+library has one: it avoids the file I/O.
 
 ## Registration via Entry Points
 
@@ -118,20 +151,13 @@ registered. It never replaces an installed recorder.
 ## Example: MessagePack Recorder
 
 ```python
-from pathlib import Path
 import msgpack
 from ditto.recorders import Recorder
 
 
-def _save_msgpack(data: dict, filepath: Path) -> None:
-    filepath.write_bytes(msgpack.packb(data))
-
-
-def _load_msgpack(filepath: Path) -> dict:
-    return msgpack.unpackb(filepath.read_bytes())
-
-
-msgpack_recorder: Recorder[dict] = Recorder(save=_save_msgpack, load=_load_msgpack)
+msgpack_recorder: Recorder[dict] = Recorder(
+    dumps=msgpack.packb, loads=msgpack.unpackb
+)
 ```
 
 Register it:

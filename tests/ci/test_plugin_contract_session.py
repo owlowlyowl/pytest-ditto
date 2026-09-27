@@ -87,7 +87,7 @@ def unused_clashing_plugin(make_distribution, monkeypatch: pytest.MonkeyPatch):
         "import pathlib\n"
         "pathlib.Path(__file__).with_name('imported').touch()\n"
         "from ditto.recorders import Recorder\n"
-        "recorder = Recorder(save=print, load=print)\n"
+        "recorder = Recorder(dumps=bytes, loads=bytes)\n"
     )
     monkeypatch.setenv(
         "PYTHONPATH",

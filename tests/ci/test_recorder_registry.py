@@ -119,7 +119,7 @@ def test_shallow_copy_preserves_cached_recorders_and_loads_independently() -> No
 def _install_fake_plugin(root: Path) -> None:
     (root / "fakeplug_mod.py").write_text(
         "from ditto.recorders import Recorder\n"
-        "recorder = Recorder(save=print, load=print)\n"
+        "recorder = Recorder(dumps=bytes, loads=bytes)\n"
     )
     dist_info = root / "fakeplug-0.1.dist-info"
     dist_info.mkdir()
@@ -167,7 +167,7 @@ def test_only_first_use_imports_an_installed_recorder_plugin(
 
 
 NOT_A_RECORDER = object()
-OTHER_RECORDER = Recorder(save=print, load=print)
+OTHER_RECORDER = Recorder(dumps=bytes, loads=bytes)
 
 
 def test_problems_are_complete_before_any_recorder_loads(make_distribution) -> None:
@@ -367,3 +367,39 @@ def test_registering_in_a_copy_leaves_the_original_unchanged() -> None:
     assert "fmt" in copied
     assert "fmt" not in registry
     registry.register("fmt", OTHER_RECORDER)
+
+
+def test_a_path_based_plugin_fails_with_a_rebuild_hint(
+    make_distribution, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plugin still building `Recorder(save=..., load=...)` says how to migrate."""
+    (ep,) = make_distribution(
+        "plug-old", "2.0.0b1", {"ditto_recorders": {"old": "oldplug_mod:recorder"}}
+    )
+    root = ep.dist.locate_file("")
+    (root / "oldplug_mod.py").write_text(
+        "from ditto.recorders import Recorder\n"
+        "recorder = Recorder(save=print, load=print)\n"
+    )
+    monkeypatch.syspath_prepend(str(root))
+    registry = RecorderRegistry([ep], [])
+
+    with pytest.raises(DittoRecorderLoadError) as caught:
+        registry["old"]
+
+    message = str(caught.value)
+    assert "'old' from plug-old 2.0.0b1" in message
+    assert "Recorder(dumps=..., loads=...)" in message
+    assert "recorder_from_files" in message
+
+
+def test_other_type_errors_get_no_rebuild_hint(make_distribution) -> None:
+    eps = make_distribution(
+        "plug", "1.0", {"ditto_recorders": {"odd": f"{__name__}:NOT_A_RECORDER"}}
+    )
+    registry = RecorderRegistry(eps, [])
+
+    with pytest.raises(DittoRecorderLoadError) as caught:
+        registry["odd"]
+
+    assert "recorder_from_files" not in str(caught.value)

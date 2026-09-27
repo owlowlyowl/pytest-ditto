@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -41,12 +38,9 @@ _yaml_recorder = recorders.get("yaml")
 
 @given(_text_serialisable_values)
 def test_json_recorder_roundtrip_preserves_value(data) -> None:
-    """The JSON recorder round-trips any JSON-compatible value through save and load
-    without loss."""
-    with tempfile.TemporaryDirectory() as tmp:
-        filepath = Path(tmp) / "snapshot.json"
-        _json_recorder.save(data, filepath)
-        actual = _json_recorder.load(filepath)
+    """The JSON recorder round-trips any JSON-compatible value through
+    dumps and loads without loss."""
+    actual = _json_recorder.loads(_json_recorder.dumps(data))
 
     assert actual == data
 
@@ -56,11 +50,8 @@ def test_json_recorder_roundtrip_preserves_value(data) -> None:
 
 @given(_text_serialisable_values)
 def test_yaml_recorder_roundtrip_preserves_value(data) -> None:
-    """The YAML recorder round-trips any YAML-compatible value through save and load
-    without loss."""
-    with tempfile.TemporaryDirectory() as tmp:
-        filepath = Path(tmp) / "snapshot.yaml"
-        _yaml_recorder.save(data, filepath)
-        actual = _yaml_recorder.load(filepath)
+    """The YAML recorder round-trips any YAML-compatible value through
+    dumps and loads without loss."""
+    actual = _yaml_recorder.loads(_yaml_recorder.dumps(data))
 
     assert actual == data

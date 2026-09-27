@@ -1,5 +1,7 @@
 """The pyarrow recorders, as registered through the 2.0 plugin contract."""
 
+from pathlib import Path
+
 import pyarrow as pa
 import pytest
 
@@ -52,13 +54,35 @@ def test_parquet_mark_selects_the_parquet_recorder(snapshot) -> None:
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_round_trips_a_table(tmp_path, name: str) -> None:
+def test_round_trips_a_table(name: str) -> None:
     """Each recorder loads back exactly the table it saved."""
     table = _make_table()
     recorder = recorders.get(name)
-    filepath = tmp_path / f"table.{name}"
-
-    recorder.save(table, filepath)
-    actual = recorder.load(filepath)
+    actual = recorder.loads(recorder.dumps(table))
 
     assert actual.equals(table)
+
+
+# ── Committed snapshots ───────────────────────────────────────────────────────
+
+SNAPSHOTS = Path(__file__).parent / ".ditto"
+
+
+def _recorder_name(path: Path) -> str:
+    """The recorder name that ends a snapshot filename, e.g. `pyarrow.csv`."""
+    return path.name.rpartition("@")[2].partition(".")[2]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in sorted(SNAPSHOTS.iterdir()) if _recorder_name(p) in {"pyarrow.csv"}],
+    ids=lambda p: p.name,
+)
+def test_rewriting_a_committed_text_snapshot_reproduces_its_bytes(path: Path) -> None:
+    """Loading a committed snapshot and dumping it again gives the same bytes."""
+    recorder = recorders.get(_recorder_name(path))
+    raw = path.read_bytes()
+
+    actual = recorder.dumps(recorder.loads(raw))
+
+    assert actual == raw

@@ -1,8 +1,9 @@
 # Recorders
 
 Recorders determine how snapshot data is serialised and persisted. Each
-recorder is a pair of `save` and `load` functions. The name a recorder is
-registered under is its persisted identifier, used as the snapshot file suffix.
+recorder is a pair of `dumps` and `loads` functions, which convert between a
+value and the snapshot file's bytes. The name a recorder is registered under is
+its persisted identifier, used as the snapshot file suffix.
 
 ## Built-in Recorders
 
