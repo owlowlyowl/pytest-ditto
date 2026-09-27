@@ -12,6 +12,7 @@ For optional recorder plugins:
 
 ```bash
 pip install pytest-ditto[pandas]    # pandas DataFrame recorders
+pip install pytest-ditto[polars]    # polars DataFrame recorders
 pip install pytest-ditto[pyarrow]   # PyArrow Table recorders
 ```
 

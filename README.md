@@ -44,6 +44,7 @@ First run records the result. Subsequent runs assert it hasn't changed.
 | no mark / `@ditto.json` | strict JSON (default) | `.json` |
 | `@ditto.yaml` | YAML | `.yaml` |
 | `@ditto.pandas.parquet` | pandas DataFrame | `.pandas.parquet` |
+| `@ditto.polars.parquet` | polars DataFrame | `.polars.parquet` |
 | `@ditto.pyarrow.parquet` | PyArrow Table | `.pyarrow.parquet` |
 
 Strict JSON accepts only exact built-in `None`, `bool`, `int`, finite `float`,
