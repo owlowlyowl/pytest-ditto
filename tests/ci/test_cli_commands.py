@@ -12,9 +12,11 @@ from click.testing import CliRunner
 
 from ditto._lockfile import LOCKFILE_VERSION
 from ditto._manifest import BackendManifest, ManifestEntry
+from ditto.backends import BackendRegistry
 from ditto.recorders import RecorderRegistry
 from ditto.cli import (
     RecorderInfo,
+    _backend_checks,
     _doctor_checks,
     _recorder_checks,
     _ext_map,
@@ -469,3 +471,52 @@ def test_list_hints_when_no_lockfile(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "no ditto.lock found" in result.output
+
+
+# ── _doctor_checks: backends ──────────────────────────────────────────────────
+
+
+def test_returns_failing_check_with_error_detail_when_backend_load_raises(
+    make_distribution,
+) -> None:
+    """A backend whose entry point fails to load gets a failing check with the
+    error."""
+    eps = make_distribution(
+        "plug", "1.0", {"ditto_backends": {"broken": "ditto_no_such_module:x"}}
+    )
+
+    checks = _backend_checks(BackendRegistry(eps))
+
+    (check,) = checks
+    assert (check.name, check.ok) == ("backend: broken", False)
+    assert "plug 1.0" in check.detail
+    assert "ditto_no_such_module" in check.detail
+
+
+def test_returns_one_passing_result_per_loadable_backend(make_distribution) -> None:
+    """Each backend that loads produces exactly one passing check."""
+    factory = "ditto.backends:FsspecMapping"
+    eps = make_distribution(
+        "plug", "1.0", {"ditto_backends": {"alpha": factory, "beta": factory}}
+    )
+
+    checks = _backend_checks(BackendRegistry(eps))
+
+    actual = [(c.name, c.ok) for c in checks]
+    expected = [("backend: alpha", True), ("backend: beta", True)]
+    assert actual == expected
+
+
+def test_reports_a_backend_contract_problem_once_instead_of_per_scheme(
+    make_distribution,
+) -> None:
+    """A duplicated scheme fails one contract check, naming both distributions."""
+    factory = "ditto.backends:FsspecMapping"
+    first = make_distribution("plug-a", "1.0", {"ditto_backends": {"demo": factory}})
+    second = make_distribution("plug-b", "2.0", {"ditto_backends": {"demo": factory}})
+
+    checks = _backend_checks(BackendRegistry([*first, *second]))
+
+    (check,) = checks
+    assert (check.name, check.ok) == ("backend contract", False)
+    assert "plug-a 1.0, plug-b 2.0" in check.detail

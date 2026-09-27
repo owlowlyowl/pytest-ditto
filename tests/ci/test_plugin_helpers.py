@@ -1,16 +1,19 @@
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from unittest.mock import Mock
 
 import fsspec.core
 import pytest
 
-from ditto.backends import BACKEND_REGISTRY
+from ditto.backends import BACKEND_REGISTRY, BackendRegistry
 from ditto import recorders
 from ditto.exceptions import (
     AdditionalMarkError,
     DittoAmbiguousTargetError,
+    DittoBackendConflictError,
+    DittoBackendLoadError,
     DittoDuplicateProfileError,
     DittoInvalidProfileError,
     DittoMarkHasNoIOType,
@@ -283,6 +286,37 @@ def test_resolve_uri_raises_for_unknown_scheme(tmp_path, state: DittoSession) ->
     """Unknown schemes raise a ValueError with an install hint."""
     with pytest.raises(ValueError, match="Unknown backend scheme"):
         resolve_uri("notascheme://target", tmp_path, {}, state)
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        ("_ditto_missing_test_backend:factory", DittoBackendLoadError),
+        (None, DittoBackendConflictError),
+    ],
+    ids=["fails-to-load", "registered-twice"],
+)
+def test_resolve_uri_never_falls_back_to_fsspec_for_a_registered_scheme(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    state: DittoSession,
+    value: str | None,
+    error: type[Exception],
+) -> None:
+    """A registered `memory` backend that can't be used raises, not fsspec."""
+    if value is None:
+        entry_points = [
+            EntryPoint("memory", "ditto.backends:FsspecMapping", "ditto_backends"),
+            EntryPoint("memory", "ditto.backends:FsspecMapping", "ditto_backends"),
+        ]
+    else:
+        entry_points = [EntryPoint("memory", value, "ditto_backends")]
+    monkeypatch.setattr(
+        "ditto.plugin._targets.BACKEND_REGISTRY", BackendRegistry(entry_points)
+    )
+
+    with pytest.raises(error):
+        resolve_uri("memory://snapshots", tmp_path, {}, state)
 
 
 def test_resolve_uri_forwards_storage_options_to_fsspec(

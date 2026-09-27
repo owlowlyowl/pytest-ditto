@@ -28,6 +28,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
@@ -55,9 +56,12 @@ from ._theme import (
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
 from ._inventory import InventoryError, build_inventory, lock_present
-from .exceptions import DittoRecorderConflictError
+from .exceptions import DittoBackendConflictError, DittoRecorderConflictError
 from .recorders._contract import NAME_PATTERN
 from .recorders._plugins import RecorderRegistry
+
+if TYPE_CHECKING:
+    from .backends import BackendRegistry
 
 console = Console()
 
@@ -722,6 +726,10 @@ def _doctor_checks() -> list[CheckResult]:
 
     results.append(_plugin_check())
     results.extend(_recorder_checks(RecorderRegistry()))
+    # Imported here: `ditto.backends` imports fsspec, which other commands skip.
+    from .backends import BackendRegistry
+
+    results.extend(_backend_checks(BackendRegistry()))
     return results
 
 
@@ -746,6 +754,30 @@ def _recorder_checks(registry: RecorderRegistry) -> list[CheckResult]:
             )
         else:
             results.append(CheckResult(name=f"recorder: {name}", ok=True, detail=""))
+    return results
+
+
+def _backend_checks(registry: BackendRegistry) -> list[CheckResult]:
+    """Check each backend loads and the registrations keep the plugin contract.
+
+    A contract problem gets one failing row; the schemes it affects are not
+    listed again.
+    """
+    results = [
+        CheckResult(name="backend contract", ok=False, detail=problem.message)
+        for problem in registry.problems
+    ]
+    for scheme in registry:
+        try:
+            registry[scheme]
+        except DittoBackendConflictError:
+            continue
+        except Exception as exc:
+            results.append(
+                CheckResult(name=f"backend: {scheme}", ok=False, detail=str(exc))
+            )
+        else:
+            results.append(CheckResult(name=f"backend: {scheme}", ok=True, detail=""))
     return results
 
 

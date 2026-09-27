@@ -48,6 +48,44 @@ import ditto
 def test_something(snapshot): ...
 ```
 
+The entry-point name is the URI scheme: a lowercase letter followed by
+lowercase letters, digits, `+`, `-` or `.`. `file` is handled by ditto itself,
+so a `file` registration is never used.
+
+### Loading and conflicts
+
+ditto reads scheme names from package metadata and imports a backend's factory
+only when a target first uses its scheme. An installed backend therefore costs
+nothing in runs that don't use it, and a backend that fails to import only
+affects the tests that target it: they fail with `DittoBackendLoadError`, which
+names the scheme, the distribution and the original exception.
+
+If two installed distributions register the same scheme, ditto doesn't pick
+one: targets using that scheme fail with `DittoBackendConflictError`, naming
+both distributions. A scheme that fails to load or conflicts never falls back
+to an fsspec protocol of the same name.
+
+`ditto doctor` imports every registered backend and reports load failures and
+conflicts without running any tests.
+
+### Registering in code
+
+`ditto.backends.BACKEND_REGISTRY` is a mutable mapping. Setting a scheme, for
+example from a `conftest.py`, overrides any installed factory for it and
+resolves a conflict; deleting it restores the installed factory:
+
+```python
+import pytest
+from ditto.backends import BACKEND_REGISTRY
+
+
+@pytest.fixture(scope="session", autouse=True)
+def my_backend():
+    BACKEND_REGISTRY["myscheme"] = create_my_backend
+    yield
+    del BACKEND_REGISTRY["myscheme"]
+```
+
 ## Context Manager Support
 
 If your backend needs setup/teardown (connection pools, transactions), return

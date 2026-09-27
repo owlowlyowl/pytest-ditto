@@ -6,6 +6,8 @@ __all__ = (
     "DittoUnknownRecorderError",
     "DittoRecorderLoadError",
     "DittoRecorderConflictError",
+    "DittoBackendLoadError",
+    "DittoBackendConflictError",
     "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
     "DittoAmbiguousTargetError",
@@ -75,6 +77,24 @@ class DittoRecorderConflictError(DittoException):
     Raised when a conflicted recorder is looked up, and when `register` is
     given a name that would conflict. The message describes the conflict and
     names the distributions involved.
+    """
+
+
+class DittoBackendLoadError(DittoException):
+    """Raised when an installed backend's entry point fails to load."""
+
+    def __init__(self, scheme: str, distribution: str, cause: BaseException) -> None:
+        super().__init__(
+            f"ditto backend {scheme!r} from {distribution} failed to load: "
+            f"{type(cause).__name__}: {cause}"
+        )
+
+
+class DittoBackendConflictError(DittoException):
+    """Raised when a backend registration breaks the plugin contract.
+
+    Raised when a conflicted scheme is looked up. The message describes the
+    conflict and names the distributions involved.
     """
 
 

@@ -1,7 +1,14 @@
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+
+from .._entry_points import (
+    ContractProblem,
+    Distribution,
+    Registration,
+    distributions_by_name,
+    join_distributions as _join,
+)
 
 
 __all__ = (
@@ -34,57 +41,6 @@ RESERVED_NAMES = frozenset({
 })
 
 
-@dataclass(frozen=True)
-class Distribution:
-    """An installed distribution, as named in contract messages.
-
-    Attributes
-    ----------
-    name : str
-        The distribution's name, e.g. `"pytest-ditto-pandas"`.
-    version : str
-        Its version, or `""` when unknown.
-    """
-
-    name: str
-    version: str
-
-    def __str__(self) -> str:
-        return f"{self.name} {self.version}" if self.version else self.name
-
-
-@dataclass(frozen=True)
-class Registration:
-    """One `ditto_recorders` entry point, as read from package metadata.
-
-    Attributes
-    ----------
-    name : str
-        The entry-point name, which is the recorder's user-facing name.
-    distribution : Distribution
-        The distribution that registers it.
-    """
-
-    name: str
-    distribution: Distribution
-
-
-@dataclass(frozen=True)
-class ContractProblem:
-    """A breach of the plugin contract.
-
-    Attributes
-    ----------
-    names : frozenset[str]
-        The recorder names the problem makes unusable.
-    message : str
-        What is wrong, naming the distributions involved.
-    """
-
-    names: frozenset[str]
-    message: str
-
-
 # Registering distributions keyed by recorder name.
 _ByName = Mapping[str, Sequence[Distribution]]
 
@@ -97,7 +53,7 @@ def find_name_problems(registrations: Iterable[Registration]) -> list[ContractPr
     problems are listed in name order, so the result does not depend on the
     order in which the registrations were found.
     """
-    by_name = dict(sorted(_distributions_by_name(registrations).items()))
+    by_name = dict(sorted(distributions_by_name(registrations).items()))
     valid = {n: d for n, d in by_name.items() if NAME_PATTERN.fullmatch(n)}
     invalid = {n: d for n, d in by_name.items() if n not in valid}
     return [
@@ -130,15 +86,6 @@ def upgrade_message(distribution: Distribution) -> str:
         f"{distribution} uses the 1.x plugin contract; install "
         f"{distribution.name}>=2.0."
     )
-
-
-def _distributions_by_name(
-    registrations: Iterable[Registration],
-) -> dict[str, list[Distribution]]:
-    by_name: dict[str, list[Distribution]] = defaultdict(list)
-    for registration in registrations:
-        by_name[registration.name].append(registration.distribution)
-    return by_name
 
 
 def _invalid_names(by_name: _ByName) -> list[ContractProblem]:
@@ -204,7 +151,3 @@ def _ambiguous_namespaces(by_name: _ByName) -> list[ContractProblem]:
 
 def _namespace(name: str) -> str:
     return name.partition(".")[0]
-
-
-def _join(distributions: Iterable[Distribution]) -> str:
-    return ", ".join(sorted({str(d) for d in distributions}))
