@@ -153,14 +153,36 @@ docs/
 
 ## Building
 
-Build the sdist and wheel:
+Build the sdist and wheel of core and every plugin, then verify them:
 
 ```bash
-pixi run -e build build
+pixi run -e build build              # emptied first; one directory per package
+pixi run -e build verify-artifacts   # add --version X.Y.Z to require a version
 ```
 
-Output goes to `dist/`. The package uses [hatch](https://hatch.pypa.io/) with
-[hatch-vcs](https://github.com/ofek/hatch-vcs) for version management from git tags.
+Output goes to `dist/<distribution>/`, e.g. `dist/pytest-ditto/` and
+`dist/pytest-ditto-pandas/`. Every package is versioned from the same git tag by
+`version_builder.py`, through [hatch](https://hatch.pypa.io/).
+
+`verify-artifacts` checks every package's wheel and sdist, and a wheel rebuilt
+from the sdist, then installs each one in a clean venv. For core, it checks the
+package boundary and a snapshot round trip. For each plugin, it checks the
+generated `pytest-ditto>=<version>,<3` requirement, that every recorder and its
+mark load, that `import ditto` doesn't import the plugin, and `ditto doctor`.
+
+## Releasing
+
+Publishing a GitHub release runs `.github/workflows/release.yml`. One tag
+releases core and every plugin at the same version:
+
+1. **Artifacts**: build and verify every package, requiring the tag's version.
+2. **Test**: the core suite and each plugin's suite.
+3. **Publish** exactly the verified files, core first, then the plugins, with
+   `skip-existing`, so a partly published release can be re-run.
+
+The *Pre-release Testing* workflow (run manually) does steps 1 and 2 without
+publishing, and CI's *Release artifacts* job does step 1 on every PR. All three
+share `.github/workflows/release-artifacts.yml`.
 
 ## Examples
 

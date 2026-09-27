@@ -1,0 +1,51 @@
+name: Release artifacts
+
+# Builds and verifies the sdist and wheel of core and every plugin, and uploads
+# them as the `dist` artifact: one directory per package, dist/<distribution>/.
+# Called by CI, the pre-release test and the release, so all three build the same
+# way.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Fail unless every package is at this version, e.g. the release tag.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    steps:
+      # Full history and tags: every package's version comes from `git describe`.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: build
+
+      - name: Build every package
+        run: pixi run -e build build
+
+      - name: Verify the artifacts
+        env:
+          VERSION: ${{ inputs.version }}
+        run: pixi run -e build verify-artifacts ${VERSION:+--version "$VERSION"}
+
+      - name: Upload the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

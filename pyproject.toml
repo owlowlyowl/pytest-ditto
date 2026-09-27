@@ -224,9 +224,12 @@ verify = "ditto verify tests/ci/test_usage_examples.py"
 
 [tool.pixi.feature.build.dependencies]
 uv = ">=0.5"
+# verify_release_artifacts.py compares versions and requirements with it.
+packaging = ">=24"
 
 [tool.pixi.feature.build.tasks]
-build = "uv build --sdist && uv build --wheel"
+# Core and every plugin, one directory each: dist/<distribution name>/.
+build = "python scripts/build_release_artifacts.py dist"
 verify-artifacts = "python scripts/verify_release_artifacts.py dist"
 
 # First-party plugins are installed from plugins/<name> as editable path

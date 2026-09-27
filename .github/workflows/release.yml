@@ -1,5 +1,8 @@
 name: Publish to PyPI
 
+# One tag releases core and every plugin at the same version. The artifacts are
+# built and verified once, and exactly those files are published.
+
 on:
   release:
     types: [published]
@@ -8,29 +11,70 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      id-token: write
+  artifacts:
+    name: Artifacts
+    uses: ./.github/workflows/release-artifacts.yml
+    with:
+      version: ${{ github.event.release.tag_name }}
 
+  test:
+    name: Test (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { environment: py312, task: test }
+          - { environment: pandas-py312, task: verify-pandas }
+          - { environment: pickle-py312, task: verify-pickle }
+          - { environment: pyarrow-py312, task: verify-pyarrow }
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@v0.9.4
         with:
           pixi-version: v0.81.0
           cache: true
+          environments: ${{ matrix.environment }}
 
-      - name: Build package
-        run: pixi run -e build build
+      - name: Run ${{ matrix.task }}
+        run: pixi run -e ${{ matrix.environment }} ${{ matrix.task }}
 
-      - name: Verify exact release artifacts
-        run: pixi run -e build verify-artifacts
+  publish:
+    name: Publish
+    needs: [artifacts, test]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
-      - name: Test package
-        run: pixi run -e py312 test
-
-      - name: Publish package distributions to PyPI
+      # Plugins require this core version, so core goes first. Uploads aren't atomic
+      # across projects; skip-existing makes a partly published release safe to
+      # re-run.
+      - name: Publish pytest-ditto
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/pytest-ditto/
+          skip-existing: true
+
+      - name: Collect the plugins
+        run: |
+          mkdir plugins-dist
+          mv dist/pytest-ditto-*/* plugins-dist/
+          ls plugins-dist
+
+      - name: Publish the plugins
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: plugins-dist/
+          skip-existing: true

@@ -188,23 +188,7 @@ jobs:
         run: pixi run -e py312 test-cov
 
   artifacts:
-    name: Release artifact boundary
-    runs-on: ubuntu-latest
+    name: Release artifacts
     permissions:
       contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
-        with:
-          pixi-version: v0.81.0
-          cache: true
-          environments: build
-
-      - name: Build sdist and wheel
-        run: pixi run -e build build
-
-      - name: Verify exact release artifacts
-        run: pixi run -e build verify-artifacts
+    uses: ./.github/workflows/release-artifacts.yml
