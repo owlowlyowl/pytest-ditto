@@ -177,6 +177,6 @@ def _register_postgres_backend() -> Iterator[None]:
     psycopg2_module = _load_psycopg2()
     _probe_postgres(psycopg2_module)
 
-    BACKEND_REGISTRY["postgresql"] = _make_postgres_backend(psycopg2_module)
+    BACKEND_REGISTRY.overrides["postgresql"] = _make_postgres_backend(psycopg2_module)
     yield
-    BACKEND_REGISTRY.pop("postgresql", None)
+    BACKEND_REGISTRY.overrides.pop("postgresql", None)

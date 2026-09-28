@@ -225,78 +225,146 @@ def test_problems_do_not_depend_on_discovery_order() -> None:
     assert forward == backward
 
 
-# ── Setting and deleting schemes ───────────────────────────────────────────────
+# ── Overrides ──────────────────────────────────────────────────────────────────
 
 
-def test_setting_a_scheme_overrides_the_discovered_factory() -> None:
+def test_an_override_takes_precedence_over_the_discovered_factory() -> None:
     ep = _ep("demo", load_return=dict_factory)
     registry = BackendRegistry([ep])
 
-    registry["demo"] = other_factory
+    registry.overrides["demo"] = other_factory
 
     assert registry["demo"] is other_factory
     assert list(registry) == ["demo"]
     ep.load.assert_not_called()
 
 
-def test_setting_a_conflicted_scheme_resolves_the_conflict(make_distribution) -> None:
+def test_an_override_resolves_a_conflict(make_distribution) -> None:
     first = make_distribution("plug-a", "1.0", {"ditto_backends": {"demo": _FACTORY}})
     second = make_distribution("plug-b", "2.0", {"ditto_backends": {"demo": _FACTORY}})
     registry = BackendRegistry([*first, *second])
 
-    registry["demo"] = other_factory
+    registry.overrides["demo"] = other_factory
 
     assert registry["demo"] is other_factory
 
 
-def test_deleting_an_override_restores_the_discovered_factory() -> None:
+def test_deleting_an_override_reveals_the_discovered_factory() -> None:
     registry = BackendRegistry([_ep("demo", load_return=dict_factory)])
-    registry["demo"] = other_factory
+    registry.overrides["demo"] = other_factory
 
-    del registry["demo"]
+    del registry.overrides["demo"]
 
     assert registry["demo"] is dict_factory
 
 
-def test_a_discovered_factory_cannot_be_deleted() -> None:
-    registry = BackendRegistry([_ep("demo", load_return=dict_factory)])
+def test_overrides_contain_only_schemes_set_on_them() -> None:
+    ep = _ep("demo", load_return=dict_factory)
+    registry = BackendRegistry([ep])
 
+    assert "demo" not in registry.overrides
+    assert registry.overrides.pop("demo", None) is None
     with pytest.raises(KeyError):
-        del registry["demo"]
+        del registry.overrides["demo"]
+    ep.load.assert_not_called()
 
 
-def test_schemes_set_only_on_the_registry_follow_discovered_ones() -> None:
+def test_clearing_overrides_keeps_discovered_schemes() -> None:
+    ep = _ep("demo", load_side_effect=ImportError("missing lib"))
+    registry = BackendRegistry([ep])
+    registry.overrides["demo"] = other_factory
+    registry.overrides["local"] = other_factory
+
+    registry.overrides.clear()
+
+    assert len(registry.overrides) == 0
+    assert list(registry) == ["demo"]
+    ep.load.assert_not_called()
+
+
+def test_schemes_set_only_as_overrides_follow_discovered_ones() -> None:
     registry = BackendRegistry([_ep("demo", load_return=dict_factory)])
 
-    registry["extra"] = other_factory
-    registry["demo"] = other_factory
+    registry.overrides["extra"] = other_factory
+    registry.overrides["demo"] = other_factory
 
     assert list(registry) == ["demo", "extra"]
     assert len(registry) == 2
+
+
+def test_registry_is_read_only() -> None:
+    registry = BackendRegistry([_ep("demo", load_return=dict_factory)])
+
+    with pytest.raises(TypeError, match=r"BACKEND_REGISTRY.overrides\['demo'\]"):
+        registry["demo"] = other_factory  # type: ignore[index]
+    with pytest.raises(TypeError, match="overrides"):
+        del registry["demo"]  # type: ignore[attr-defined]
+
+    assert len(registry.overrides) == 0
 
 
 def test_monkeypatch_setitem_adds_and_removes_a_scheme() -> None:
     registry = BackendRegistry([])
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setitem(registry, "demo", dict_factory)
+        mp.setitem(registry.overrides, "demo", dict_factory)
         assert registry["demo"] is dict_factory
 
     assert "demo" not in registry
 
 
-def test_setting_a_value_that_is_not_callable_is_rejected() -> None:
+def test_monkeypatch_setitem_restores_the_discovered_factory() -> None:
+    ep = _ep("demo", load_return=dict_factory)
+    registry = BackendRegistry([ep])
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(registry.overrides, "demo", other_factory)
+        assert registry["demo"] is other_factory
+
+    assert "demo" not in registry.overrides
+    assert registry["demo"] is dict_factory
+
+
+def test_monkeypatch_setitem_replaces_a_backend_that_fails_to_load() -> None:
+    ep = _ep("demo", load_side_effect=ImportError("missing lib"))
+    registry = BackendRegistry([ep])
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(registry.overrides, "demo", other_factory)
+        assert registry["demo"] is other_factory
+
+    ep.load.assert_not_called()
+    with pytest.raises(DittoBackendLoadError):
+        registry["demo"]
+
+
+def test_monkeypatch_setitem_replaces_a_conflicting_backend(make_distribution) -> None:
+    first = make_distribution("plug-a", "1.0", {"ditto_backends": {"demo": _FACTORY}})
+    second = make_distribution("plug-b", "2.0", {"ditto_backends": {"demo": _FACTORY}})
+    registry = BackendRegistry([*first, *second])
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setitem(registry.overrides, "demo", other_factory)
+        assert registry["demo"] is other_factory
+
+    with pytest.raises(DittoBackendConflictError):
+        registry["demo"]
+
+
+def test_overriding_with_a_value_that_is_not_callable_is_rejected() -> None:
     registry = BackendRegistry([])
 
     with pytest.raises(TypeError, match="not callable"):
-        registry["demo"] = object()  # type: ignore[assignment]
+        registry.overrides["demo"] = object()  # type: ignore[assignment]
 
 
 @pytest.mark.parametrize("scheme", ["Redis", "file"])
-def test_setting_a_scheme_no_target_can_reach_is_rejected(scheme: str) -> None:
+def test_overriding_a_scheme_no_target_can_reach_is_rejected(scheme: str) -> None:
     registry = BackendRegistry([])
 
-    with pytest.raises(DittoBackendConflictError, match="from BACKEND_REGISTRY"):
-        registry[scheme] = dict_factory
+    with pytest.raises(
+        DittoBackendConflictError, match=r"from BACKEND_REGISTRY\.overrides"
+    ):
+        registry.overrides[scheme] = dict_factory
 
     assert scheme not in registry

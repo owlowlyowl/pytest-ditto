@@ -70,9 +70,11 @@ conflicts without running any tests.
 
 ### Registering in code
 
-`ditto.backends.BACKEND_REGISTRY` is a mutable mapping. Setting a scheme, for
-example from a `conftest.py`, overrides any installed factory for it and
-resolves a conflict; deleting it restores the installed factory:
+`ditto.backends.BACKEND_REGISTRY` is a read-only mapping from scheme to
+factory. To handle a scheme in code, for example from a `conftest.py`, set it on
+`BACKEND_REGISTRY.overrides`, which behaves like a `dict`. An override takes
+precedence over any installed factory for the scheme, including one that fails
+to load or conflicts; removing the override reveals the installed factory again:
 
 ```python
 import pytest
@@ -81,10 +83,15 @@ from ditto.backends import BACKEND_REGISTRY
 
 @pytest.fixture(scope="session", autouse=True)
 def my_backend():
-    BACKEND_REGISTRY["myscheme"] = create_my_backend
+    BACKEND_REGISTRY.overrides["myscheme"] = create_my_backend
     yield
-    del BACKEND_REGISTRY["myscheme"]
+    del BACKEND_REGISTRY.overrides["myscheme"]
 ```
+
+In a single test, `monkeypatch.setitem(BACKEND_REGISTRY.overrides, "myscheme",
+create_my_backend)` does the same and undoes it afterwards. ditto builds a
+target's backend once per session and reuses it, so an override only affects
+targets that no earlier test in the session has used.
 
 ## Context Manager Support
 

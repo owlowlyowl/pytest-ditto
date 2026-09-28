@@ -226,7 +226,7 @@ def test_resolve_uri_caches_registered_backend_by_uri_and_options(
         calls.append((uri, opts))
         return {}
 
-    monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", factory)
 
     first_backend, first_uri = resolve_uri(
         "demo://shared", tmp_path, {"token": "abc"}, state
@@ -250,7 +250,7 @@ def test_resolve_uri_separates_cache_entries_when_options_differ(
         calls.append((uri, opts))
         return {}
 
-    monkeypatch.setitem(BACKEND_REGISTRY, "demo", factory)
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", factory)
 
     first_backend, _ = resolve_uri("demo://shared", tmp_path, {"token": "a"}, state)
     second_backend, _ = resolve_uri("demo://shared", tmp_path, {"token": "b"}, state)
@@ -272,7 +272,7 @@ def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
         constructed.append(backend)
         return backend
 
-    monkeypatch.setitem(BACKEND_REGISTRY, "ctx", factory)
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "ctx", factory)
 
     first_backend, _ = resolve_uri("ctx://shared", tmp_path, {}, state)
     second_backend, _ = resolve_uri("ctx://shared", tmp_path, {}, state)

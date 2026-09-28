@@ -81,9 +81,9 @@ def _register_redis_backend(_redis_client: fakeredis.FakeRedis):
     def create_redis_backend(uri: str, **kwargs) -> PrefixedMapping:
         return PrefixedMapping(RedisMapping(_redis_client), prefix="ditto:")
 
-    BACKEND_REGISTRY["redis"] = create_redis_backend
+    BACKEND_REGISTRY.overrides["redis"] = create_redis_backend
     yield
-    BACKEND_REGISTRY.pop("redis", None)
+    BACKEND_REGISTRY.overrides.pop("redis", None)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ def test_dry_run_reports_orphan_redis_key_absent_from_lock(pytester) -> None:
         def create_redis_backend(uri: str, **kwargs):
             return PrefixedMapping(RedisMapping(_shared_client), prefix="ditto:")
 
-        BACKEND_REGISTRY["redis"] = create_redis_backend
+        BACKEND_REGISTRY.overrides["redis"] = create_redis_backend
     """)
     pytester.makepyfile(
         test_write="""

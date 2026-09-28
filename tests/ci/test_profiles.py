@@ -109,7 +109,7 @@ def test_profile_storage_options_are_not_merged_with_ditto_storage_options(
             def __iter__(self): return iter(self._d)
             def __len__(self): return len(self._d)
 
-        BACKEND_REGISTRY["capture"] = _CapturingBackend
+        BACKEND_REGISTRY.overrides["capture"] = _CapturingBackend
 
         @pytest.fixture(scope="session")
         def ditto_target_profiles():
@@ -330,7 +330,7 @@ def test_two_profiles_with_same_uri_and_options_share_a_backend(pytester) -> Non
                 _instances.append(self)
                 super().__init__()
 
-        BACKEND_REGISTRY["track"] = _TrackingBackend
+        BACKEND_REGISTRY.overrides["track"] = _TrackingBackend
 
         @pytest.fixture(scope="session")
         def ditto_target_profiles():
@@ -378,7 +378,7 @@ def test_two_profiles_with_same_uri_but_different_options_use_separate_backends(
                 _instances.append(self)
                 super().__init__()
 
-        BACKEND_REGISTRY["track2"] = _TrackingBackend
+        BACKEND_REGISTRY.overrides["track2"] = _TrackingBackend
 
         @pytest.fixture(scope="session")
         def ditto_target_profiles():

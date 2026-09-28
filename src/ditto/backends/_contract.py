@@ -68,7 +68,7 @@ def _duplicated_schemes(by_scheme: _ByScheme) -> list[ContractProblem]:
             f"Backend scheme {scheme!r} is registered more than once, by "
             f"{_join(distributions)}, so which one stores {scheme}:// targets is "
             "undefined. Uninstall all but one, or choose one by setting "
-            f"ditto.backends.BACKEND_REGISTRY[{scheme!r}].",
+            f"ditto.backends.BACKEND_REGISTRY.overrides[{scheme!r}].",
         )
         for scheme, distributions in by_scheme.items()
         if len(distributions) > 1
