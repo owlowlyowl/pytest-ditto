@@ -1,4 +1,3 @@
-from ._transform import TransformMapping
 from ._prefix import PrefixedMapping
 from ._fsspec import FsspecMapping
 from ._plugins import (
@@ -9,7 +8,6 @@ from ._plugins import (
 )
 
 __all__ = (
-    "TransformMapping",
     "PrefixedMapping",
     "FsspecMapping",
     "BACKEND_REGISTRY",

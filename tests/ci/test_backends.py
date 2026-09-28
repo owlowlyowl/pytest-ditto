@@ -1,8 +1,7 @@
-"""Behavioural tests for FsspecMapping, TransformMapping, and PrefixedMapping."""
+"""Behavioural tests for FsspecMapping and PrefixedMapping."""
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Iterator, MutableMapping
 
@@ -10,8 +9,7 @@ import pytest
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.memory import MemoryFileSystem
 
-from ditto.backends import FsspecMapping, PrefixedMapping, TransformMapping
-from ditto.recorders import default as _default_recorder
+from ditto.backends import FsspecMapping, PrefixedMapping
 
 
 def _mem() -> FsspecMapping:
@@ -194,80 +192,6 @@ def test_fsspec_mapping_raises_when_key_resolves_to_root() -> None:
 
     with pytest.raises(ValueError):
         m["."] = b"x"
-
-
-# ---------------------------------------------------------------------------
-# TransformMapping
-# ---------------------------------------------------------------------------
-
-
-def test_transform_mapping_stores_and_retrieves_via_recorder() -> None:
-    """Values written through a recorder transform round-trip correctly."""
-    store = TransformMapping(mapping=_mem()) | TransformMapping(
-        save=_default_recorder().dumps, load=_default_recorder().loads
-    )
-
-    store["key.json"] = {"x": 42}
-
-    actual = store["key.json"]
-    assert actual == {"x": 42}
-
-
-def test_transform_mapping_contains_does_not_deserialise() -> None:
-    """__contains__ resolves without calling __getitem__ or the load callable.
-
-    This is the critical correctness guarantee: a load callable that parses a
-    large file must not run just to check key existence.
-    """
-    load_calls: list[str] = []
-
-    def counting_load(raw: bytes) -> object:
-        load_calls.append("load")
-        return json.loads(raw)
-
-    backend = _mem()
-    backend["k.json"] = b'"value"'
-    store = TransformMapping(
-        mapping=backend,
-        save=lambda value: json.dumps(value).encode(),
-        load=counting_load,
-    )
-
-    _ = "k.json" in store
-
-    assert load_calls == [], "load callable must not be invoked by __contains__"
-
-
-def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
-    """| combines a backend wrapper with a recorder transform into a usable store."""
-    store = TransformMapping(mapping=_mem()) | TransformMapping(
-        save=_default_recorder().dumps, load=_default_recorder().loads
-    )
-
-    store["k.json"] = [1, 2, 3]
-
-    assert store["k.json"] == [1, 2, 3]
-
-
-def test_transform_mapping_missing_key_raises() -> None:
-    """Reading an absent key raises KeyError (propagated from the inner mapping)."""
-    store = TransformMapping(mapping=_mem()) | TransformMapping(
-        save=_default_recorder().dumps, load=_default_recorder().loads
-    )
-
-    with pytest.raises(KeyError):
-        _ = store["missing.json"]
-
-
-def test_transform_mapping_raises_when_both_sides_have_a_mapping() -> None:
-    """Merging two TransformMappings that both carry a backend raises TypeError.
-
-    The | operator is designed to merge a mapping-bearing instance with a
-    save/load-only instance. When both sides have a mapping, one would be
-    silently dropped, so the error is raised explicitly instead.
-    """
-    with pytest.raises(TypeError, match="both carry a backend mapping"):
-        TransformMapping(mapping=_mem()) | TransformMapping(mapping=_mem())
 
 
 # ---------------------------------------------------------------------------
