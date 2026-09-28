@@ -1,51 +1,129 @@
 # Storage Backends
 
-By default, snapshots are stored in a `.ditto/` directory next to each test
-file. The storage target can be overridden at several levels.
+ditto stores each snapshot in a **target**: a location written as a URI, such
+as a local directory, an S3 bucket or a Redis database. By default the target
+is a `.ditto/` directory next to each test file, and most projects never
+change it. This guide explains how to store snapshots somewhere else, for one
+test or for a whole project, and how to pass the credentials that remote
+storage needs.
 
-## Priority Order
+## Targets are URIs
 
-From highest to lowest priority:
+A target URI has two parts. The **scheme**, before the first `:`, says what
+kind of storage it is. The rest says where in that storage the snapshots go:
 
 ```
-mark target= → mark target_profile= → ditto_target ini → ditto_target_profile ini → file://.ditto
+s3://my-bucket/snapshots/
+^^   ^^^^^^^^^^^^^^^^^^^^
+│    └ where: here, a bucket and a prefix within it
+└ scheme
 ```
 
-## Per-test: `target=`
+The scheme picks the **backend**, the code that reads and writes snapshots for
+that kind of storage. ditto chooses the backend in this order:
 
-Specify a URI directly in the mark:
+1. `file` is always the local filesystem.
+2. A scheme with a registered backend uses that backend. Packages register
+   backends for storage such as Redis or PostgreSQL; see
+   [Custom Backends](custom-backends.md) to write one.
+3. Any [fsspec](https://filesystem-spec.readthedocs.io/) protocol, such as
+   `s3`, `gs`, `az` or `memory`, uses fsspec.
+4. Anything else fails the test with `ValueError: Unknown backend scheme`.
+
+Common targets:
+
+| Target | Stores snapshots in | Needs |
+| --- | --- | --- |
+| `file://.ditto` | a `.ditto/` directory next to each test file (the default) | nothing |
+| `file://snapshots/api` | a `snapshots/api/` directory next to each test file | nothing |
+| `file:///var/snapshots` | the absolute directory `/var/snapshots` | nothing |
+| `memory://` | memory, discarded when the test run ends | nothing |
+| `s3://my-bucket/snapshots/` | the `snapshots/` prefix of an S3 bucket | [`s3fs`](https://s3fs.readthedocs.io/) |
+| `gs://my-bucket/snapshots/` | the `snapshots/` prefix of a Google Cloud Storage bucket | [`gcsfs`](https://gcsfs.readthedocs.io/) |
+| `az://my-container/snapshots/` | the `snapshots/` prefix of an Azure Blob Storage container | [`adlfs`](https://github.com/fsspec/adlfs) |
+| `redis://localhost:6379/0` | database 0 of a Redis server | a package that registers a `redis` backend |
+
+### Local files: `file://`
+
+A `file://` target names a directory. Count the slashes:
+
+- **Two slashes, a relative path.** `file://snapshots/api` is resolved against
+  the directory of *each test file*, not the project root. Tests in
+  `tests/api/` and `tests/cli/` store snapshots in `tests/api/snapshots/api/`
+  and `tests/cli/snapshots/api/`.
+- **Three slashes, an absolute path.** `file:///var/snapshots` is the same
+  directory for every test.
+
+The default, `file://.ditto`, is a relative path, which is why each test
+directory gets its own `.ditto/`.
+
+Each snapshot is one file, named after the test module, the test, the
+snapshot key and the recorder:
+
+```
+tests/api/.ditto/tests.api.test_users.test_create@response.json
+```
+
+### fsspec: cloud storage and memory
+
+fsspec itself only understands a few protocols, such as `memory`. Most cloud
+storage needs an extra package; the table above lists the common ones, and
+[fsspec's list of implementations](https://filesystem-spec.readthedocs.io/en/latest/api.html#other-known-implementations)
+has the rest. Without the package, tests that use the target fail with an
+error that names it, such as `ImportError: Install s3fs to access S3`.
+
+Snapshots are stored under the URI's path, one object per snapshot, named after
+the test module, the test, the snapshot key and the recorder:
+
+```
+s3://my-bucket/snapshots/tests/api/test_users/test_create@response.json
+```
+
+`memory://` keeps snapshots only for the length of the test run, so every run
+records new snapshots and nothing is compared with an earlier run. It suits
+experiments and ditto's own tests, not a real suite.
+
+## Choosing the target for a test
+
+ditto uses the first of these that is set:
+
+1. `target=` on the test's mark
+2. `target_profile=` on the test's mark
+3. The `ditto_target` ini option
+4. The `ditto_target_profile` ini option
+5. `file://.ditto`
+
+The profile options are described in [Named profiles](#named-profiles).
+
+### For one test: `target=`
 
 ```python
 import ditto
 
-# Local path relative to this test file
-@ditto.record("json", target="file://snapshots/group_a")
-def test_foo(snapshot): ...
 
-# S3 bucket
-@ditto.record("yaml", target="s3://my-bucket/ci-snapshots/")
-def test_bar(snapshot): ...
-
-# In-memory (ephemeral, no disk I/O)
-@ditto.record("json", target="memory://")
-def test_baz(snapshot): ...
-
-# Registered non-fsspec backend
-@ditto.record("json", target="postgresql://db-host/mydb")
-def test_qux(snapshot): ...
+@ditto.record("json", target="s3://my-bucket/snapshots/")
+def test_create_user(snapshot): ...
 ```
 
-`target=` accepts any URI whose scheme is:
+### For a whole project: `ditto_target`
 
-- A supported [fsspec](https://filesystem-spec.readthedocs.io/) protocol
-  (file, s3, gcs, memory, etc.)
-- A scheme with a registered backend (see [Custom Backends](custom-backends.md))
+```toml
+# pyproject.toml
+[tool.pytest.ini_options]
+ditto_target = "s3://my-bucket/snapshots/"
+```
 
-Relative `file://` paths resolve relative to the test file's directory.
+Every test without its own `target=` or `target_profile=` then uses this
+target. A relative `file://` path here is still resolved against each test
+file's directory.
 
-## Authentication: `ditto_storage_options`
+## Credentials and connection settings: `ditto_storage_options`
 
-Credentials for remote backends belong in `conftest.py`, not in marks:
+Remote storage usually needs credentials or connection settings. Don't put
+them in target URIs: ditto writes every target URI to `ditto.lock`, which you
+commit, so a password in a URI ends up in version control. Return them from a
+`ditto_storage_options` fixture in `conftest.py` instead. The fixture returns a
+dictionary keyed by scheme:
 
 ```python
 # conftest.py
@@ -57,35 +135,39 @@ import pytest
 def ditto_storage_options():
     return {
         "s3": {"key": os.environ["AWS_KEY"], "secret": os.environ["AWS_SECRET"]},
-        "postgresql": {"password": os.environ["PGPASSWORD"]},
         "redis": {"password": os.environ["REDIS_PASSWORD"]},
     }
 ```
 
-Values are passed as kwargs to `fsspec.core.url_to_fs` for fsspec schemes,
-or to the registered backend factory for custom schemes.
+For each target, ditto looks up the entry for the target's scheme and passes
+its items as keyword arguments to the backend. For an fsspec scheme, they go
+to the fsspec filesystem, so the valid options are those of that filesystem,
+such as s3fs's `key`, `secret` and `endpoint_url`. For a registered backend,
+they go to the backend's factory; its documentation lists the options it
+accepts.
 
-## Project-wide: `ditto_target` ini
+- Options are chosen by scheme alone, so every `s3://` target gets the same
+  options. To give two targets with the same scheme different credentials, use
+  [profiles](#named-profiles).
+- Options are never written to `ditto.lock`.
+- Option values can be nested dictionaries, lists and sets, but everything in
+  them must be hashable, because ditto uses them to decide when two tests can
+  share a connection. An unhashable value fails with
+  `DittoUnhashableStorageOptionsError`.
 
-Set a default target for all tests in `pyproject.toml`:
+## Named profiles
 
-```toml
-[tool.pytest.ini_options]
-ditto_target = "s3://my-bucket/snapshots/"
-```
+A profile is a target with a name, and optionally its own storage options.
+Profiles help when:
 
-Individual `target=` marks take precedence over this setting.
+- several tests share one of a few targets, and the name says more than the URI
+- two targets use the same scheme but need different credentials
 
-## Named Profiles: `target_profile=`
+### Defining profiles
 
-Profiles are reusable, named targets. Useful when:
-
-- A suite routes to a small set of stable backends
-- Two targets share a scheme but need different credentials
-
-### Defining Profiles
-
-In a fixture (dynamic, with secrets):
+A profile is either a URI, or a table with a `uri` and, optionally,
+`storage_options`. Define profiles in a `ditto_target_profiles` fixture when
+they need values from the environment, such as secrets:
 
 ```python
 # conftest.py
@@ -100,14 +182,14 @@ def ditto_target_profiles():
         "s3_east": {
             "uri": "s3://east-bucket/golden/",
             "storage_options": {
-                "key": os.environ["AWS_KEY"],
-                "secret": os.environ["AWS_SECRET"],
+                "key": os.environ["AWS_EAST_KEY"],
+                "secret": os.environ["AWS_EAST_SECRET"],
             },
         },
     }
 ```
 
-In `pyproject.toml` (static):
+Or define them in `pyproject.toml` when they don't:
 
 ```toml
 [tool.pytest-ditto.target_profiles]
@@ -115,8 +197,10 @@ golden = "s3://my-bucket/golden/"
 
 [tool.pytest-ditto.target_profiles.s3_east]
 uri = "s3://east-bucket/golden/"
-storage_options = { key = "...", secret = "..." }
+storage_options = { endpoint_url = "https://s3.us-east-1.amazonaws.com" }
 ```
+
+A name defined in both places is an error.
 
 !!! note "Static profiles are only read from `pyproject.toml`"
     The `[tool.pytest-ditto.target_profiles]` table is read from the
@@ -134,31 +218,32 @@ storage_options = { key = "...", secret = "..." }
     default profile with the `ditto_target_profile` ini option works from any
     pytest configuration file.
 
-### Using Profiles
+### Using profiles
 
-Per-test:
+For one test:
 
 ```python
 import ditto
 
+
 @ditto.record("json", target_profile="s3_east")
-def test_foo(snapshot): ...
+def test_create_user(snapshot): ...
 ```
 
-Project-wide:
+For a whole project:
 
 ```toml
 [tool.pytest.ini_options]
 ditto_target_profile = "golden"
 ```
 
-### Profile Rules
+A profile's storage options replace `ditto_storage_options` entirely: a
+profile target gets only the options in its own definition, even if
+`ditto_storage_options` has an entry for its scheme.
 
-- A profile value is either a URI string or a mapping with `uri` and optional
-  `storage_options`
-- Profiles **do not** read `ditto_storage_options` — they are self-contained
-- `target=` and `target_profile=` are mutually exclusive on a mark
-- `ditto_target` and `ditto_target_profile` are mutually exclusive in ini
-- A name defined in both fixture and `pyproject.toml` raises an error
-- Static profiles are read only from the rootdir's `pyproject.toml` (see the
-  note above)
+## Rules
+
+- A mark takes either `target=` or `target_profile=`, not both.
+- The ini options `ditto_target` and `ditto_target_profile` can't both be set;
+  pytest refuses to start.
+- An unknown profile name fails the test and lists the defined profiles.
