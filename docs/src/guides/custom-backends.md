@@ -93,8 +93,8 @@ def create_backend(uri: str, **storage_options) -> MutableMapping[str, bytes]: .
 - `storage_options` are keyword arguments for this target, usually
   credentials or connection settings. For a URI given with `target=` or
   `ditto_target`, they are the entry for your scheme in the
-  [`ditto_storage_options`](backends.md#authentication-ditto_storage_options)
-  fixture. For a [target profile](backends.md#named-profiles-target_profile),
+  [`ditto_storage_options`](backends.md#credentials-and-connection-settings-ditto_storage_options)
+  fixture. For a [target profile](backends.md#named-profiles),
   they are the profile's own `storage_options`. Without either, there are none.
 - The return value is the mapping that ditto stores snapshots in, described in
   the next section.
