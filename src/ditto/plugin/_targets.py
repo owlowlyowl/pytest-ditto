@@ -91,7 +91,8 @@ def resolve_uri(
     4. Unknown — `ValueError` with an actionable install hint.
 
     `BACKEND_REGISTRY` is checked before fsspec so plugins can override fsspec
-    schemes.
+    schemes. A registered scheme whose factory fails to load, or that more than
+    one plugin registers, raises rather than falling back to fsspec.
 
     Parameters
     ----------
@@ -115,6 +116,10 @@ def resolve_uri(
     ------
     ValueError
         When the scheme is unrecognised by both `BACKEND_REGISTRY` and fsspec.
+    DittoBackendLoadError
+        When the scheme's registered factory fails to load.
+    DittoBackendConflictError
+        When the scheme is registered more than once.
     DittoUnhashableStorageOptionsError
         When `opts` contains a value that cannot be hashed.
     """

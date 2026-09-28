@@ -1,5 +1,6 @@
 import importlib.metadata
 from collections.abc import Iterable, Iterator, Mapping
+from copy import copy
 from importlib.metadata import EntryPoint
 
 from ._contract import (
@@ -10,6 +11,7 @@ from ._contract import (
     find_name_problems,
     upgrade_message,
 )
+from .._entry_points import LazyEntryPoints, distribution_of
 from ._protocol import Recorder
 from ..exceptions import DittoRecorderConflictError, DittoRecorderLoadError
 
@@ -68,15 +70,12 @@ class RecorderRegistry(Mapping[str, Recorder]):
             entry_points = importlib.metadata.entry_points(group="ditto_recorders")
         if marks_entry_points is None:
             marks_entry_points = importlib.metadata.entry_points(group="ditto_marks")
-        entry_points = list(entry_points)
-        legacy = {_distribution(ep) for ep in marks_entry_points}
+        legacy = {distribution_of(ep) for ep in marks_entry_points}
 
-        self._registrations = [
-            Registration(ep.name, _distribution(ep)) for ep in entry_points
-        ]
-        self._entries: dict[str, Recorder | EntryPoint] = {}
-        for ep in entry_points:
-            self._entries.setdefault(ep.name, ep)
+        self._discovered = LazyEntryPoints(entry_points, _check_recorder, self._error)
+        self._registrations = list(self._discovered.registrations)
+        # Recorders added with `register`.
+        self._registered: dict[str, Recorder] = {}
         self._legacy_distributions = frozenset(d.name for d in legacy)
         self._problems = (
             *find_name_problems(self._registrations),
@@ -85,8 +84,6 @@ class RecorderRegistry(Mapping[str, Recorder]):
         self._conflicts = {
             name: problem for problem in self._problems for name in problem.names
         }
-        # Recorders loaded from entry points so far.
-        self._loaded: dict[str, Recorder] = {}
 
     @property
     def problems(self) -> tuple[ContractProblem, ...]:
@@ -119,58 +116,57 @@ class RecorderRegistry(Mapping[str, Recorder]):
                 " ".join(problem.message for problem in problems)
             )
         self._registrations.append(registration)
-        self._entries[name] = recorder
+        self._registered[name] = recorder
 
     def __getitem__(self, name: str) -> Recorder:
         if name in self._conflicts:
             raise DittoRecorderConflictError(self._conflicts[name].message)
-        entry = self._entries[name]
-        if isinstance(entry, Recorder):
-            return entry
-        if name not in self._loaded:
-            self._loaded[name] = self._load(entry)
-        return self._loaded[name]
+        if name in self._registered:
+            return self._registered[name]
+        return self._discovered.load(name)
 
     def __contains__(self, name: object) -> bool:
-        return name in self._entries
+        return name in self._discovered or name in self._registered
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._entries)
+        yield from self._discovered
+        yield from self._registered
 
     def __len__(self) -> int:
-        return len(self._entries)
+        return len(self._discovered) + len(self._registered)
 
     def __copy__(self) -> "RecorderRegistry":
         """Copy registrations and loaded recorders without loading entry points."""
         registry = RecorderRegistry([], [])
+        registry._discovered = copy(self._discovered)
         registry._registrations = self._registrations.copy()
-        registry._entries = self._entries.copy()
+        registry._registered = self._registered.copy()
         registry._legacy_distributions = self._legacy_distributions
         registry._problems = self._problems
         registry._conflicts = self._conflicts
-        registry._loaded = self._loaded.copy()
         return registry
 
-    def _load(self, entry: EntryPoint) -> Recorder:
-        distribution = _distribution(entry)
-        try:
-            recorder = entry.load()
-            if not isinstance(recorder, Recorder):
-                raise TypeError(
-                    f"{entry.value} is a {type(recorder).__name__}, "
-                    "not a ditto.recorders.Recorder"
-                )
-        except Exception as exc:
-            hints = (self._upgrade_hint(distribution), _path_based_hint(exc))
-            raise DittoRecorderLoadError(
-                entry.name, str(distribution), exc, " ".join(filter(None, hints))
-            ) from exc
-        return recorder
+    def _error(
+        self, entry: EntryPoint, distribution: Distribution, exc: Exception
+    ) -> DittoRecorderLoadError:
+        hints = (self._upgrade_hint(distribution), _path_based_hint(exc))
+        return DittoRecorderLoadError(
+            entry.name, str(distribution), exc, " ".join(filter(None, hints))
+        )
 
     def _upgrade_hint(self, distribution: Distribution) -> str:
         if distribution.name not in self._legacy_distributions:
             return ""
         return upgrade_message(distribution)
+
+
+def _check_recorder(entry: EntryPoint, recorder: object) -> Recorder:
+    if not isinstance(recorder, Recorder):
+        raise TypeError(
+            f"{entry.value} is a {type(recorder).__name__}, "
+            "not a ditto.recorders.Recorder"
+        )
+    return recorder
 
 
 def _path_based_hint(exc: Exception) -> str:
@@ -187,13 +183,6 @@ def _path_based_hint(exc: Exception) -> str:
         "with Recorder(dumps=..., loads=...), or wrap its functions with "
         "ditto.recorders.recorder_from_files."
     )
-
-
-def _distribution(entry: EntryPoint) -> Distribution:
-    """Return the distribution registering `entry`."""
-    if entry.dist is None:
-        return Distribution("an unknown distribution", "")
-    return Distribution(entry.dist.name, entry.dist.version)
 
 
 RECORDER_REGISTRY: RecorderRegistry = RecorderRegistry()

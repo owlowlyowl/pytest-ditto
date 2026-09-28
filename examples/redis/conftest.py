@@ -116,6 +116,6 @@ def _register_redis_backend() -> Iterator[None]:
     finally:
         probe.close()
 
-    BACKEND_REGISTRY["redis"] = _make_redis_backend(redis_module)
+    BACKEND_REGISTRY.overrides["redis"] = _make_redis_backend(redis_module)
     yield
-    BACKEND_REGISTRY.pop("redis", None)
+    BACKEND_REGISTRY.overrides.pop("redis", None)

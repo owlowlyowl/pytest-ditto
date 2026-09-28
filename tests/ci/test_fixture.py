@@ -185,7 +185,7 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
         def _factory(uri: str, **kwargs):
             return _backend
 
-        BACKEND_REGISTRY["test"] = _factory
+        BACKEND_REGISTRY.overrides["test"] = _factory
 
         @pytest.fixture
         def stored_keys():
@@ -224,7 +224,7 @@ _ITER_RAISING_CONFTEST = """
     def _factory(uri: str, **kwargs):
         return {cls}()
 
-    BACKEND_REGISTRY["testiter"] = _factory
+    BACKEND_REGISTRY.overrides["testiter"] = _factory
 """
 
 

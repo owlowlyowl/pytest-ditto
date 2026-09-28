@@ -27,7 +27,7 @@ def test_introspect_pass_enumerates_a_fixture_resolved_generic_backend(
             def __iter__(self): return iter(self._d)
             def __len__(self): return len(self._d)
 
-        BACKEND_REGISTRY["persist"] = _DictBackend
+        BACKEND_REGISTRY.overrides["persist"] = _DictBackend
 
         @pytest.fixture(scope="session")
         def ditto_target_profiles():

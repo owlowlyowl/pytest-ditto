@@ -1,7 +1,8 @@
 # ditto doctor
 
 Runs health checks: verifies pytest is available, the ditto pytest plugin is
-registered, and all registered recorder plugins load successfully.
+registered, and all registered recorder and backend plugins load
+successfully.
 
 ## Usage
 
@@ -23,5 +24,10 @@ Checks:
   is also a namespace, no name shadowing a `ditto` attribute, and no installed
   plugin still on the 1.x contract. Each problem is one failing
   `plugin contract` row.
+- All registered backend plugins (`ditto_backends`) load without error, each
+  as a `backend: <scheme>` row
+- Backend registrations use valid, lowercase URI schemes, register no scheme
+  twice, and don't register `file`, which ditto handles itself. Each problem is
+  one failing `backend contract` row.
 
 Reports any issues found and exits non-zero if health checks fail.
