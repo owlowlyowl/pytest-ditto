@@ -2,10 +2,9 @@
 
 ditto stores each snapshot in a **target**: a location written as a URI, such
 as a local directory, an S3 bucket or a Redis database. By default the target
-is a `.ditto/` directory next to each test file, and most projects never
-change it. This guide explains how to store snapshots somewhere else, for one
-test or for a whole project, and how to pass the credentials that remote
-storage needs.
+is a `.ditto/` directory next to each test file. This guide explains how to
+store snapshots somewhere else, for one test or for a whole project, and how to
+pass the credentials that remote storage needs.
 
 ## Targets are URIs
 
@@ -37,7 +36,7 @@ Common targets:
 | `file://.ditto` | a `.ditto/` directory next to each test file (the default) | nothing |
 | `file://snapshots/api` | a `snapshots/api/` directory next to each test file | nothing |
 | `file:///var/snapshots` | the absolute directory `/var/snapshots` | nothing |
-| `memory://` | memory, discarded when the test run ends | nothing |
+| `memory://` | the memory of the current Python process | nothing |
 | `s3://my-bucket/snapshots/` | the `snapshots/` prefix of an S3 bucket | [`s3fs`](https://s3fs.readthedocs.io/) |
 | `gs://my-bucket/snapshots/` | the `snapshots/` prefix of a Google Cloud Storage bucket | [`gcsfs`](https://gcsfs.readthedocs.io/) |
 | `az://my-container/snapshots/` | the `snapshots/` prefix of an Azure Blob Storage container | [`adlfs`](https://github.com/fsspec/adlfs) |
@@ -58,11 +57,19 @@ The default, `file://.ditto`, is a relative path, which is why each test
 directory gets its own `.ditto/`.
 
 Each snapshot is one file, named after the test module, the test, the
-snapshot key and the recorder:
+snapshot key and the recorder. The module path's slashes become dots, so every
+file sits directly in the directory. For example, with the project root as pytest's
+rootdir, a test `test_create` in `tests/api/test_users.py` that calls
+`snapshot(value, key="response")` with the `json` recorder writes:
 
 ```
 tests/api/.ditto/tests.api.test_users.test_create@response.json
+                 └──────┬───────────┘ └────┬────┘ └──┬───┘ └┬─┘
+                   test module           test       key    recorder
 ```
+
+The module part is the test file's path relative to the rootdir, without
+`.py`.
 
 ### fsspec: cloud storage and memory
 
@@ -72,16 +79,19 @@ storage needs an extra package; the table above lists the common ones, and
 has the rest. Without the package, tests that use the target fail with an
 error that names it, such as `ImportError: Install s3fs to access S3`.
 
-Snapshots are stored under the URI's path, one object per snapshot, named after
-the test module, the test, the snapshot key and the recorder:
+Snapshots are stored under the URI's path, one object per snapshot. The name
+has the same parts as a local file's, but the module path keeps its slashes.
+The same test as above, with `target="s3://my-bucket/snapshots/"`, writes:
 
 ```
 s3://my-bucket/snapshots/tests/api/test_users/test_create@response.json
+                         └───────┬──────────┘ └────┬────┘ └──┬───┘ └┬─┘
+                            test module          test       key    recorder
 ```
 
-`memory://` keeps snapshots only for the length of the test run, so every run
-records new snapshots and nothing is compared with an earlier run. It suits
-experiments and ditto's own tests, not a real suite.
+`memory://` stores snapshots in the current Python process. A fresh process
+starts empty, so it can't keep a baseline between ordinary command-line runs,
+which makes it unsuitable for persistent regression snapshots.
 
 ## Choosing the target for a test
 
@@ -93,7 +103,10 @@ ditto uses the first of these that is set:
 4. The `ditto_target_profile` ini option
 5. `file://.ditto`
 
-The profile options are described in [Named profiles](#named-profiles).
+A mark takes either `target=` or `target_profile=`, not both; a test with both
+fails. Likewise, `ditto_target` and `ditto_target_profile` can't both be set,
+and pytest refuses to start if they are. The profile options are described in
+[Named profiles](#named-profiles).
 
 ### For one test: `target=`
 
@@ -150,10 +163,11 @@ accepts.
   options. To give two targets with the same scheme different credentials, use
   [profiles](#named-profiles).
 - Options are never written to `ditto.lock`.
-- Option values can be nested dictionaries, lists and sets, but everything in
-  them must be hashable, because ditto uses them to decide when two tests can
-  share a connection. An unhashable value fails with
-  `DittoUnhashableStorageOptionsError`.
+- Options may contain nested dictionaries, lists, tuples and sets. Values
+  inside those containers must otherwise be hashable, because ditto uses the
+  options to decide when two tests can share a backend; the backend still
+  receives them unchanged. An unhashable value, such as a `bytearray`, fails
+  with `DittoUnhashableStorageOptionsError`.
 
 ## Named profiles
 
@@ -166,8 +180,17 @@ Profiles help when:
 ### Defining profiles
 
 A profile is either a URI, or a table with a `uri` and, optionally,
-`storage_options`. Define profiles in a `ditto_target_profiles` fixture when
-they need values from the environment, such as secrets:
+`storage_options`.
+
+A profile's storage options replace `ditto_storage_options` entirely: a profile
+target gets only the options in its own definition, even if
+`ditto_storage_options` has an entry for its scheme, and a URI-only profile
+gets none. The storage library can still find credentials the way it normally
+does; s3fs, for example, reads the `AWS_*` environment variables and
+`~/.aws/credentials`.
+
+Define profiles in a `ditto_target_profiles` fixture when they need values from
+the environment, such as secrets:
 
 ```python
 # conftest.py
@@ -202,22 +225,6 @@ storage_options = { endpoint_url = "https://s3.us-east-1.amazonaws.com" }
 
 A name defined in both places is an error.
 
-!!! note "Static profiles are only read from `pyproject.toml`"
-    The `[tool.pytest-ditto.target_profiles]` table is read from the
-    `pyproject.toml` in pytest's [rootdir](https://docs.pytest.org/en/stable/reference/customize.html#initialization-determining-rootdir-and-configfile),
-    and nowhere else:
-
-    - `pytest.ini`, `tox.ini` and `setup.cfg` cannot hold the table.
-    - If pytest is configured by one of those files, a `pyproject.toml` next
-      to it (in the rootdir) is still read.
-    - A `pyproject.toml` in any other directory, such as a subdirectory of
-      the rootdir, is ignored.
-
-    Projects without a `pyproject.toml` in the rootdir can define the same
-    profiles in the `ditto_target_profiles` fixture instead. Selecting a
-    default profile with the `ditto_target_profile` ini option works from any
-    pytest configuration file.
-
 ### Using profiles
 
 For one test:
@@ -237,13 +244,21 @@ For a whole project:
 ditto_target_profile = "golden"
 ```
 
-A profile's storage options replace `ditto_storage_options` entirely: a
-profile target gets only the options in its own definition, even if
-`ditto_storage_options` has an entry for its scheme.
+An unknown profile name fails the test, and the error lists the defined
+profiles.
 
-## Rules
+!!! note "Static profiles are only read from `pyproject.toml`"
+    The `[tool.pytest-ditto.target_profiles]` table is read from the
+    `pyproject.toml` in pytest's [rootdir](https://docs.pytest.org/en/stable/reference/customize.html#initialization-determining-rootdir-and-configfile),
+    and nowhere else:
 
-- A mark takes either `target=` or `target_profile=`, not both.
-- The ini options `ditto_target` and `ditto_target_profile` can't both be set;
-  pytest refuses to start.
-- An unknown profile name fails the test and lists the defined profiles.
+    - `pytest.ini`, `tox.ini` and `setup.cfg` cannot hold the table.
+    - If pytest is configured by one of those files, a `pyproject.toml` next
+      to it (in the rootdir) is still read.
+    - A `pyproject.toml` in any other directory, such as a subdirectory of
+      the rootdir, is ignored.
+
+    Projects without a `pyproject.toml` in the rootdir can define the same
+    profiles in the `ditto_target_profiles` fixture instead. Selecting a
+    default profile with the `ditto_target_profile` ini option works from any
+    pytest configuration file.
