@@ -39,7 +39,7 @@ def test_qux(snapshot): ...
 
 - A supported [fsspec](https://filesystem-spec.readthedocs.io/) protocol
   (file, s3, gcs, memory, etc.)
-- A scheme registered via the `ditto_backends` entry-point group
+- A scheme with a registered backend (see [Custom Backends](custom-backends.md))
 
 Relative `file://` paths resolve relative to the test file's directory.
 
