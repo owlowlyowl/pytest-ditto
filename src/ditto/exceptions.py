@@ -102,17 +102,17 @@ class DittoBackendConflictError(DittoException):
 class DittoBackendChangedError(DittoException):
     """Raised when a target's backend would change partway through a session.
 
-    ditto uses one backend per target for the whole session, so the lock,
-    `verify` and `prune` all see the store the target's snapshots are in.
+    ditto treats a target URI as one store in the lock, `verify` and `prune`,
+    so every backend for a target in a session must come from the same factory.
     """
 
     def __init__(self, scheme: str, uri: str) -> None:
         super().__init__(
             f"The backend for {scheme!r} changed after {uri} was first used in "
-            "this session. ditto uses one backend per target for the whole "
-            "session, so set BACKEND_REGISTRY.overrides before any test uses "
-            "the scheme, for example in a session-scoped fixture, or give the "
-            "test a target of its own."
+            "this session. ditto builds every backend for a target with the same "
+            "factory for the whole session, so set BACKEND_REGISTRY.overrides "
+            "before any test uses the scheme, for example in a session-scoped "
+            "fixture, or give the test a target of its own."
         )
 
 

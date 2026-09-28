@@ -233,12 +233,13 @@ scheme, including one that fails to import or conflicts with another package.
 Deleting the override makes the installed backend available again.
 
 Set overrides before any test uses the scheme, as the session fixture above
-does. ditto uses one backend per target for the whole session, so that
-`ditto.lock`, `ditto verify` and `ditto prune` all see the store the target's
-snapshots are in. Once a test has used a target, a different factory for its
-scheme fails the next test that uses it with `DittoBackendChangedError`, rather
-than being silently ignored or splitting the target's snapshots across two
-stores.
+does. For the whole session, ditto builds every backend for a target URI with
+the same factory. `ditto.lock`, `ditto verify` and `ditto prune` treat a URI as
+one store, so every backend for it, including ones with different storage
+options, must reach the same data. Once a test has used a target, a different
+factory for its scheme fails the next test that uses it with
+`DittoBackendChangedError`, rather than being silently ignored or splitting the
+target's snapshots across two stores.
 
 To give one test a throwaway store, give it a target of its own instead of
 overriding the factory, for example `@ditto.record("json", target="memory://")`.
@@ -261,7 +262,9 @@ back to fsspec:
   it, and `ditto doctor` reports it.
 
 [`ditto doctor`](../cli/doctor.md) imports every registered backend and
-reports each of these problems without running any tests.
+reports import failures, conflicts and invalid schemes without running any
+tests. A factory that changes during a test run only shows up when the tests
+run.
 
 ## Example: Redis
 
