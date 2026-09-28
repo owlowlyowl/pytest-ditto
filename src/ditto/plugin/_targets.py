@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, MutableMapping
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 
 import fsspec
 import fsspec.core
 import pytest
 
-from ditto.backends import BACKEND_REGISTRY, FsspecMapping
-from ditto.exceptions import DittoUnhashableStorageOptionsError
+from ditto.backends import BACKEND_REGISTRY, BackendFactory, FsspecMapping
+from ditto.exceptions import (
+    DittoBackendChangedError,
+    DittoUnhashableStorageOptionsError,
+)
 
 from ._options import get_storage_options
 from ._profiles import load_target_profiles, resolve_profile
@@ -53,6 +57,28 @@ def _canonicalize_uri(uri: str, test_dir: Path) -> str:
     if not path.is_absolute():
         path = (test_dir / path).resolve()
     return f"file://{path.as_posix()}"
+
+
+# Backend sources for schemes that don't come from `BACKEND_REGISTRY`.
+_FILE_SOURCE = object()
+_FSSPEC_SOURCE = object()
+
+
+def _backend_source(scheme: str) -> object:
+    """Return what builds backends for `scheme`, in resolution order.
+
+    Raises
+    ------
+    DittoBackendLoadError
+        When the scheme's registered factory fails to load.
+    DittoBackendConflictError
+        When the scheme is registered more than once.
+    """
+    if scheme == "file":
+        return _FILE_SOURCE
+    if scheme in BACKEND_REGISTRY:
+        return BACKEND_REGISTRY[scheme]
+    return _FSSPEC_SOURCE
 
 
 def _cache_key(
@@ -120,41 +146,45 @@ def resolve_uri(
         When the scheme's registered factory fails to load.
     DittoBackendConflictError
         When the scheme is registered more than once.
+    DittoBackendChangedError
+        When the scheme's backend source differs from the one that first built
+        a backend for this URI in the session.
     DittoUnhashableStorageOptionsError
         When `opts` contains a value that cannot be hashed.
     """
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
+    scheme = urlparse(canonical_uri).scheme
+
+    source = _backend_source(scheme)
+    first_source = state.backend_sources.get(canonical_uri, source)
+    if first_source is not source:
+        raise DittoBackendChangedError(scheme, canonical_uri)
 
     if cache_key in state.backend_cache:
         return state.backend_cache[cache_key], canonical_uri
 
-    canonical = urlparse(canonical_uri)
-    scheme = canonical.scheme
-
-    if scheme == "file":
+    if source is _FILE_SOURCE:
+        canonical = urlparse(canonical_uri)
         path = Path(canonical.netloc + canonical.path or ".ditto")
         backend = FsspecMapping(fsspec.filesystem("file"), path.as_posix())
-        backend = maybe_enter(backend, state)
-        state.backend_cache[cache_key] = backend
-        return backend, canonical_uri
-
-    if scheme in BACKEND_REGISTRY:
-        backend = maybe_enter(BACKEND_REGISTRY[scheme](canonical_uri, **opts), state)
-        state.backend_cache[cache_key] = backend
-        return backend, canonical_uri
-
-    if scheme in fsspec.available_protocols():
+    elif source is not _FSSPEC_SOURCE:
+        factory = cast(BackendFactory, source)
+        backend = factory(canonical_uri, **opts)
+    elif scheme in fsspec.available_protocols():
         fs, root = fsspec.core.url_to_fs(canonical_uri, **opts)
-        backend = maybe_enter(FsspecMapping(fs, root), state)
-        state.backend_cache[cache_key] = backend
-        return backend, canonical_uri
+        backend = FsspecMapping(fs, root)
+    else:
+        raise ValueError(
+            f"Unknown backend scheme {scheme!r} in target URI {uri!r}. "
+            f"To add support: install an fsspec extension for {scheme!r}, or "
+            "register a factory under the 'ditto_backends' entry-point group."
+        )
 
-    raise ValueError(
-        f"Unknown backend scheme {scheme!r} in target URI {uri!r}. "
-        f"To add support: install an fsspec extension for {scheme!r}, or register a "
-        f"factory under the 'ditto_backends' entry-point group."
-    )
+    backend = maybe_enter(backend, state)
+    state.backend_cache[cache_key] = backend
+    state.backend_sources[canonical_uri] = source
+    return backend, canonical_uri
 
 
 def resolve_target(

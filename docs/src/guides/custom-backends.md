@@ -233,11 +233,16 @@ scheme, including one that fails to import or conflicts with another package.
 Deleting the override makes the installed backend available again.
 
 Set overrides before any test uses the scheme, as the session fixture above
-does. ditto keeps using a target's mapping for the rest of the session, so an
-override set later has no effect on targets that earlier tests already used.
-Within a single test, `monkeypatch.setitem(BACKEND_REGISTRY.overrides,
-"redis", create_redis_backend)` sets an override and removes it afterwards,
-with the same caveat.
+does. For the whole session, ditto builds every backend for a target URI with
+the same factory. `ditto.lock`, `ditto verify` and `ditto prune` treat a URI as
+one store, so every backend for it, including ones with different storage
+options, must reach the same data. Once a test has used a target, a different
+factory for its scheme fails the next test that uses it with
+`DittoBackendChangedError`, rather than being silently ignored or splitting the
+target's snapshots across two stores.
+
+To give one test a throwaway store, give it a target of its own instead of
+overriding the factory, for example `@ditto.record("json", target="memory://")`.
 
 ## When a backend can't be used
 
@@ -250,11 +255,16 @@ back to fsspec:
 - **Two packages register the same scheme.** Tests that use the scheme fail
   with `DittoBackendConflictError`, naming both packages. Uninstall one, or
   choose one by setting an override for the scheme.
+- **A scheme's factory changes after a test has used one of its targets.**
+  Later tests that use the target fail with `DittoBackendChangedError`. Set
+  overrides before the first test that uses the scheme.
 - **A package registers an invalid scheme, or `file`.** No target can reach
   it, and `ditto doctor` reports it.
 
 [`ditto doctor`](../cli/doctor.md) imports every registered backend and
-reports each of these problems without running any tests.
+reports import failures, conflicts and invalid schemes without running any
+tests. A factory that changes during a test run only shows up when the tests
+run.
 
 ## Example: Redis
 
