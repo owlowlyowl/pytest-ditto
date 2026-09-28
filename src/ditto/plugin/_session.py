@@ -42,6 +42,9 @@ class DittoSession:
     backend_cache: dict[TargetCacheKey, MutableMapping[str, bytes]] = field(
         default_factory=dict
     )
+    # What built each canonical URI's backends: its registered factory, or a
+    # marker for ditto's own file and fsspec handling.
+    backend_sources: dict[str, object] = field(default_factory=dict)
     introspect_backends: dict[str, MutableMapping[str, bytes]] = field(
         default_factory=dict
     )

@@ -12,6 +12,7 @@ from ditto import recorders
 from ditto.exceptions import (
     AdditionalMarkError,
     DittoAmbiguousTargetError,
+    DittoBackendChangedError,
     DittoBackendConflictError,
     DittoBackendLoadError,
     DittoDuplicateProfileError,
@@ -280,6 +281,97 @@ def test_resolve_uri_enters_context_managed_backend_once_per_cache_entry(
     assert len(constructed) == 1
     assert constructed[0].enter_calls == 1
     assert first_backend is second_backend
+
+
+def _dict_factory(uri: str, **opts: object) -> MutableMapping[str, bytes]:
+    return {}
+
+
+def _other_dict_factory(uri: str, **opts: object) -> MutableMapping[str, bytes]:
+    return {}
+
+
+def test_resolve_uri_rejects_a_factory_changed_after_first_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """A new factory for a used target raises rather than being ignored."""
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _dict_factory)
+    resolve_uri("demo://shared", tmp_path, {}, state)
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _other_dict_factory)
+
+    with pytest.raises(DittoBackendChangedError, match="'demo' changed after"):
+        resolve_uri("demo://shared", tmp_path, {}, state)
+
+
+def test_resolve_uri_rejects_an_override_of_an_fsspec_target_after_first_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """Registering a scheme fsspec already served for a used target raises."""
+    resolve_uri("memory://changed-source", tmp_path, {}, state)
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "memory", _dict_factory)
+
+    with pytest.raises(DittoBackendChangedError):
+        resolve_uri("memory://changed-source", tmp_path, {}, state)
+
+
+def test_resolve_uri_rejects_a_changed_factory_even_with_new_options(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """The check is per target, not per cache entry."""
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _dict_factory)
+    resolve_uri("demo://shared", tmp_path, {"token": "a"}, state)
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _other_dict_factory)
+
+    with pytest.raises(DittoBackendChangedError):
+        resolve_uri("demo://shared", tmp_path, {"token": "b"}, state)
+
+
+def test_resolve_uri_allows_a_new_factory_for_an_unused_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """Only targets already used are tied to their first factory."""
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _dict_factory)
+    first, _ = resolve_uri("demo://one", tmp_path, {}, state)
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _other_dict_factory)
+    second, _ = resolve_uri("demo://two", tmp_path, {}, state)
+
+    assert first is not second
+
+
+def test_resolve_uri_allows_restoring_the_same_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """Removing and re-adding the same factory keeps the cached backend."""
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _dict_factory)
+    first, _ = resolve_uri("demo://shared", tmp_path, {}, state)
+    del BACKEND_REGISTRY.overrides["demo"]
+
+    BACKEND_REGISTRY.overrides["demo"] = _dict_factory
+    second, _ = resolve_uri("demo://shared", tmp_path, {}, state)
+
+    assert first is second
+
+
+def test_resolve_uri_does_not_tie_a_target_to_a_factory_that_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, state: DittoSession
+) -> None:
+    """A target whose first resolution failed can use a later factory."""
+
+    def failing_factory(uri: str, **opts: object) -> MutableMapping[str, bytes]:
+        raise ConnectionError("down")
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", failing_factory)
+    with pytest.raises(ConnectionError):
+        resolve_uri("demo://shared", tmp_path, {}, state)
+
+    monkeypatch.setitem(BACKEND_REGISTRY.overrides, "demo", _dict_factory)
+
+    backend, _ = resolve_uri("demo://shared", tmp_path, {}, state)
+    assert backend == {}
 
 
 def test_resolve_uri_raises_for_unknown_scheme(tmp_path, state: DittoSession) -> None:

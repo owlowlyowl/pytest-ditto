@@ -233,11 +233,15 @@ scheme, including one that fails to import or conflicts with another package.
 Deleting the override makes the installed backend available again.
 
 Set overrides before any test uses the scheme, as the session fixture above
-does. ditto keeps using a target's mapping for the rest of the session, so an
-override set later has no effect on targets that earlier tests already used.
-Within a single test, `monkeypatch.setitem(BACKEND_REGISTRY.overrides,
-"redis", create_redis_backend)` sets an override and removes it afterwards,
-with the same caveat.
+does. ditto uses one backend per target for the whole session, so that
+`ditto.lock`, `ditto verify` and `ditto prune` all see the store the target's
+snapshots are in. Once a test has used a target, a different factory for its
+scheme fails the next test that uses it with `DittoBackendChangedError`, rather
+than being silently ignored or splitting the target's snapshots across two
+stores.
+
+To give one test a throwaway store, give it a target of its own instead of
+overriding the factory, for example `@ditto.record("json", target="memory://")`.
 
 ## When a backend can't be used
 
@@ -250,6 +254,9 @@ back to fsspec:
 - **Two packages register the same scheme.** Tests that use the scheme fail
   with `DittoBackendConflictError`, naming both packages. Uninstall one, or
   choose one by setting an override for the scheme.
+- **A scheme's factory changes after a test has used one of its targets.**
+  Later tests that use the target fail with `DittoBackendChangedError`. Set
+  overrides before the first test that uses the scheme.
 - **A package registers an invalid scheme, or `file`.** No target can reach
   it, and `ditto doctor` reports it.
 
