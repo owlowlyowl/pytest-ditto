@@ -264,12 +264,18 @@ def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["no_at_sign.json", "test_foo@result.json"],
-    ids=["no-at-sign", "unhashed-2.0.0b1-name"],
+    [
+        "no_at_sign.json",
+        "test_foo@result.json",
+        "garbage~0123456789abcdef.json",
+        "~0123456789abcdef.json",
+    ],
+    ids=["no-at-sign", "unhashed-2.0.0b1-name", "hash-without-at", "hash-only"],
 )
-def test_reports_malformed_name_without_a_hash(json_ext_map, name) -> None:
-    """A name not in the `<label>~<hash>.<recorder>` form is flagged, including
-    one stored before names were hashed."""
+def test_reports_a_name_not_in_the_stored_form(json_ext_map, name) -> None:
+    """A name not in the `<test>@<key>~<hash>.<recorder>` form is flagged,
+    including one stored before names were hashed and one with a hash but no
+    `@`."""
     entry = ManifestEntry(name, size_bytes=4, modified=None)
 
     issues = _find_lint_issues([entry], json_ext_map)

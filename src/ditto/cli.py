@@ -103,9 +103,13 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
 
 
 # A stored snapshot name: `<module>.<group label>@<key label>~<hash>.<recorder>`
-# (`/` after the module for remote backends). Labels never contain `~`, so the
-# last `~` starts the hash, and everything after the hash is the recorder.
-_SNAPSHOT_NAME = re.compile(r"(?P<label>.*)~[0-9a-f]{16}\.(?P<recorder>.+)")
+# (`/` after the module for remote backends). Labels never contain `@` or `~`
+# within a part, so the last `@` ends the test label, which always holds at
+# least the module; the key label may be empty. The hash follows the key, and
+# everything after it is the recorder.
+_SNAPSHOT_NAME = re.compile(
+    r"(?P<test>.+)@(?P<key>[^@~]*)~[0-9a-f]{16}\.(?P<recorder>.+)"
+)
 
 
 def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
@@ -120,8 +124,7 @@ def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
     match = _SNAPSHOT_NAME.fullmatch(filename)
     if match is None:
         return filename, "", ""
-    test, _, key = match["label"].rpartition("@")
-    return test, key, f".{match['recorder']}"
+    return match["test"], match["key"], f".{match['recorder']}"
 
 
 def _test_and_key(
@@ -832,7 +835,7 @@ def _find_lint_issues(
             issues.append(
                 LintIssue(
                     filename=entry.storage_key,
-                    issue="Malformed name (expected <label>~<hash>.<recorder>)",
+                    issue="Malformed name (expected <test>@<key>~<hash>.<recorder>)",
                 )
             )
         elif ext not in em:

@@ -15,6 +15,7 @@ from ditto.snapshot import (
     Snapshot,
     SnapshotKey,
     _flat_key,
+    _label,
     _remote_key,
     _SessionTracker,
 )
@@ -122,8 +123,44 @@ def test_whole_file_name_fits_in_255_bytes(module, group, key, identifier) -> No
         assert fixed + len(identifier) + 16 > 255
     else:
         assert len(name.encode("utf-8")) <= 255
-        after_module = name.removeprefix(module.replace("/", ".") + ".")
-        assert _remote_key(sk).endswith(after_module)
+
+
+@given(
+    module=_long_module,
+    group=st.text(min_size=1, max_size=300),
+    key=st.text(max_size=300),
+    identifier=st.sampled_from(["json", "pandas.parquet"]),
+)
+def test_remote_key_is_not_limited_by_the_module_path(
+    module, group, key, identifier
+) -> None:
+    """A remote key isn't a file name: any module path gets one, and its label
+    keeps the usual 80 + 40 characters however long the module is."""
+    sk = SnapshotKey(module, group, key, identifier)
+
+    name = _remote_key(sk)
+
+    assert name.startswith(module + "/")
+    after_module = name.removeprefix(module + "/")
+    assert len(after_module) <= 80 + 1 + 40 + 1 + 16 + 1 + len(identifier)
+    assert after_module.startswith(_label(sk))
+
+
+def test_a_long_module_works_with_a_remote_backend() -> None:
+    """A deep test path too long for a file name still records and reads back
+    through a remote backend."""
+    module = "/".join(["pkg"] + [f"subdir_{i:02d}" for i in range(24)])
+    backend: dict[str, bytes] = {}
+    snapshot = Snapshot(
+        target="memory://", _backend=backend, group_name="test_t", module=module
+    )
+
+    assert snapshot({"v": 1}, "k") == {"v": 1}
+
+    (name,) = backend
+    assert name.startswith(module + "/test_t@k~")
+    with pytest.raises(DittoSnapshotNameTooLongError):
+        _flat_key(SnapshotKey(module, "test_t", "k", "json"))
 
 
 def test_a_long_module_shortens_the_label_rather_than_failing() -> None:

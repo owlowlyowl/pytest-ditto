@@ -219,33 +219,24 @@ def _identity_hash(sk: SnapshotKey) -> str:
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
 
 
-def _label(sk: SnapshotKey) -> str:
-    """The readable 'group@key' part of a name, shortened to fit.
+def _label(sk: SnapshotKey, room: int | None = None) -> str:
+    """The readable 'group@key' part of a name.
 
     Characters outside `_LABEL_SAFE` become `_`. The group name keeps at most
-    `_LABEL_GROUP_MAX` characters and the key `_LABEL_KEY_MAX`. The label is
-    then shortened further so the file name, with its dotted module prefix,
-    fits in `_NAME_MAX_BYTES`; the group name gives way first, to half the
-    space. Remote keys use the same label as file names.
-
-    Raises
-    ------
-    DittoSnapshotNameTooLongError
-        When the module path leaves fewer than `_LABEL_MIN` characters.
+    `_LABEL_GROUP_MAX` characters and the key `_LABEL_KEY_MAX`. Given `room`,
+    the label is shortened further to at most that many characters, the group
+    name giving way first, to half the space.
     """
-    module_prefix = sk.module.replace("/", ".") + "."
-    fixed = len(module_prefix.encode("utf-8")) + len(f"~{'0' * _HASH_LENGTH}.")
-    room = _NAME_MAX_BYTES - fixed - len(sk.identifier) - len("@")
-    if room + len("@") < _LABEL_MIN:
-        raise DittoSnapshotNameTooLongError(sk.module, _NAME_MAX_BYTES)
     group = _label_part(sk.group_name, _LABEL_GROUP_MAX)
     key = _label_part(sk.key, _LABEL_KEY_MAX)
-    group = group[: max(room - len(key), room // 2)]
-    key = key[: room - len(group)]
+    if room is not None:
+        room -= len("@")
+        group = group[: max(room - len(key), room // 2)]
+        key = key[: room - len(group)]
     return f"{group}@{key}"
 
 
-def _snapshot_name(sk: SnapshotKey) -> str:
+def _snapshot_name(sk: SnapshotKey, label_room: int | None = None) -> str:
     """The part of a storage key after the module: 'label~hash.ext'.
 
     The label (see `_label`) is for people to read and isn't decoded;
@@ -253,20 +244,35 @@ def _snapshot_name(sk: SnapshotKey) -> str:
     whose labels match, such as parametrize IDs that differ only in case or in
     characters the label replaces.
     """
-    return f"{_label(sk)}~{_identity_hash(sk)}.{sk.identifier}"
+    return f"{_label(sk, label_room)}~{_identity_hash(sk)}.{sk.identifier}"
 
 
 def _flat_key(sk: SnapshotKey) -> str:
     """Storage key for file backends: 'module.label~hash.ext'.
 
     Slashes in the module path are replaced with dots so the key maps to
-    a single flat filename — no subdirectories inside `.ditto/`.
+    a single flat filename — no subdirectories inside `.ditto/`. The label is
+    shortened so the whole name fits in `_NAME_MAX_BYTES`.
+
+    Raises
+    ------
+    DittoSnapshotNameTooLongError
+        When the module path leaves fewer than `_LABEL_MIN` label characters.
     """
-    return f"{sk.module.replace('/', '.')}.{_snapshot_name(sk)}"
+    prefix = sk.module.replace("/", ".") + "."
+    fixed = len(prefix.encode("utf-8")) + len(f"~{'0' * _HASH_LENGTH}.")
+    room = _NAME_MAX_BYTES - fixed - len(sk.identifier)
+    if room < _LABEL_MIN:
+        raise DittoSnapshotNameTooLongError(sk.module, _NAME_MAX_BYTES)
+    return f"{prefix}{_snapshot_name(sk, room)}"
 
 
 def _remote_key(sk: SnapshotKey) -> str:
-    """Storage key for all other backends: 'module/label~hash.ext'."""
+    """Storage key for all other backends: 'module/label~hash.ext'.
+
+    A remote key isn't a file name, so its label isn't shortened to fit one:
+    the module path can be as long as the test file's path.
+    """
     return f"{sk.module}/{_snapshot_name(sk)}"
 
 

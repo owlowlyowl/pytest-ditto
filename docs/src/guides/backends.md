@@ -93,7 +93,9 @@ has the rest. Without the package, tests that use the target fail with an
 error that names it, such as `ImportError: Install s3fs to access S3`.
 
 Snapshots are stored under the URI's path, one object per snapshot. The name
-has the same parts as a local file's, but the module path keeps its slashes.
+has the same parts as a local file's, but the module path keeps its slashes, and
+the name isn't a file name, so it has no 255-byte limit: the test and key are
+only shortened to 80 and 40 characters.
 The same test as above, with `target="s3://my-bucket/snapshots/"`, writes:
 
 ```

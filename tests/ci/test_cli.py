@@ -82,11 +82,33 @@ def test_preserves_dots_in_the_test_label() -> None:
         "test_foo@result~0a1b2c3d.yaml",
         "test_foo@result~0A1B2C3D4E5F6A7B.yaml",
         "test_foo@result~0a1b2c3d4e5f6a7b",
+        # A hash and recorder, but no `@` or no test label before it.
+        "garbage~0123456789abcdef.json",
+        "~0123456789abcdef.json",
+        "@k~0123456789abcdef.json",
     ],
 )
 def test_other_names_return_empty_key_and_ext(name) -> None:
     """A name not in the stored form is returned whole, with empty key and ext."""
     assert _parse_snapshot_name(name) == (name, "", "")
+
+
+def test_an_empty_key_parses() -> None:
+    """`key=""` is a valid key, so its name has an empty key label."""
+    assert _parse_snapshot_name("m.test_t@~0123456789abcdef.json") == (
+        "m.test_t",
+        "",
+        ".json",
+    )
+
+
+def test_the_last_at_ends_the_test_label() -> None:
+    """An `@` in the module path stays in the test label."""
+    assert _parse_snapshot_name("a@b.test_t@k~0123456789abcdef.json") == (
+        "a@b.test_t",
+        "k",
+        ".json",
+    )
 
 
 # ── _human_size ───────────────────────────────────────────────────────────────
