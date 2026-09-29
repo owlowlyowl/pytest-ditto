@@ -29,3 +29,8 @@ ditto prune tests/ci/
     Using `-k` for a partial run may falsely classify snapshots for un-run
     tests as unused. Only use prune with a full test run to avoid accidental
     deletion.
+
+!!! note
+    Prune needs a single process. Under pytest-xdist (`-n N`) it fails the run
+    and deletes nothing; if your `addopts` sets `-n`, run `ditto prune -n 0`.
+    See [Running under pytest-xdist](../guides/lock-file.md#running-under-pytest-xdist).

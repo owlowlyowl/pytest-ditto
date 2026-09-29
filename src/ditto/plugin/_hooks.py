@@ -21,6 +21,7 @@ from ._lock import (
 from ._options import (
     RUN_OPTIONS,
     PruneMode,
+    RunOptions,
     add_options,
     is_xdist_worker,
     read_run_options,
@@ -71,52 +72,36 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     would_prune: list[str] = []
 
     if not is_xdist_worker(config) and not options.introspect_path:
+        if xdist_is_distributing(config):
+            # The controller runs no tests under distribution, so its tracker is
+            # empty (see #83): anything that needs the whole run's observations
+            # would silently check or write nothing. Refuse those modes, and skip
+            # the session report, which would be empty.
+            _refuse_whole_run_modes_under_xdist(session, options)
+            return
         if options.snapshot_mode is SnapshotMode.VERIFY:
             run_verify(session)
             return
         warn_if_lockfile_ignored(config)
-        if xdist_is_distributing(config):
-            # The controller saw no snapshots under distribution, so it cannot
-            # write the lock correctly (see #83). Refuse an explicit rebuild;
-            # only warn for the passive append path.
-            if options.rebuild_lock:
-                warnings.warn(
-                    "--ditto-lock cannot rebuild ditto.lock under pytest-xdist "
-                    "distribution; run without -n.",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-                fail_session(session)
-            else:
-                warnings.warn(
-                    f"{LOCKFILE_NAME} is not maintained under pytest-xdist "
-                    "distribution (-n); run single-process or `ditto lock` to "
-                    "update it.",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-            if options.prune is not PruneMode.OFF:
-                warnings.warn(
-                    "ditto prune is not supported under pytest-xdist distribution "
-                    "(-n); run single-process.",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-        else:
-            authoritative = is_authoritative_run(session, exitstatus)
-            write_session_lockfile(session, choose_lock_action(options, authoritative))
-            match options.prune:
-                case PruneMode.DELETE:
-                    pruned = delete_orphans(find_orphans(session))
-                case PruneMode.DRY_RUN:
-                    would_prune = [orphan.key for orphan in find_orphans(session)]
-                case PruneMode.OFF:
-                    pass
+        authoritative = is_authoritative_run(session, exitstatus)
+        write_session_lockfile(session, choose_lock_action(options, authoritative))
+        match options.prune:
+            case PruneMode.DELETE:
+                pruned = delete_orphans(find_orphans(session))
+            case PruneMode.DRY_RUN:
+                would_prune = [orphan.key for orphan in find_orphans(session)]
+            case PruneMode.OFF:
+                pass
 
     if options.introspect_path:
         write_introspect_manifest(
             options.introspect_path, session_state(config).introspect_backends
         )
+        return
+
+    if is_xdist_worker(config):
+        # Each worker saw only its share of the tests; a report per worker would
+        # be fragmented and interleaved with xdist's own output.
         return
 
     render_session_report(
@@ -125,6 +110,46 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         pruned=pruned,
         would_prune=would_prune,
     )
+
+
+def _refuse_whole_run_modes_under_xdist(
+    session: pytest.Session, options: RunOptions
+) -> None:
+    """Fail the run for modes that need a single process; warn for a plain run.
+
+    Refusals are printed rather than warned so an `ignore::UserWarning` filter
+    cannot hide why the run failed.
+    """
+    refused = _single_process_mode(options)
+    if refused is not None:
+        print(
+            f"ditto: {refused} needs a single process and cannot run under "
+            "pytest-xdist distribution (-n); rerun it with -n 0."
+        )
+        fail_session(session)
+        return
+    warn_if_lockfile_ignored(session.config)
+    warnings.warn(
+        f"{LOCKFILE_NAME} is not maintained under pytest-xdist distribution "
+        "(-n); run single-process or `ditto lock` to update it.",
+        category=DittoWarning,
+        stacklevel=1,
+    )
+
+
+def _single_process_mode(options: RunOptions) -> str | None:
+    """Name of the requested mode that needs to observe the whole run, if any."""
+    if options.snapshot_mode is SnapshotMode.VERIFY:
+        return "--ditto-verify"
+    if options.rebuild_lock:
+        return "--ditto-lock"
+    match options.prune:
+        case PruneMode.DELETE:
+            return "--ditto-prune"
+        case PruneMode.DRY_RUN:
+            return "--ditto-prune-dry-run"
+        case PruneMode.OFF:
+            return None
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
