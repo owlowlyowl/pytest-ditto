@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import msgspec
@@ -138,7 +138,9 @@ def split_nodeid(nodeid: str) -> tuple[str, str]:
     """Split a pytest nodeid into `(module_stem, group_name)`.
 
     `tests/test_api.py::TestX::test_foo` -> (`tests/test_api`, `TestX.test_foo`),
-    matching `SnapshotKey.module` and `SnapshotKey.group_name`.
+    matching `SnapshotKey.module` and `SnapshotKey.group_name`. The file's last
+    extension is dropped whatever it is, so a doctest in `docs/guide.txt` has
+    module `docs/guide`.
 
     This is the one derivation of a snapshot's identity from its test: the
     `snapshot` fixture builds keys with it, and lock, verify and prune rebuild
@@ -146,7 +148,9 @@ def split_nodeid(nodeid: str) -> tuple[str, str]:
     slashes, so the result is the same on every platform.
     """
     path_part, _, rest = nodeid.partition("::")
-    module = path_part.removesuffix(".py")
+    # A node id with no file path (a test outside the rootdir) has no module;
+    # `PurePosixPath("")` is ".", which `with_suffix` rejects.
+    module = PurePosixPath(path_part).with_suffix("").as_posix() if path_part else ""
     group = rest.replace("::", ".")
     return module, group
 
