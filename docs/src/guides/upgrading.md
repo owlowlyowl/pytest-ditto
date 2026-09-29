@@ -96,6 +96,12 @@ repository's `.gitattributes`:
 If snapshots live in a directory other than `.ditto`, for example one set with
 `ditto_target`, add a line for that directory too.
 
+Version 2.0 refuses target URIs that contain a password or a secret query
+parameter, such as `redis://alice:secret@host` or an Azure SAS URL's `sig=`,
+because target URIs are recorded in `ditto.lock`. Move those credentials into
+the `ditto_storage_options` fixture. See
+[Credentials and connection settings](backends.md#credentials-and-connection-settings-ditto_storage_options).
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by

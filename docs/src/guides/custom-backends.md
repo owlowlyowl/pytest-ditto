@@ -313,7 +313,7 @@ class RedisMapping(MutableMapping[str, bytes]):
 
 def create_redis_backend(uri: str, **storage_options) -> MutableMapping[str, bytes]:
     # redis-py reads host, port and database number from the URI:
-    # redis://[user[:password]@]host[:port][/db]
+    # redis://[user@]host[:port][/db]. ditto refuses a URI with a password.
     client = redis.Redis.from_url(uri, **storage_options)
     return PrefixedMapping(RedisMapping(client), prefix="ditto:")
 ```
@@ -325,8 +325,8 @@ Register it:
 redis = "my_package.backends:create_redis_backend"
 ```
 
-Pass the password as a storage option rather than in the URI, so it stays out
-of the test code:
+Pass the password as a storage option: ditto refuses a target URI that contains
+one, because target URIs are recorded in `ditto.lock`.
 
 ```python
 # conftest.py

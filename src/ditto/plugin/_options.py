@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import cast
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 import pytest
 
@@ -21,6 +22,7 @@ __all__ = (
     "add_options",
     "validate_ini_options",
     "validate_target_config",
+    "reject_uri_credentials",
     "get_optional_fixturevalue",
     "get_storage_options",
     "is_xdist_worker",
@@ -198,11 +200,68 @@ def add_options(parser: pytest.Parser) -> None:
 
 
 def validate_ini_options(config: pytest.Config) -> None:
-    """Raise `pytest.UsageError` for conflicting ditto ini values."""
+    """Raise `pytest.UsageError` for conflicting or unsafe ditto ini values."""
     try:
         validate_target_config(config)
     except DittoAmbiguousTargetError as exc:
         raise pytest.UsageError(str(exc)) from exc
+    reject_uri_credentials(config.getini("ditto_target"))
+
+
+# Query parameters whose values are secrets, compared case-insensitively: a
+# password, a token or key, or a signed URL's signature (Azure SAS `sig`,
+# S3 presigned `X-Amz-Signature` and `X-Amz-Security-Token`).
+_SECRET_QUERY_PARAMS = frozenset(
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "secret_key",
+        "token",
+        "access_token",
+        "api_key",
+        "apikey",
+        "sig",
+        "signature",
+        "x-amz-signature",
+        "x-amz-security-token",
+    }
+)
+
+
+def reject_uri_credentials(uri: str) -> None:
+    """Raise `pytest.UsageError` for a target URI that carries a secret.
+
+    A target URI other than `file://` is recorded verbatim in `ditto.lock`,
+    which is committed, so a password in its userinfo (`redis://u:pw@host`) or
+    a secret query parameter (`?sig=...`) would be committed with it. The
+    error shows the URI with the secrets masked and points to
+    `ditto_storage_options`. A username alone isn't a secret and is allowed.
+    """
+    if not uri:
+        return
+    parsed = urlparse(uri)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    secret_params = [name for name, _ in query if name.lower() in _SECRET_QUERY_PARAMS]
+    if parsed.password is None and not secret_params:
+        return
+    netloc = parsed.netloc
+    if parsed.password is not None:
+        userinfo, _, hostport = netloc.rpartition("@")
+        netloc = f"{userinfo.partition(':')[0]}:***@{hostport}"
+    masked_query = urlencode(
+        [(n, "***" if n in secret_params else v) for n, v in query], safe="*"
+    )
+    masked = parsed._replace(netloc=netloc, query=masked_query).geturl()
+    found = (["a password"] if parsed.password is not None else []) + [
+        f"the query parameter {name!r}" for name in secret_params
+    ]
+    raise pytest.UsageError(
+        f"ditto target {masked!r} contains {' and '.join(found)}. Target URIs "
+        "are recorded in ditto.lock, which is committed. Pass credentials "
+        "through the ditto_storage_options fixture instead."
+    )
 
 
 def validate_target_config(config: pytest.Config) -> None:
