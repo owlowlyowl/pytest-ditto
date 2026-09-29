@@ -70,6 +70,14 @@ when first recorded. Snapshot a list instead, or use a recorder that keeps the
 distinction. A recorder whose `loads` can't read the bytes its `dumps` produced
 now raises before anything is written.
 
+Under pytest-xdist distribution (`-n N`, or `--dist` with `--tx`),
+`--ditto-verify`, `--ditto-lock`, `--ditto-prune` and `--ditto-prune-dry-run`
+are now a usage error (exit code 4), raised before any test runs. Before,
+verify passed without checking anything, prune only warned, and `--ditto-lock`
+failed only after the whole suite had run under `-n`. Run these single-process,
+after a parallel test run if you like. See
+[Running under pytest-xdist](lock-file.md#running-under-pytest-xdist).
+
 YAML and `pytest-ditto-pandas` CSV snapshots are now written with `"\n"` line
 endings on every platform, as JSON already was. On Windows, snapshots those
 recorders wrote before used `"\r\n"`. They still load; the next

@@ -204,20 +204,39 @@ def test_ditto_lock_replaces_corrupt_lock_file(pytester):
     assert any("test_beta" in n for n in nodeids)
 
 
-def test_xdist_distribution_detected_when_numprocesses_set():
-    """A positive -n value marks the run as xdist-distributed."""
-    config = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=4))
-
-    assert xdist_is_distributing(config) is True
+def _xdist_config(**option):
+    return types.SimpleNamespace(option=types.SimpleNamespace(**option))
 
 
-def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
-    """No -n (or -n0) is a single-process run."""
-    absent = types.SimpleNamespace(option=types.SimpleNamespace())
-    zero = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=0))
+@pytest.mark.parametrize(
+    "option",
+    [
+        # -n 4 and -n auto, after xdist has normalised them.
+        {"numprocesses": 4, "dist": "load", "tx": ["popen"] * 4},
+        # --dist=load --tx=2*popen, which leaves numprocesses unset.
+        {"numprocesses": None, "dist": "load", "tx": ["2*popen"]},
+    ],
+    ids=["numprocesses", "dist-tx"],
+)
+def test_xdist_distribution_detected(option):
+    """A distribution mode with worker specs marks the run as distributed."""
+    assert xdist_is_distributing(_xdist_config(**option)) is True
 
-    assert xdist_is_distributing(absent) is False
-    assert xdist_is_distributing(zero) is False
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {},  # xdist not installed
+        {"numprocesses": None, "dist": "no", "tx": []},  # no -n
+        {"numprocesses": 0, "dist": "no", "tx": []},  # -n 0
+        {"numprocesses": None, "dist": "load", "tx": []},  # --dist with no workers
+        {"dist": "load", "tx": ["popen"] * 2, "collectonly": True},
+    ],
+    ids=["no-xdist", "no-n", "n0", "dist-without-tx", "collect-only"],
+)
+def test_no_xdist_distribution(option):
+    """Without both a distribution mode and worker specs, the run is local."""
+    assert xdist_is_distributing(_xdist_config(**option)) is False
 
 
 NESTED_SESSION_MODULE = '''

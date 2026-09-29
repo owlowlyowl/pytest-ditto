@@ -51,6 +51,35 @@ delete each other's data.
 - **CLI inventory** (`list`/`status`/`stats`/`lint`) — reads the lock for a fast,
   credential-free remote inventory (below).
 
+## Running under pytest-xdist
+
+Snapshot tests run under pytest-xdist distribution (`-n N`, or `--dist` with
+`--tx`): each worker records and compares its own tests' snapshots. What doesn't
+work is anything that has to see the whole run in one process, because the tests
+run in the workers and no single process sees them all:
+
+| Under distribution | Behaviour |
+|---|---|
+| `pytest` / `ditto update` | Snapshots are recorded and compared as usual. `ditto.lock` is not updated; ditto warns. |
+| `ditto verify` (`--ditto-verify`) | Refused. |
+| `ditto lock` (`--ditto-lock`) | Refused. |
+| `ditto prune` (`--ditto-prune`, `--ditto-prune-dry-run`) | Refused. |
+| Snapshot report | Not printed. |
+
+A refused mode is a usage error (exit code 4) raised before any test runs, so it
+writes no snapshots, leaves the lock as it was, and deletes nothing.
+
+A typical CI setup runs the tests in parallel, then checks the lock in a
+separate single-process run:
+
+```bash
+pytest -n auto
+ditto verify
+```
+
+If your pytest configuration adds `-n` through `addopts`, pass `-n 0` to the
+single-process commands, for example `ditto verify -n 0`.
+
 ## Declared vs physical state (and the inventory trade-off)
 
 The lock is a **declared** record — what is *legitimate* — not a **physical** one

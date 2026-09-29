@@ -25,6 +25,7 @@ __all__ = (
     "get_storage_options",
     "is_xdist_worker",
     "xdist_is_distributing",
+    "reject_single_process_modes_under_xdist",
 )
 
 
@@ -243,7 +244,49 @@ def xdist_is_distributing(config: pytest.Config) -> bool:
 
     Under distribution the controller process (which runs `pytest_sessionfinish`
     and writes the lock) never executes test bodies, so its session tracker is
-    empty and any lock write would be wrong (see #83). `numprocesses` is set by
-    `-n auto`/`-n N` and is falsy (`None`/`0`) for single-process runs.
+    empty and any lock write would be wrong (see #83).
+
+    This is xdist's own test: a distribution mode other than "no" plus worker
+    specs in `tx`. It covers `-n N`/`-n auto` as well as `--dist`/`--tx`,
+    because by `pytest_configure` xdist has turned `-n N` into N `popen` specs
+    and `-n 0` into `dist="no"`. xdist does not distribute a `--collect-only`
+    run. Without xdist installed, none of these options exist.
     """
-    return bool(getattr(config.option, "numprocesses", None))
+    option = config.option
+    if getattr(option, "collectonly", False):
+        return False
+    return getattr(option, "dist", "no") != "no" and bool(getattr(option, "tx", None))
+
+
+def reject_single_process_modes_under_xdist(
+    config: pytest.Config, options: RunOptions
+) -> None:
+    """Raise `pytest.UsageError` for a mode that can't run under distribution.
+
+    Verify, lock and prune need to observe the whole run in one process. Under
+    distribution they would check or write nothing, so refuse them before any
+    test runs rather than report a false success at session end.
+    """
+    if is_xdist_worker(config) or not xdist_is_distributing(config):
+        return
+    mode = _single_process_mode(options)
+    if mode is not None:
+        raise pytest.UsageError(
+            f"ditto: {mode} needs a single process and cannot run under "
+            "pytest-xdist distribution (-n, --dist/--tx); rerun it with -n 0."
+        )
+
+
+def _single_process_mode(options: RunOptions) -> str | None:
+    """Name of the requested mode that needs to observe the whole run, if any."""
+    if options.snapshot_mode is SnapshotMode.VERIFY:
+        return "--ditto-verify"
+    if options.rebuild_lock:
+        return "--ditto-lock"
+    match options.prune:
+        case PruneMode.DELETE:
+            return "--ditto-prune"
+        case PruneMode.DRY_RUN:
+            return "--ditto-prune-dry-run"
+        case PruneMode.OFF:
+            return None

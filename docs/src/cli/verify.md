@@ -36,3 +36,8 @@ Any drift, a missing or corrupt lock, or an unreachable target fails the run
 (non-zero exit). A filtered run (`-k`/`-m`) warns that it only checked the
 exercised targets. `--ditto-verify` cannot be combined with the write flags
 (`--ditto-update` / `--ditto-lock` / `--ditto-prune` / `--ditto-prune-dry-run`).
+
+`ditto verify` needs a single process. Under pytest-xdist distribution
+(`-n N`, or `--dist` with `--tx`) it stops with a usage error before running any
+tests; if your `addopts` sets `-n`, run `ditto verify -n 0`.
+See [Running under pytest-xdist](../guides/lock-file.md#running-under-pytest-xdist).
