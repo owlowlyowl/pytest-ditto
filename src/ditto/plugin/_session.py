@@ -12,6 +12,7 @@ from ditto.snapshot import _SessionTracker
 
 __all__ = (
     "TargetCacheKey",
+    "CollectionRecord",
     "DittoSession",
     "SESSION_STATE",
     "session_state",
@@ -28,6 +29,26 @@ TargetCacheKey = tuple[str, Hashable]
 # package as its plugin. Module-level state would be shared between the two
 # sessions, leaking the nested run's snapshots into the outer `ditto.lock` and
 # wiping the outer run's observations (#115).
+
+
+@dataclass
+class CollectionRecord:
+    """Node ids by what happened to them this session, filled in by the hooks.
+
+    Attributes
+    ----------
+    collected
+        Every test collected, including deselected ones.
+    passed
+        Tests whose call phase passed.
+    uncollected
+        What pytest left out: each path it ignored and each collector that
+        skipped, as a node id (`""` for the root directory).
+    """
+
+    collected: set[str] = field(default_factory=set)
+    passed: set[str] = field(default_factory=set)
+    uncollected: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -48,6 +69,7 @@ class DittoSession:
     introspect_backends: dict[str, MutableMapping[str, bytes]] = field(
         default_factory=dict
     )
+    collection: CollectionRecord = field(default_factory=CollectionRecord)
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()
