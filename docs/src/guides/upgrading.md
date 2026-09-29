@@ -122,12 +122,28 @@ from pathlib import Path
 
 UNSAFE = set('%<>:"/\\|?*') | {chr(c) for c in range(32)}
 
-for ditto_dir in Path(".").rglob(".ditto"):
+
+def encode(name):
+    return "".join(f"%{ord(c):02X}" if c in UNSAFE else c for c in name)
+
+
+for ditto_dir in [d for d in Path(".").rglob(".ditto") if d.is_dir()]:
+    # Plan every rename first. One file's new name can be another file's
+    # current name (`a:b` becomes `a%3Ab`, which itself becomes `a%253Ab`), so
+    # every file moves to a temporary name before any takes its new one.
+    plan = {}
     for path in [p for p in ditto_dir.rglob("*") if p.is_file()]:
         old = path.relative_to(ditto_dir).as_posix()
-        new = "".join(f"%{ord(c):02X}" if c in UNSAFE else c for c in old)
-        if new != old:
-            path.rename(ditto_dir / new)
+        if encode(old) != old:
+            plan[path] = ditto_dir / encode(old)
+    taken = [new for new in plan.values() if new.exists() and new not in plan]
+    if taken:
+        raise FileExistsError(f"not renaming anything; already exist: {taken}")
+    staged = {}
+    for i, (path, new) in enumerate(plan.items()):
+        staged[path.rename(ditto_dir / f".ditto-rename-{i}.tmp")] = new
+    for tmp, new in staged.items():
+        tmp.rename(new)
 ```
 
 It encodes the whole name, so it assumes your test file paths contain none of

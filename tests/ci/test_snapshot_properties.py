@@ -79,7 +79,12 @@ _NOT_PORTABLE = set('<>:"/\\|?*') | {chr(c) for c in range(32)}
 @given(a=st.tuples(_group, _key), b=st.tuples(_group, _key))
 def test_distinct_groups_and_keys_give_distinct_storage_keys(key_of, a, b) -> None:
     """Two snapshots of one test file and recorder share a storage key only if
-    their group name and key are both equal."""
+    their group name and key are both equal.
+
+    The recorder is held fixed because a dotted key can meet a dotted recorder
+    name (`v.pandas` with `json`, `v` with `pandas.json`); the fixture gives each
+    test one recorder, so that can't happen between two snapshots of a test.
+    """
     key_a = key_of(SnapshotKey("tests/test_m", *a, "json"))
     key_b = key_of(SnapshotKey("tests/test_m", *b, "json"))
 
@@ -121,12 +126,13 @@ def test_file_storage_key_leaves_portable_names_unchanged(group, key) -> None:
     key=st.builds(
         lambda head, bad, tail: head + bad + tail,
         _safe_key,
-        st.sampled_from(["@", "/", "\\", "\x00", "\n", "\x1f"]),
+        st.sampled_from("@/\\") | st.characters(categories=("Cc",)),
         _safe_key,
     )
 )
 def test_key_with_a_forbidden_character_is_rejected(key) -> None:
-    """Keys can't contain `@`, a path separator or a control character."""
+    """Keys can't contain `@`, a path separator or a control character: any of
+    Unicode category Cc, which includes DEL and the C1 controls."""
     snapshot = _memory_snapshot()
 
     with pytest.raises(ValueError, match="keys can't contain"):

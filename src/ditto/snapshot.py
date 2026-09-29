@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,7 +20,8 @@ DEFAULT_RECORDER_NAME = "json"
 # Stands in for a `Snapshot` recorder or recorder name that was not passed.
 _UNSET: Any = object()
 
-# Characters a snapshot key can't contain, besides control characters. A storage
+# Characters a snapshot key can't contain, besides control characters (Unicode
+# category Cc: U+0000–U+001F and U+007F–U+009F). A storage
 # key ends `@key.ext`, so with no `@` in the key it splits unambiguously at the
 # last `@` whatever the group name holds. `/` and `\` are path separators.
 _KEY_FORBIDDEN = frozenset("@/\\")
@@ -198,6 +200,11 @@ def _flat_key(sk: SnapshotKey) -> str:
     The group name and key are percent-encoded where they hold characters a
     portable file name can't (see `_encode_filename_part`): a group name
     carries the test's parametrize ID, which can contain any character.
+
+    For one recorder, distinct group names and keys give distinct names. Across
+    recorders a dotted key can meet a dotted recorder name (`v.pandas` with
+    `json`, `v` with `pandas.json`); the fixture gives each test one recorder,
+    so snapshots of one test can't collide that way.
     """
     module_dotted = sk.module.replace("/", ".")
     group = _encode_filename_part(sk.group_name)
@@ -323,7 +330,9 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        bad = sorted({c for c in key if c in _KEY_FORBIDDEN or ord(c) < 32})
+        bad = sorted(
+            {c for c in key if c in _KEY_FORBIDDEN or unicodedata.category(c) == "Cc"}
+        )
         if bad:
             raise ValueError(
                 f"snapshot key {key!r} contains {', '.join(map(repr, bad))}; keys "
