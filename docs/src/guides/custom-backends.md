@@ -123,9 +123,9 @@ Each key names one snapshot by its test module, test, snapshot key and a short
 hash of them, and ends with the name of the recorder that wrote it:
 
 ```
-tests/api/test_users/test_create@response~6d50f36d.json
-└────────┬─────────┘ └────┬────┘ └──┬───┘ └──┬───┘ └┬─┘
-    test module         test       key     hash recorder
+tests/api/test_users/test_create@response~90e755f5c20755bd.json
+└────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
+    test module         test       key         hash     recorder
 ```
 
 Keys are ASCII apart from the test module, which is the test file's path. They

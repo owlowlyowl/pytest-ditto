@@ -252,7 +252,9 @@ def test_returns_no_issues_for_empty_entry_list(json_ext_map) -> None:
 
 def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
     """A well-named, non-empty entry with a known extension produces no issues."""
-    entry = ManifestEntry("test_foo@result~00000000.json", size_bytes=4, modified=None)
+    entry = ManifestEntry(
+        "test_foo@result~0000000000000000.json", size_bytes=4, modified=None
+    )
 
     assert _find_lint_issues([entry], json_ext_map) == []
 
@@ -280,7 +282,7 @@ def test_reports_malformed_name_without_a_hash(json_ext_map, name) -> None:
 def test_reports_unknown_identifier_when_not_in_identifier_map() -> None:
     """An entry with an unregistered recorder identifier is flagged."""
     entry = ManifestEntry(
-        "test_foo@result~00000000.mystery", size_bytes=4, modified=None
+        "test_foo@result~0000000000000000.mystery", size_bytes=4, modified=None
     )
 
     issues = _find_lint_issues([entry], {})
@@ -291,7 +293,9 @@ def test_reports_unknown_identifier_when_not_in_identifier_map() -> None:
 
 def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
     """A zero-byte entry is flagged as empty."""
-    entry = ManifestEntry("test_foo@result~00000000.json", size_bytes=0, modified=None)
+    entry = ManifestEntry(
+        "test_foo@result~0000000000000000.json", size_bytes=0, modified=None
+    )
 
     issues = _find_lint_issues([entry], json_ext_map)
 
@@ -301,7 +305,7 @@ def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
 def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
     """An empty entry with an unknown extension produces two separate issues."""
     entry = ManifestEntry(
-        "test_foo@result~00000000.mystery", size_bytes=0, modified=None
+        "test_foo@result~0000000000000000.mystery", size_bytes=0, modified=None
     )
 
     issue_texts = {i.issue for i in _find_lint_issues([entry], {})}
@@ -404,7 +408,8 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
         """
     )
     pytester.runpytest_subprocess().assert_outcomes(passed=1)
-    (pytester.path / ".ditto" / "test_mod.test_old@v~0123abcd.json").write_text("1")
+    orphan_name = "test_mod.test_old@v~0123abcd0123abcd.json"
+    (pytester.path / ".ditto" / orphan_name).write_text("1")
     monkeypatch.setattr("ditto.cli.console", Console(width=200))
 
     result = CliRunner().invoke(cmd_list, [str(pytester.path)])
@@ -418,6 +423,50 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
     assert "not in lock" in orphan
 
 
+def test_list_shows_a_bracketed_key_literally(pytester, monkeypatch) -> None:
+    """A key that looks like Rich markup is shown as written, not parsed."""
+    pytester.makepyfile(
+        test_mod="""
+        def test_t(snapshot):
+            snapshot(1, key="[/]")
+            snapshot(2, key="[bold]x")
+        """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+
+    assert result.exit_code == 0, result.output
+    assert "[/]" in result.output
+    assert "[bold]x" in result.output
+
+
+def test_list_checks_the_lock_per_target(pytester, monkeypatch) -> None:
+    """A file named like a locked snapshot, but under another target, is marked
+    as not in the lock."""
+    pytester.makepyfile(
+        test_mod="""
+        def test_t(snapshot):
+            snapshot(1, key="k")
+        """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    (locked,) = (pytester.path / ".ditto").iterdir()
+    other = pytester.mkdir("other") / ".ditto"
+    other.mkdir()
+    (other / locked.name).write_bytes(locked.read_bytes())
+    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+
+    assert result.exit_code == 0, result.output
+    rows = [line for line in result.output.splitlines() if "test_t" in line]
+    assert len(rows) == 2
+    assert sum("not in lock" in row for row in rows) == 1
+    assert any("test_mod.py::test_t" in row for row in rows)
+
+
 def test_list_live_runs_introspect(tmp_path) -> None:
     """`ditto list --live` delegates to the introspection pass."""
     manifest = [
@@ -425,7 +474,7 @@ def test_list_live_runs_introspect(tmp_path) -> None:
             location="redis://h/0",
             entries=[
                 ManifestEntry(
-                    "mod.test_live@k~00000000.json", size_bytes=7, modified=None
+                    "mod.test_live@k~0000000000000000.json", size_bytes=7, modified=None
                 )
             ],
         )

@@ -77,20 +77,20 @@ def test_response(snapshot):
     assert data == snapshot(data, key="body")
 ```
 
-Stores to: `tests/.ditto/tests.test_api.test_response@body~1fe1a601.json`
+Stores to: `tests/.ditto/tests.test_api.test_response@body~234c7156f10c6aa4.json`
 
 A key can be any string, and the test name includes any parametrize ID, so
-either can hold characters a file name can't. In the file name, characters
-other than ASCII letters, digits and `. _ - [ ] = , +` become `_`. The hash,
-from the exact module, test, key and recorder, keeps names apart that would
+either can hold characters a file name can't. In the file name, characters other
+than ASCII letters, digits and `. _ - [ ] = , +` become `_`. The hash, from the
+test's exact node ID, the key and the recorder, keeps names apart that would
 otherwise match:
 
 | Test | File |
 |---|---|
-| `test_at[12:00]` | `tests.test_api.test_at[12_00]@body~0f79eaed.json` |
-| `test_at[12_00]` | `tests.test_api.test_at[12_00]@body~170b4cda.json` |
-| `test_at[A]` | `tests.test_api.test_at[A]@body~e1d300c3.json` |
-| `test_at[a]` | `tests.test_api.test_at[a]@body~bb984ba6.json` |
+| `test_at[12:00]` | `tests.test_api.test_at[12_00]@body~6617c5399a6ba420.json` |
+| `test_at[12_00]` | `tests.test_api.test_at[12_00]@body~105d78e147145d58.json` |
+| `test_at[A]` | `tests.test_api.test_at[A]@body~46cccc8d4a59c1ef.json` |
+| `test_at[a]` | `tests.test_api.test_at[a]@body~a99f8460327efdf4.json` |
 
 `ditto.lock` records the exact test and key, and `ditto list` shows them. See
 [Storage Backends](backends.md#local-files-file) for the full naming rules.

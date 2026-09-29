@@ -162,7 +162,7 @@ def storage_key(entry: LockEntry, scheme: str) -> str:
     all others use the slash-namespaced key.
     """
     module, group = split_nodeid(entry.nodeid)
-    sk = SnapshotKey(module, group, entry.key, entry.recorder)
+    sk = SnapshotKey(module, group, entry.key, entry.recorder, entry.nodeid)
     return _flat_key(sk) if scheme == "file" else _remote_key(sk)
 
 

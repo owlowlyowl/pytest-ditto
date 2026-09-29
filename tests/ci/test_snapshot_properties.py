@@ -6,7 +6,11 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ditto.exceptions import DittoSnapshotNameCollisionError, DuplicateSnapshotKeyError
+from ditto.exceptions import (
+    DittoSnapshotNameCollisionError,
+    DittoSnapshotNameTooLongError,
+    DuplicateSnapshotKeyError,
+)
 from ditto.snapshot import (
     Snapshot,
     SnapshotKey,
@@ -84,14 +88,54 @@ _NOT_PORTABLE = set('<>:"/\\|?*') | {chr(c) for c in range(32)}
 
 
 @given(sk=_identity)
-def test_file_name_after_the_module_is_portable_and_bounded(sk) -> None:
-    """The name after the module has only portable ASCII characters and is at
-    most 80 + 40 characters of label plus the separators, hash and recorder."""
+def test_file_name_after_the_module_is_portable(sk) -> None:
+    """The name after the module has only portable ASCII characters."""
     name = _flat_key(sk).removeprefix(sk.module.replace("/", ".") + ".")
 
     assert name.isascii()
     assert not _NOT_PORTABLE & set(name)
-    assert len(name) <= 80 + 1 + 40 + 1 + 8 + 1 + len(sk.identifier)
+
+
+# Module paths up to the longest that still leaves room for a label: a module
+# prefix of 255 bytes less the hash, separators, recorder and 16 label
+# characters. Segments hold non-ASCII too, since the module is a file path.
+_long_module = st.lists(
+    st.text(alphabet="abé_", min_size=1, max_size=60), min_size=1, max_size=6
+).map("/".join)
+
+
+@given(
+    module=_long_module,
+    group=st.text(min_size=1, max_size=300),
+    key=st.text(max_size=300),
+    identifier=st.sampled_from(["json", "pandas.parquet"]),
+)
+def test_whole_file_name_fits_in_255_bytes(module, group, key, identifier) -> None:
+    """The whole file name, module prefix included, is at most 255 bytes, or
+    naming it raises a clear error when the module leaves no room for a label."""
+    sk = SnapshotKey(module, group, key, identifier)
+
+    try:
+        name = _flat_key(sk)
+    except DittoSnapshotNameTooLongError:
+        fixed = len(module.replace("/", ".").encode()) + 1 + 1 + 16 + 1
+        assert fixed + len(identifier) + 16 > 255
+    else:
+        assert len(name.encode("utf-8")) <= 255
+        after_module = name.removeprefix(module.replace("/", ".") + ".")
+        assert _remote_key(sk).endswith(after_module)
+
+
+def test_a_long_module_shortens_the_label_rather_than_failing() -> None:
+    """A module path that leaves only a little room still gets a name that fits,
+    with the label shortened, where the unhashed format needed 250 bytes."""
+    module = "/".join(["tests"] + ["d" * 60] * 3)
+    sk = SnapshotKey(module, "test_" + "g" * 40, "k" * 10, "json")
+
+    name = _flat_key(sk)
+
+    assert len(name.encode()) <= 255
+    assert name.startswith(module.replace("/", ".") + ".test_")
 
 
 @given(a=_identity, b=_identity)

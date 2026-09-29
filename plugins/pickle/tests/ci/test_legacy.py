@@ -23,7 +23,7 @@ SNAPSHOT = (
     / ".ditto"
     / (
         "tests.ci.test_legacy.test_loads_a_snapshot_written_by_pytest_ditto_1x"
-        "@value~30588965.pickle"
+        "@value~b71cef3815393b43.pickle"
     )
 )
 SNAPSHOT_SHA256 = "503b118f791d9d8dfac3d509acb38e77230223ffa1517b57a87c184d1411146b"

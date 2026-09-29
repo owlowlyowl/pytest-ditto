@@ -63,9 +63,9 @@ rootdir, a test `test_create` in `tests/api/test_users.py` that calls
 `snapshot(value, key="response")` with the `json` recorder writes:
 
 ```
-tests/api/.ditto/tests.api.test_users.test_create@response~6d50f36d.json
-                 └────────┬─────────┘ └────┬────┘ └──┬───┘ └──┬───┘ └┬─┘
-                     test module         test       key     hash recorder
+tests/api/.ditto/tests.api.test_users.test_create@response~90e755f5c20755bd.json
+                 └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
+                     test module         test       key         hash     recorder
 ```
 
 The module part is the test file's path relative to the rootdir, without its
@@ -73,11 +73,14 @@ extension.
 
 The test and key are there to be read, not decoded, so they're made safe for
 every file system: characters other than ASCII letters, digits and
-`. _ - [ ] = , +` become `_`, and the test is shortened to 80 characters and
-the key to 40. The hash is the first 8 hex characters of a SHA-256 of the
-module, test, key and recorder. It keeps apart snapshots that would otherwise
-share a name, such as parametrize IDs that differ only in case (`[A]` and
-`[a]`, which are the same file name on Windows and macOS) or only in replaced
+`. _ - [ ] = , +` become `_`, and the test is shortened to 80 characters and the
+key to 40. If the module path is long, they're shortened further so the whole
+file name fits in 255 bytes; a module path too long to leave room for them is an
+error.
+The hash is the first 16 hex characters of a SHA-256 of the test's exact pytest
+node ID, the key and the recorder. It keeps apart snapshots that would otherwise
+share a name, such as parametrize IDs that differ only in case (`[A]` and `[a]`,
+which are the same file name on Windows and macOS) or only in replaced
 characters (`[12:00]` and `[12_00]`). `ditto.lock` records each snapshot's exact
 test and key, and `ditto list` shows them.
 
@@ -94,9 +97,9 @@ has the same parts as a local file's, but the module path keeps its slashes.
 The same test as above, with `target="s3://my-bucket/snapshots/"`, writes:
 
 ```
-s3://my-bucket/snapshots/tests/api/test_users/test_create@response~6d50f36d.json
-                         └────────┬─────────┘ └────┬────┘ └──┬───┘ └──┬───┘ └┬─┘
-                             test module         test       key     hash recorder
+s3://my-bucket/snapshots/tests/api/test_users/test_create@response~90e755f5c20755bd.json
+                         └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
+                             test module         test       key         hash     recorder
 ```
 
 `memory://` stores snapshots in the current Python process. A fresh process

@@ -9,7 +9,11 @@ from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 
-from .exceptions import DittoSnapshotNameCollisionError, DuplicateSnapshotKeyError
+from .exceptions import (
+    DittoSnapshotNameCollisionError,
+    DittoSnapshotNameTooLongError,
+    DuplicateSnapshotKeyError,
+)
 from .recorders import Recorder, default as _default_recorder
 
 
@@ -39,12 +43,19 @@ class SnapshotKey:
         Per-snapshot identifier within the test.
     identifier : str
         Recorder identifier, e.g. "json", "yaml", "pandas.parquet".
+    nodeid : str
+        Full pytest node id of the owning test, exactly as pytest reports it,
+        or "" for a `Snapshot` built outside the fixture. `module` and
+        `group_name` are derived from it and lose detail (the file extension,
+        `::` inside a parametrize ID), so the stored name's hash uses the node
+        id when there is one.
     """
 
     module: str
     group_name: str
     key: str
     identifier: str
+    nodeid: str = ""
 
     @property
     def filename(self) -> str:
@@ -175,11 +186,17 @@ class _SessionTracker:
 # normalisation of file names can't apply. "@" separates the label's two parts
 # and "~" starts the hash, so neither appears within a part.
 _LABEL_SAFE = frozenset(string.ascii_letters + string.digits + "._-[]=,+")
-# How much of the group name and key the label keeps, bounding a name's length.
+# The most the label keeps of the group name and key, for readability.
 _LABEL_GROUP_MAX = 80
 _LABEL_KEY_MAX = 40
-# Hex characters of the identity hash kept in a name.
-_HASH_LENGTH = 8
+# Hex characters of the identity hash kept in a name: 64 bits. Two names only
+# rely on the hash when their labels match, and an accidental collision then
+# needs billions of snapshots with one label.
+_HASH_LENGTH = 16
+# The longest file name most file systems allow, in bytes.
+_NAME_MAX_BYTES = 255
+# The fewest label characters (both parts and their "@") a name must keep.
+_LABEL_MIN = 16
 
 
 def _label_part(text: str, limit: int) -> str:
@@ -187,34 +204,56 @@ def _label_part(text: str, limit: int) -> str:
 
 
 def _identity_hash(sk: SnapshotKey) -> str:
-    """The first hex characters of the SHA-256 of `sk`'s four fields.
+    """The first hex characters of the SHA-256 of the snapshot's exact identity.
 
-    The fields are serialised as a compact JSON array, so no field's content
-    can be mistaken for a boundary between fields. This is part of the stored
+    The identity is `[test, key, identifier]`, where `test` is the node id, or
+    `module::group_name` for a snapshot without one. It is serialised as a
+    compact JSON array (`ensure_ascii=False`, UTF-8), so no field's content can
+    be mistaken for a boundary between fields. This is part of the stored
     format: changing it renames every snapshot.
     """
+    test = sk.nodeid or f"{sk.module}::{sk.group_name}"
     identity = json.dumps(
-        [sk.module, sk.group_name, sk.key, sk.identifier],
-        ensure_ascii=False,
-        separators=(",", ":"),
+        [test, sk.key, sk.identifier], ensure_ascii=False, separators=(",", ":")
     )
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
+
+
+def _label(sk: SnapshotKey) -> str:
+    """The readable 'group@key' part of a name, shortened to fit.
+
+    Characters outside `_LABEL_SAFE` become `_`. The group name keeps at most
+    `_LABEL_GROUP_MAX` characters and the key `_LABEL_KEY_MAX`. The label is
+    then shortened further so the file name, with its dotted module prefix,
+    fits in `_NAME_MAX_BYTES`; the group name gives way first, to half the
+    space. Remote keys use the same label as file names.
+
+    Raises
+    ------
+    DittoSnapshotNameTooLongError
+        When the module path leaves fewer than `_LABEL_MIN` characters.
+    """
+    module_prefix = sk.module.replace("/", ".") + "."
+    fixed = len(module_prefix.encode("utf-8")) + len(f"~{'0' * _HASH_LENGTH}.")
+    room = _NAME_MAX_BYTES - fixed - len(sk.identifier) - len("@")
+    if room + len("@") < _LABEL_MIN:
+        raise DittoSnapshotNameTooLongError(sk.module, _NAME_MAX_BYTES)
+    group = _label_part(sk.group_name, _LABEL_GROUP_MAX)
+    key = _label_part(sk.key, _LABEL_KEY_MAX)
+    group = group[: max(room - len(key), room // 2)]
+    key = key[: room - len(group)]
+    return f"{group}@{key}"
 
 
 def _snapshot_name(sk: SnapshotKey) -> str:
     """The part of a storage key after the module: 'label~hash.ext'.
 
-    The label is the group name and key, `@`-separated, with characters outside
-    `_LABEL_SAFE` replaced by `_` and each part shortened. It is for people to
-    read and isn't decoded; `ditto.lock` records the exact identity. The hash
-    tells apart snapshots whose labels match, such as parametrize IDs that
-    differ only in case or in characters the label replaces.
+    The label (see `_label`) is for people to read and isn't decoded;
+    `ditto.lock` records the exact identity. The hash tells apart snapshots
+    whose labels match, such as parametrize IDs that differ only in case or in
+    characters the label replaces.
     """
-    label = (
-        f"{_label_part(sk.group_name, _LABEL_GROUP_MAX)}"
-        f"@{_label_part(sk.key, _LABEL_KEY_MAX)}"
-    )
-    return f"{label}~{_identity_hash(sk)}.{sk.identifier}"
+    return f"{_label(sk)}~{_identity_hash(sk)}.{sk.identifier}"
 
 
 def _flat_key(sk: SnapshotKey) -> str:
@@ -349,7 +388,9 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        return SnapshotKey(self.module, self.group_name, key, self.recorder_name)
+        return SnapshotKey(
+            self.module, self.group_name, key, self.recorder_name, self.nodeid
+        )
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
         # file:// backends use a flat dotted key so .ditto/ stays a flat

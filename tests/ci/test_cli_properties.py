@@ -73,7 +73,9 @@ def test_human_size_scaled_value_has_exactly_one_decimal_place(n: int) -> None:
 
 
 @given(
-    module=st.from_regex(r"[a-z_]+(/[a-z_]+)*", fullmatch=True),
+    module=st.lists(
+        st.from_regex(r"[a-z_]{1,12}", fullmatch=True), min_size=1, max_size=5
+    ).map("/".join),
     group=st.text(min_size=1),
     key=st.text(),
     recorder=st.from_regex(NAME_PATTERN, fullmatch=True),
