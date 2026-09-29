@@ -92,14 +92,18 @@ def test_ditto_lock_does_not_rewrite_snapshot_values(pytester):
 
 
 def test_ditto_lock_refuses_to_rebuild_on_filtered_run(pytester):
-    """A filtered --ditto-lock run does not rebuild, so a stale entry survives."""
+    """A filtered --ditto-lock run does not rebuild, so a stale entry survives.
+    The run fails and says why, even with warnings filtered out."""
     pytester.makepyfile(test_mod=TEST_MODULE)
     pytester.runpytest_subprocess()
     _append_stale_entry(pytester)
 
-    result = pytester.runpytest_subprocess("--ditto-lock", "-k", "test_alpha")
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "-k", "test_alpha", "-W", "ignore::UserWarning"
+    )
 
     assert result.ret != 0  # an explicit refusal fails the command
+    result.stdout.fnmatch_lines(["*ditto: --ditto-lock requires a full run*"])
     assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
 
 
