@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import warnings
+from collections.abc import Iterable, Iterator
 from enum import Enum
 
 import pytest
@@ -19,13 +21,14 @@ from ditto._lockfile import (
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
 from ._options import PruneMode, RunOptions
-from ._session import fail_session, session_state
+from ._session import CollectionRecord, fail_session, session_state
 
 
 __all__ = (
     "LockAction",
     "choose_lock_action",
     "is_authoritative_run",
+    "keeps_entry",
     "write_session_lockfile",
     "warn_if_lockfile_ignored",
 )
@@ -116,12 +119,60 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     return session.testsfailed == 0 and exitstatus == 0
 
 
-def _rewrite_lockfile(config: pytest.Config) -> None:
-    """Rewrite each exercised target's entries to this run's accessed-or-created set.
+def _containing_nodeids(nodeid: str) -> Iterator[str]:
+    """Yield `nodeid` and the node ids that contain it.
 
-    Targets present in the existing file but not exercised this run are preserved.
+    For `tests/test_x.py::TestC::test_m` that is `""` (the root directory),
+    `tests`, `tests/test_x.py`, `tests/test_x.py::TestC` and the node id itself.
     """
-    grouped = _grouped(session_state(config).tracker.lock_accessed)
+    yield ""
+    for boundary in re.finditer(r"/|::", nodeid):
+        yield nodeid[: boundary.start()]
+    yield nodeid
+
+
+def keeps_entry(nodeid: str, collection: CollectionRecord) -> bool:
+    """Whether a rebuild keeps an existing entry this run didn't replace.
+
+    A test that passed has its entries replaced by what it used this run. A
+    test that was collected but didn't pass (skipped, xfailed, deselected), or
+    that pytest didn't collect because it ignored a path above the test or a
+    collector above it skipped, keeps its entries, so a skip on one machine
+    never drops a baseline another machine still runs. An entry for a test that
+    no longer exists is dropped.
+    """
+    if nodeid in collection.passed:
+        return False
+    return nodeid in collection.collected or any(
+        node in collection.uncollected for node in _containing_nodeids(nodeid)
+    )
+
+
+def _rebuilt_target(
+    current: LockTarget | None,
+    scheme: str,
+    entries: Iterable[LockEntry],
+    collection: CollectionRecord,
+) -> LockTarget:
+    """Return a target's rebuilt entries: this run's plus the existing ones kept.
+
+    A target's scheme is intrinsic to its id, so an existing target keeps its
+    scheme (matching `merge_append`); `scheme` is used only for a new target.
+    """
+    if current is None:
+        return LockTarget(scheme=scheme, entries=tuple(sorted(set(entries))))
+    kept = {e for e in current.entries if keeps_entry(e.nodeid, collection)}
+    return LockTarget(scheme=current.scheme, entries=tuple(sorted(set(entries) | kept)))
+
+
+def _rewrite_lockfile(config: pytest.Config) -> None:
+    """Rebuild each exercised target's entries from this run, test by test.
+
+    Targets present in the existing file but not exercised this run are
+    preserved; see `_rebuilt_target` for an exercised one.
+    """
+    state = session_state(config)
+    grouped = _grouped(state.tracker.lock_accessed)
     path = config.rootpath / LOCKFILE_NAME
     # An authoritative rebuild must be able to recover a corrupt lock file, so a
     # parse failure of the existing file is downgraded to "start fresh" rather
@@ -138,12 +189,8 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
         existing = None
     targets = dict(existing.targets) if existing is not None else {}
     for (target_id, scheme), entries in grouped.items():
-        # A target's scheme is intrinsic to its id; preserve the existing one
-        # (matching merge_append) and only use the observed scheme for a new target.
-        current = targets.get(target_id)
-        target_scheme = current.scheme if current is not None else scheme
-        targets[target_id] = LockTarget(
-            scheme=target_scheme, entries=tuple(sorted(set(entries)))
+        targets[target_id] = _rebuilt_target(
+            targets.get(target_id), scheme, entries, state.collection
         )
     lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
     if lock != existing:

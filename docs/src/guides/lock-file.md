@@ -39,6 +39,16 @@ or in a profile's `storage_options`, instead.
 | `ditto update` (`pytest --ditto-update`) | On a full run, reconciles the lock (drops entries for deleted tests); on a filtered run, appends only. |
 | `ditto prune` (`pytest --ditto-prune`) | Does **not** write the lock; deletes backend snapshots absent from it. |
 
+A rebuild works test by test. A test that passed this run has its entries
+replaced by the snapshots it used. A test that didn't run its body to a pass
+keeps its entries: one that was skipped (for example by a platform `skipif`, or
+a module-level `pytest.skip` or `pytest.importorskip`), xfailed, deselected with
+`--deselect`, or in a path pytest didn't collect (`--ignore`, `--ignore-glob`,
+a `conftest.py` `collect_ignore` or `collect_ignore_glob`, or `norecursedirs`).
+Entries for tests that no longer exist are dropped, which is what cleans up
+after a renamed or deleted test. A skip on one machine therefore never removes
+a snapshot that another machine still runs.
+
 Owned-prefix scoping keeps a shared backend safe: ditto only considers keys under
 the modules your suite owns, so two suites or branches sharing one backend never
 delete each other's data.
