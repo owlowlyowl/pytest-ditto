@@ -29,7 +29,7 @@ ditto verify tests/ci/
 | Drift | Meaning |
 |---|---|
 | missing | Recorded in `ditto.lock` but absent from the backend. |
-| orphan | Present in the backend (under an owned prefix) but not in the lock. |
+| orphan | Present in the backend (under an owned prefix) but not in the lock. On a target another branch or project also writes to, its snapshots are reported here too; see [Sharing a target](../guides/lock-file.md#sharing-a-target). |
 | unsynced | Produced this run but not yet in the lock; run `ditto lock`. |
 
 Any drift, a missing or corrupt lock, or an unreachable target fails the run

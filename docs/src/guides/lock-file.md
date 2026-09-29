@@ -49,9 +49,28 @@ Entries for tests that no longer exist are dropped, which is what cleans up
 after a renamed or deleted test. A skip on one machine therefore never removes
 a snapshot that another machine still runs.
 
-Owned-prefix scoping keeps a shared backend safe: ditto only considers keys under
-the modules your suite owns, so two suites or branches sharing one backend never
-delete each other's data.
+### Sharing a target
+
+`ditto verify` and `ditto prune` only look at keys under the test modules your
+suite owns, so another suite with different module paths on the same backend is
+left alone. What they can't tell apart is anyone else with the same module
+paths: another branch of the same project, or another project that also has
+`tests/test_api.py`. On a target they both write to, a snapshot that only the
+other has recorded looks like an orphan. `ditto verify` reports it as drift,
+and `ditto prune` would delete it.
+
+So give each project, and each branch whose tests can differ, its own target
+path, for example `s3://bucket/<project>/<branch>/`. In CI, you can pass it
+on the command line with the branch name filled in:
+`pytest -o "ditto_target=s3://bucket/my-project/$BRANCH/"`.
+
+Because ditto can't check that a target is used by one checkout only, `ditto
+prune` deletes nothing from one that might be shared unless you pass
+`--shared` (`pytest --ditto-prune-shared`). Without it, prune says how many
+snapshots it left in each such target and the run fails. A target might be
+shared when it is anything other than a `file://` path inside the project,
+such as the default `.ditto`: a remote URI, or a `file://` path outside the
+project. `ditto prune --check` lists what would be deleted either way.
 
 ## How the lock is used
 

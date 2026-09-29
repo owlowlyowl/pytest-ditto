@@ -433,22 +433,37 @@ def cmd_update(pytest_args):
     default=False,
     help="Dry run: report what would be pruned, without deleting.",
 )
+@click.option(
+    "--shared",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also delete from targets other checkouts, branches or projects may "
+        "share (any target but a file:// path inside the project). Only safe "
+        "when each has its own target path."
+    ),
+)
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_prune(check, pytest_args):
+def cmd_prune(check, shared, pytest_args):
     """Re-run pytest to delete snapshots not in ditto.lock.
 
-    With --check, report what would be pruned without deleting anything. Any
-    extra arguments are passed directly to pytest.
+    With --check, report what would be pruned without deleting anything. A
+    target outside the project (a remote URI, or a file:// path outside it) is
+    only pruned with --shared. Any extra arguments are passed directly to
+    pytest.
 
     \b
     Examples:
       ditto prune
       ditto prune --check
+      ditto prune --shared
       ditto prune tests/ci/
     """
-    flag = "--ditto-prune-dry-run" if check else "--ditto-prune"
+    flags = ["--ditto-prune-dry-run" if check else "--ditto-prune"]
+    if shared:
+        flags.append("--ditto-prune-shared")
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", flag, *pytest_args],
+        [sys.executable, "-m", "pytest", *flags, *pytest_args],
         check=False,
     )
     sys.exit(result.returncode)

@@ -6,7 +6,8 @@ import pytest
 
 from ditto._lockfile import LockEntry, LockTarget, LockFile, serialise, deserialise
 from ditto._lockfile import read_lockfile, write_lockfile
-from ditto._lockfile import portable_target_id, split_nodeid, storage_key
+from ditto._lockfile import is_checkout_local, portable_target_id
+from ditto._lockfile import split_nodeid, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
 from ditto.snapshot import (
@@ -318,3 +319,22 @@ def test_records_entry_as_accessed_only_when_not_created():
 
     assert seen not in tracker.lock_created
     assert seen in tracker.lock_accessed
+
+
+@pytest.mark.parametrize(
+    ("uri", "local"),
+    [
+        ("file://{root}/.ditto", True),
+        ("file://{root}/tests/.ditto", True),
+        ("file:///srv/shared/snapshots", False),
+        ("s3://bucket/snapshots", False),
+        ("redis://localhost:6379/0", False),
+        ("memory://snapshots", False),
+    ],
+    ids=["root-ditto", "nested", "outside-rootdir", "s3", "redis", "memory"],
+)
+def test_is_checkout_local(tmp_path: Path, uri: str, local: bool) -> None:
+    """Only a file:// target inside the rootdir is local to the checkout."""
+    target_id = portable_target_id(uri.format(root=tmp_path), tmp_path)
+
+    assert is_checkout_local(target_id) is local

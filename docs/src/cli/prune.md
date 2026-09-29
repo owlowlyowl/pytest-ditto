@@ -1,13 +1,18 @@
 # ditto prune
 
-Removes stale snapshots by running pytest with `--ditto-prune`. Snapshot files
-not accessed during the run are deleted.
+Removes stale snapshots by running pytest with `--ditto-prune`: snapshots in the
+backend that `ditto.lock` doesn't record are deleted.
 
 ## Usage
 
 ```
-ditto prune [PATH] [PYTEST_ARGS...]
+ditto prune [--check] [--shared] [PATH] [PYTEST_ARGS...]
 ```
+
+| Option | Effect |
+|---|---|
+| `--check` | Report what would be deleted without deleting it (`--ditto-prune-dry-run`). |
+| `--shared` | Also delete from targets that might be shared (`--ditto-prune-shared`). |
 
 ## Examples
 
@@ -15,15 +20,27 @@ ditto prune [PATH] [PYTEST_ARGS...]
 # Prune all stale snapshots
 ditto prune
 
-# Prune in a specific directory
-ditto prune tests/ci/
+# List what would be pruned
+ditto prune --check
+
+# Prune a remote target that this project and branch use alone
+ditto prune --shared
 ```
 
 ## Behaviour
 
-- Runs pytest with `--ditto-prune` flag
-- Tracks which snapshot files are accessed during the run
-- Deletes any snapshot files that were not accessed
+- Runs pytest with `--ditto-prune`, then compares each target the run used with
+  `ditto.lock`.
+- Deletes each snapshot the lock doesn't record, under the test modules the
+  suite owns. A snapshot created during the same run is never deleted; run
+  `ditto lock` to record it.
+- Needs a `ditto.lock`; without one it deletes nothing and fails.
+- Deletes nothing from a target that other checkouts might share (a remote URI,
+  or a `file://` path outside the project) unless you pass `--shared`. Without
+  it, the run fails and says how many snapshots it left there. Pass `--shared`
+  only when each project and branch has its own target path: another branch's
+  snapshots look like orphans. See
+  [Sharing a target](../guides/lock-file.md#sharing-a-target).
 
 !!! warning
     Using `-k` for a partial run may falsely classify snapshots for un-run

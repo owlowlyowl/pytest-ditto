@@ -47,8 +47,9 @@ def diff_backend(
     `missing` = lock keys absent from the backend. `unsynced` = keys created this
     run that the lock does not record. `orphan` = backend keys under an owned
     prefix, absent from the lock, that were NOT created this run (deletable).
-    Keys outside the owned prefixes (another suite/branch on a shared backend) are
-    never reported.
+    Keys outside the owned prefixes (another suite's modules on a shared backend)
+    are never reported. Keys another branch or project wrote under the same
+    module paths are inside them, so they are reported as orphans.
     """
     missing = tuple(sorted(lock_keys - backend_keys))
     drift = {

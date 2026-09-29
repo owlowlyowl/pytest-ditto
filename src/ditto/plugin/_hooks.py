@@ -12,7 +12,13 @@ from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
 from ditto.snapshot import SnapshotMode
 
-from ._drift import delete_orphans, find_orphans, run_verify
+from ._drift import (
+    delete_orphans,
+    find_orphans,
+    refuse_shared_prune,
+    run_verify,
+    split_shared,
+)
 from ._introspect import write_introspect_manifest
 from ._lock import (
     choose_lock_action,
@@ -155,7 +161,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         write_session_lockfile(session, choose_lock_action(options, authoritative))
         match options.prune:
             case PruneMode.DELETE:
-                pruned = delete_orphans(find_orphans(session))
+                orphans = find_orphans(session)
+                if not options.prune_shared:
+                    orphans, shared = split_shared(orphans)
+                    if shared:
+                        refuse_shared_prune(session, shared)
+                pruned = delete_orphans(orphans)
             case PruneMode.DRY_RUN:
                 would_prune = [orphan.key for orphan in find_orphans(session)]
             case PruneMode.OFF:
