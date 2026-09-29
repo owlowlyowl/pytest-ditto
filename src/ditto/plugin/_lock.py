@@ -239,32 +239,46 @@ def choose_lock_action(options: RunOptions, authoritative: bool) -> LockAction:
     return LockAction.APPEND
 
 
+def _fail_run(session: pytest.Session, message: str) -> None:
+    """Print why the run fails, then fail it.
+
+    Printed rather than warned, so a warning filter can't hide why it failed.
+    """
+    print(f"ditto: {message}")
+    fail_session(session)
+
+
 def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     """Apply `action` to `ditto.lock` for a single-process run.
 
-    Never raises — a lock-write failure is downgraded to a `DittoWarning`.
+    Never raises. A refused rebuild fails the run, and so does a rebuild
+    (`--ditto-lock`, or `--ditto-update` on a full run) that can't write the
+    lock: it's lock maintenance the user asked for. An ordinary run's append
+    that can't write the lock only warns: a test run shouldn't fail over lock
+    bookkeeping.
     """
-    config = session.config
+    match action:
+        case LockAction.KEEP:
+            return
+        case LockAction.REFUSE:
+            _fail_run(
+                session,
+                "--ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid "
+                f"args, and no failures); leaving {LOCKFILE_NAME} unchanged.",
+            )
+            return
+        case LockAction.APPEND:
+            write = _append_lockfile
+        case LockAction.REBUILD:
+            write = _rewrite_lockfile
     try:
-        match action:
-            case LockAction.APPEND:
-                _append_lockfile(config)
-            case LockAction.REBUILD:
-                _rewrite_lockfile(config)
-            case LockAction.REFUSE:
-                warnings.warn(
-                    "--ditto-lock requires a full run (no -k/-m/--lf, no "
-                    "path/nodeid args, and no failures); leaving "
-                    "ditto.lock unchanged.",
-                    category=DittoWarning,
-                    stacklevel=1,
-                )
-                fail_session(session)
-            case LockAction.KEEP:
-                pass
+        write(session.config)
     except Exception as exc:  # never crash a run over a lock-file write
-        warnings.warn(
-            f"Failed to write {LOCKFILE_NAME}: {exc}",
-            category=DittoWarning,
-            stacklevel=1,
-        )
+        if action is LockAction.REBUILD:
+            _fail_run(session, f"failed to write {LOCKFILE_NAME}: {exc}")
+        else:
+            warnings.warn(
+                f"Failed to write {LOCKFILE_NAME}: {exc}",
+                category=DittoWarning,
+                stacklevel=1,
+            )

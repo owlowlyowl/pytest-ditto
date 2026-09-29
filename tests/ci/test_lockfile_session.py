@@ -94,14 +94,18 @@ def test_ditto_lock_does_not_rewrite_snapshot_values(pytester):
 
 
 def test_ditto_lock_refuses_to_rebuild_on_filtered_run(pytester):
-    """A filtered --ditto-lock run does not rebuild, so a stale entry survives."""
+    """A filtered --ditto-lock run does not rebuild, so a stale entry survives.
+    The run fails and says why, even with warnings filtered out."""
     pytester.makepyfile(test_mod=TEST_MODULE)
     pytester.runpytest_subprocess()
     _append_stale_entry(pytester)
 
-    result = pytester.runpytest_subprocess("--ditto-lock", "-k", "test_alpha")
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "-k", "test_alpha", "-W", "ignore::UserWarning"
+    )
 
     assert result.ret != 0  # an explicit refusal fails the command
+    result.stdout.fnmatch_lines(["*ditto: --ditto-lock requires a full run*"])
     assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
 
 
@@ -511,3 +515,39 @@ def test_keeps_entry(collection, kept):
     """An entry is kept for a collected test that didn't pass, or one under
     something pytest left out, matched on whole node-id segments."""
     assert keeps_entry(NODE, collection) is kept
+
+
+# ── A failed rebuild fails the run (#159) ─────────────────────────────────────
+
+
+def _make_lock_unwritable(pytester):
+    """Replace ditto.lock with a directory, which can be neither read nor written."""
+    lock = pytester.path / "ditto.lock"
+    lock.unlink(missing_ok=True)
+    lock.mkdir()
+
+
+@pytest.mark.parametrize("rebuild", ["--ditto-lock", "--ditto-update"])
+def test_a_rebuild_that_cannot_write_the_lock_fails_the_run(pytester, rebuild):
+    """`ditto lock` or a full `ditto update` that can't write the lock exits
+    non-zero and says why, even with warnings filtered out."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess(rebuild, "-W", "ignore::UserWarning")
+
+    result.assert_outcomes(passed=2)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto: failed to write ditto.lock*"])
+
+
+def test_an_ordinary_run_that_cannot_append_to_the_lock_only_warns(pytester):
+    """A plain run still passes when the lock can't be written; it warns."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess()
+
+    assert result.ret == pytest.ExitCode.OK
+    result.stdout.fnmatch_lines(["*DittoWarning: Failed to write ditto.lock*"])
