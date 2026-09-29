@@ -31,6 +31,7 @@ ditto prune tests/ci/
     deletion.
 
 !!! note
-    Prune needs a single process. Under pytest-xdist (`-n N`) it fails the run
+    Prune needs a single process. Under pytest-xdist distribution (`-n N`, or
+    `--dist` with `--tx`) it stops with a usage error before running any tests
     and deletes nothing; if your `addopts` sets `-n`, run `ditto prune -n 0`.
     See [Running under pytest-xdist](../guides/lock-file.md#running-under-pytest-xdist).
