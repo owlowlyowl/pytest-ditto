@@ -172,11 +172,11 @@ def test_local(snapshot):
 def test_local_gone(snapshot):
     snapshot(2, key="b")
 
-@ditto.record("json", target="file://{shared}")
+@ditto.record("json", target="file://{shared.as_posix()}")
 def test_remote(snapshot):
     snapshot(3, key="c")
 
-@ditto.record("json", target="file://{shared}")
+@ditto.record("json", target="file://{shared.as_posix()}")
 def test_remote_gone(snapshot):
     snapshot(4, key="d")
 """
