@@ -219,7 +219,7 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
                 fail_session(session)
             case LockAction.KEEP:
                 pass
-    except Exception as exc:  # never crash a run over a lock-file write
+    except Exception as exc:  # report a lock-file write failure, never crash
         if action is LockAction.REBUILD:
             print(f"ditto: failed to write {LOCKFILE_NAME}: {exc}")
             fail_session(session)
