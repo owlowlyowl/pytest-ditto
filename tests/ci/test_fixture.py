@@ -1,6 +1,7 @@
 import pytest
 
 from ditto import Snapshot
+from ditto._lockfile import LOCKFILE_NAME, read_lockfile, storage_key
 
 
 def test_injects_snapshot_instance_into_test(snapshot) -> None:
@@ -205,6 +206,88 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_nested_snapshot_keys_match_the_keys_the_lock_derives(pytester) -> None:
+    """Every key the fixture writes is the key the lock derives for its entry.
+
+    The fixture and lock, verify and prune must build a snapshot's identity
+    from its test the same way, or verify reports the snapshots missing and
+    prune deletes them. A test below the rootdir, in a class and parametrized,
+    exercises the node id's path, class and parameter parts.
+    """
+    pytester.mkdir("tests")
+    pytester.mkdir("tests/sub").joinpath("test_nested.py").write_text(
+        "import pytest\n\n"
+        "class TestGroup:\n"
+        "    @pytest.mark.parametrize('n', [1, 2])\n"
+        "    def test_value(self, snapshot, n):\n"
+        "        assert snapshot(n, key='v') == n\n"
+    )
+
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+
+    lock = read_lockfile(pytester.path / LOCKFILE_NAME)
+    assert lock is not None
+    target = lock.targets["tests/sub/.ditto"]
+    derived = {storage_key(entry, target.scheme) for entry in target.entries}
+    written = {p.name for p in (pytester.path / "tests/sub/.ditto").iterdir()}
+    assert written == derived
+    assert written == {
+        "tests.sub.test_nested.TestGroup.test_value[1]@v.json",
+        "tests.sub.test_nested.TestGroup.test_value[2]@v.json",
+    }
+
+
+_DOCTEST = """
+>>> snap = getfixture("snapshot")
+>>> snap({value}, key="v")
+{value}
+"""
+
+
+def test_doctest_snapshot_keeps_its_key_and_matches_the_lock(pytester) -> None:
+    """A doctest file's snapshot key drops the file's extension, as it always has.
+
+    Before the fixture shared the lock's node-id parser it named this snapshot
+    `test_example.test_example.txt@v.json`, so a baseline recorded then must
+    still be the one compared against, and the lock must derive the same key
+    so a clean verify passes.
+    """
+    doctest_args = ("--doctest-glob=*.txt",)
+    doc = pytester.path / "test_example.txt"
+    doc.write_text(_DOCTEST.format(value=123))
+    pytester.runpytest_subprocess(*doctest_args).assert_outcomes(passed=1)
+
+    written = {p.name for p in (pytester.path / ".ditto").iterdir()}
+    assert written == {"test_example.test_example.txt@v.json"}
+    lock = read_lockfile(pytester.path / LOCKFILE_NAME)
+    assert lock is not None
+    target = lock.targets[".ditto"]
+    assert {storage_key(e, target.scheme) for e in target.entries} == written
+
+    verify = pytester.runpytest_subprocess("--ditto-verify", *doctest_args)
+    assert verify.ret == pytest.ExitCode.OK
+
+    doc.write_text(_DOCTEST.format(value=999))
+    pytester.runpytest_subprocess(*doctest_args).assert_outcomes(failed=1)
+
+
+def test_snapshot_in_a_test_outside_the_rootdir_errors_clearly(pytester) -> None:
+    """A test outside the rootdir has no module to key its snapshots by."""
+    root = pytester.mkdir("root")
+    root.joinpath("pytest.ini").write_text("[pytest]\n")
+    outside = pytester.mkdir("outside")
+    outside.joinpath("test_outside.py").write_text(
+        "def test_a(snapshot):\n    snapshot(1, key='a')\n"
+    )
+
+    result = pytester.runpytest_subprocess(
+        f"--rootdir={root}", str(outside / "test_outside.py")
+    )
+
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(["*is outside the rootdir*"])
 
 
 _ITER_RAISING_CONFTEST = """

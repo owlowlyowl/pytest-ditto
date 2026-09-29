@@ -6,7 +6,7 @@ import pytest
 
 from ditto._lockfile import LockEntry, LockTarget, LockFile, serialise, deserialise
 from ditto._lockfile import read_lockfile, write_lockfile
-from ditto._lockfile import portable_target_id, storage_key
+from ditto._lockfile import portable_target_id, split_nodeid, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
 from ditto.snapshot import (
@@ -131,6 +131,28 @@ def test_passes_remote_uri_through_unchanged():
 
     expected = "s3://bucket/snaps"
     assert actual == expected
+
+
+@pytest.mark.parametrize(
+    ("nodeid", "expected"),
+    [
+        ("test_api.py::test_foo", ("test_api", "test_foo")),
+        (
+            "tests/sub/test_api.py::TestX::test_foo[a-1]",
+            ("tests/sub/test_api", "TestX.test_foo[a-1]"),
+        ),
+        # A doctest file keeps the key the fixture gave it before 2.0: the
+        # extension is dropped whatever it is.
+        ("docs/guide.txt::guide.txt", ("docs/guide", "guide.txt")),
+        ("tests/test_v1.2.py::test_foo", ("tests/test_v1.2", "test_foo")),
+        # pytest gives a test outside the rootdir no file path.
+        ("::test_foo", ("", "test_foo")),
+    ],
+    ids=["root", "nested-class-param", "doctest", "dotted-stem", "no-path"],
+)
+def test_splits_nodeid_into_module_and_group(nodeid, expected):
+    """The module is the file path without its extension; the rest is the group."""
+    assert split_nodeid(nodeid) == expected
 
 
 def test_derives_flat_dotted_key_for_file_scheme():

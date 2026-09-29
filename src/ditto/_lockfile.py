@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import msgspec
@@ -22,6 +22,7 @@ __all__ = (
     "read_lockfile",
     "write_lockfile",
     "portable_target_id",
+    "split_nodeid",
     "storage_key",
     "merge_append",
 )
@@ -133,14 +134,23 @@ def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
         return canonical_uri
 
 
-def _split_nodeid(nodeid: str) -> tuple[str, str]:
+def split_nodeid(nodeid: str) -> tuple[str, str]:
     """Split a pytest nodeid into `(module_stem, group_name)`.
 
     `tests/test_api.py::TestX::test_foo` -> (`tests/test_api`, `TestX.test_foo`),
-    matching `SnapshotKey.module` and `SnapshotKey.group_name`.
+    matching `SnapshotKey.module` and `SnapshotKey.group_name`. The file's last
+    extension is dropped whatever it is, so a doctest in `docs/guide.txt` has
+    module `docs/guide`.
+
+    This is the one derivation of a snapshot's identity from its test: the
+    `snapshot` fixture builds keys with it, and lock, verify and prune rebuild
+    the same keys from lock entries with it. Node ids always use forward
+    slashes, so the result is the same on every platform.
     """
     path_part, _, rest = nodeid.partition("::")
-    module = path_part.removesuffix(".py")
+    # A node id with no file path (a test outside the rootdir) has no module;
+    # `PurePosixPath("")` is ".", which `with_suffix` rejects.
+    module = PurePosixPath(path_part).with_suffix("").as_posix() if path_part else ""
     group = rest.replace("::", ".")
     return module, group
 
@@ -151,7 +161,7 @@ def storage_key(entry: LockEntry, scheme: str) -> str:
     Reuses the live `SnapshotKey` logic: `file` schemes use the flat dotted key,
     all others use the slash-namespaced key.
     """
-    module, group = _split_nodeid(entry.nodeid)
+    module, group = split_nodeid(entry.nodeid)
     sk = SnapshotKey(module, group, entry.key, entry.recorder)
     return _flat_key(sk) if scheme == "file" else str(sk)
 

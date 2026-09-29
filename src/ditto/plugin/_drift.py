@@ -11,7 +11,7 @@ from ditto._lockfile import (
     LockEntry,
     LockFile,
     LOCKFILE_NAME,
-    _split_nodeid,
+    split_nodeid,
     read_lockfile,
     storage_key,
 )
@@ -48,7 +48,7 @@ def _classify_target(
     lock_target = lock.targets.get(target_id) if lock is not None else None
     entries = lock_target.entries if lock_target is not None else ()
     lock_keys = {storage_key(e, scheme) for e in entries}
-    lock_modules = {_split_nodeid(e.nodeid)[0] for e in entries}
+    lock_modules = {split_nodeid(e.nodeid)[0] for e in entries}
     owned = owned_prefixes(session_modules | lock_modules, scheme)
     result = diff_backend(lock_keys, set(backend), owned, created_keys)
     return list(result.missing), list(result.orphan), list(result.unsynced)
@@ -62,7 +62,7 @@ def _session_target_maps(
     created_by_target: dict[str, set[str]] = {}
     for seen in tracker.lock_accessed:
         modules_by_target.setdefault(seen.target_id, set()).add(
-            _split_nodeid(seen.nodeid)[0]
+            split_nodeid(seen.nodeid)[0]
         )
     for seen in tracker.lock_created:
         created_by_target.setdefault(seen.target_id, set()).add(
@@ -84,7 +84,7 @@ def _verify_report_drift(
     for k in sorted(orphan):
         print(f"  orphan (in backend, not in lock): {k}")
     for k in sorted(unsynced):
-        print(f"  unsynced (produced this run, not in lock — run `ditto lock`): {k}")
+        print(f"  unsynced (produced this run, not in lock; run `ditto lock`): {k}")
 
 
 def run_verify(session: pytest.Session) -> None:
@@ -200,8 +200,8 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
             continue
         for key in unsynced:
             warnings.warn(
-                f"ditto prune: {key} was produced this run but is not in the lock "
-                "— run `ditto lock`.",
+                f"ditto prune: {key} was produced this run but is not in the lock; "
+                "run `ditto lock`.",
                 category=DittoWarning,
                 stacklevel=1,
             )

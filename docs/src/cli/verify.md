@@ -30,7 +30,7 @@ ditto verify tests/ci/
 |---|---|
 | missing | Recorded in `ditto.lock` but absent from the backend. |
 | orphan | Present in the backend (under an owned prefix) but not in the lock. |
-| unsynced | Produced this run but not yet in the lock — run `ditto lock`. |
+| unsynced | Produced this run but not yet in the lock; run `ditto lock`. |
 
 Any drift, a missing or corrupt lock, or an unreachable target fails the run
 (non-zero exit). A filtered run (`-k`/`-m`) warns that it only checked the
