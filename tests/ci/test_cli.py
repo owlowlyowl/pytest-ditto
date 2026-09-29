@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 
+import pytest
 from click.testing import CliRunner
 
 from ditto import cli as cli_mod
@@ -78,6 +79,35 @@ def test_splits_at_the_last_at_sign() -> None:
     assert group == "m.test_foo[a@b]"
     assert key == "result"
     assert ext == ".json"
+
+
+@pytest.mark.parametrize(
+    ("filename", "identifiers", "expected"),
+    [
+        # A dotted key before an installed one-part recorder.
+        ("m.t@v1.2.json", {".json"}, ("m.t", "v1.2", ".json")),
+        ("m.t@result.csv.json", {".json"}, ("m.t", "result.csv", ".json")),
+        # An installed two-part recorder is preferred over its last part.
+        (
+            "m.t@frame.pandas.parquet",
+            {".pandas.parquet", ".parquet"},
+            ("m.t", "frame", ".pandas.parquet"),
+        ),
+        # Nothing installed: the last two parts if they form a recorder name.
+        ("m.t@v1.2.json", set(), ("m.t", "v1.2", ".json")),
+        ("m.t@frame.pandas.parquet", set(), ("m.t", "frame", ".pandas.parquet")),
+    ],
+    ids=[
+        "dotted-key",
+        "dotted-key-like-recorder",
+        "installed-two-part",
+        "uninstalled-digit-part",
+        "uninstalled-two-part",
+    ],
+)
+def test_finds_the_extension_from_the_right(filename, identifiers, expected) -> None:
+    """Keys and recorder names can both hold dots; the ext is found from the right."""
+    assert _parse_snapshot_name(filename, identifiers) == expected
 
 
 def test_preserves_dots_in_group_portion() -> None:

@@ -24,7 +24,7 @@ import importlib.util
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -94,22 +94,42 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
     }
 
 
-def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
+def _parse_snapshot_name(
+    filename: str, identifiers: Collection[str] = ()
+) -> tuple[str, str, str]:
     """Parse a snapshot filename into (name, key, ext).
 
     File-backend snapshots are named `module.group@key.ext`, so the part before
     `@` carries the dotted module prefix (e.g. `tests.test_api.TestCase`).
-    The ext may contain dots (e.g. `pandas.csv`).
     Returns ext with a leading dot (e.g. `.pandas.csv`), or `""` if absent.
 
     Splits at the last `@`: a key can't contain one, but a group name can,
     through a parametrize ID.
+
+    Both a key and a recorder name can contain dots, so the ext is found from
+    the right. A recorder name is one or two dotted parts, so the ext is the
+    last two parts or the last one: first whichever is an installed recorder's
+    identifier in `identifiers` (two parts first), then the last two parts if
+    they form a valid recorder name (`.pandas.parquet` with the plugin not
+    installed), else the last part. `v1.2.json` is key `v1.2`, ext `.json`.
     """
     group, sep, rest = filename.rpartition("@")
     if not sep:
         return filename, "", ""
-    key, dot, ext_suffix = rest.partition(".")
-    return group, key, f"{dot}{ext_suffix}"
+    parts = rest.split(".")
+    if len(parts) == 1:
+        return group, rest, ""
+    last_two = ".".join(parts[-2:])
+    one, two = f".{parts[-1]}", f".{last_two}"
+    if len(parts) > 2 and two in identifiers:
+        ext = two
+    elif one in identifiers:
+        ext = one
+    elif len(parts) > 2 and NAME_PATTERN.fullmatch(last_two):
+        ext = two
+    else:
+        ext = one
+    return group, rest.removesuffix(ext), ext
 
 
 def _find_ditto_dirs(root: Path) -> list[Path]:
@@ -259,7 +279,7 @@ def gather_stats(
 
     for entry in entries:
         total_size = _add_size(total_size, entry.size_bytes)
-        _, _, ext = _parse_snapshot_name(entry.storage_key)
+        _, _, ext = _parse_snapshot_name(entry.storage_key, ext_map)
         recorder_name = _recorder_name(ext, ext_map)
         current = by_recorder.get(
             recorder_name,
@@ -501,7 +521,7 @@ def cmd_list(path: Path, live: bool):
     table.add_column("Modified", style=MUTED)
 
     for entry in entries:
-        group, key, ext = _parse_snapshot_name(entry.storage_key)
+        group, key, ext = _parse_snapshot_name(entry.storage_key, em)
         recorder_name = _recorder_name(ext, em)
         modified = (
             datetime.fromtimestamp(entry.modified).strftime("%Y-%m-%d")
@@ -790,7 +810,7 @@ def _find_lint_issues(
     """Return lint issues for inventory entries without further I/O."""
     issues: list[LintIssue] = []
     for entry in entries:
-        _, key, ext = _parse_snapshot_name(entry.storage_key)
+        _, key, ext = _parse_snapshot_name(entry.storage_key, em)
         if key == "":
             issues.append(
                 LintIssue(

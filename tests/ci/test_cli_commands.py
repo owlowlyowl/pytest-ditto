@@ -256,6 +256,13 @@ def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
     assert _find_lint_issues([entry], json_ext_map) == []
 
 
+def test_dotted_key_is_not_reported(json_ext_map) -> None:
+    """A dot in the key isn't mistaken for part of the recorder identifier."""
+    entry = ManifestEntry("m.test_t@v1.2.json", size_bytes=2, modified=None)
+
+    assert _find_lint_issues([entry], json_ext_map) == []
+
+
 # ── _find_lint_issues: issue detection ────────────────────────────────────────
 
 

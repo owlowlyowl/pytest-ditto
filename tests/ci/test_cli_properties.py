@@ -8,6 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from ditto.cli import _build_colour_map, _human_size, _parse_snapshot_name
+from ditto.recorders._contract import NAME_PATTERN
 
 # ── _human_size ───────────────────────────────────────────────────────────────
 
@@ -71,26 +72,23 @@ def test_human_size_scaled_value_has_exactly_one_decimal_place(n: int) -> None:
 
 
 @given(
-    group=st.text(min_size=1, alphabet=st.characters(blacklist_characters="@")),
-    key=st.text(min_size=1, alphabet=st.characters(blacklist_characters=".@")),
-    ext_body=st.one_of(
-        st.just(""),
-        st.text(min_size=1, alphabet=st.characters(blacklist_characters="@")),
-    ),
+    # A group name can hold `@` through a parametrize ID; a key can't, but it
+    # can hold dots, as can a recorder name.
+    group=st.text(min_size=1),
+    key=st.text(min_size=1, alphabet=st.characters(blacklist_characters="@")),
+    recorder=st.from_regex(NAME_PATTERN, fullmatch=True),
 )
 def test_parse_snapshot_name_roundtrip_for_valid_filenames(
-    group: str, key: str, ext_body: str
+    group: str, key: str, recorder: str
 ) -> None:
-    """A well-formed {group}@{key}.{ext} filename parses back to its exact
-    components."""
-    ext = f".{ext_body}" if ext_body else ""
+    """A {group}@{key}.{recorder} filename parses back to its exact components
+    when the recorder is installed."""
+    ext = f".{recorder}"
     filename = f"{group}@{key}{ext}"
 
-    parsed_group, parsed_key, parsed_ext = _parse_snapshot_name(filename)
+    parsed = _parse_snapshot_name(filename, {ext})
 
-    assert parsed_group == group
-    assert parsed_key == key
-    assert parsed_ext == ext
+    assert parsed == (group, key, ext)
 
 
 @given(st.text(alphabet=st.characters(blacklist_characters="@")))
