@@ -84,7 +84,7 @@ def _verify_report_drift(
     for k in sorted(orphan):
         print(f"  orphan (in backend, not in lock): {k}")
     for k in sorted(unsynced):
-        print(f"  unsynced (produced this run, not in lock — run `ditto lock`): {k}")
+        print(f"  unsynced (produced this run, not in lock; run `ditto lock`): {k}")
 
 
 def run_verify(session: pytest.Session) -> None:
@@ -200,8 +200,8 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
             continue
         for key in unsynced:
             warnings.warn(
-                f"ditto prune: {key} was produced this run but is not in the lock "
-                "— run `ditto lock`.",
+                f"ditto prune: {key} was produced this run but is not in the lock; "
+                "run `ditto lock`.",
                 category=DittoWarning,
                 stacklevel=1,
             )

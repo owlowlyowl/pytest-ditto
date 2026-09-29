@@ -217,7 +217,7 @@ def _build_credential_free_inventory(path: Path) -> Manifest:
         except DittoLockFileError as exc:
             warnings.warn(
                 f"{LOCKFILE_NAME} is unreadable ({exc}); showing local snapshots "
-                "only — use --live for the full inventory.",
+                "only; use --live for the full inventory.",
                 category=DittoWarning,
                 stacklevel=2,
             )
