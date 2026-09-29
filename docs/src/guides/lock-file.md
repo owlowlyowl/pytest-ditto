@@ -25,9 +25,10 @@ directory or `redis://…`), the lock stores one entry per snapshot: the test
 `nodeid`, the snapshot `key`, and the recorder. It records the targets your tests
 actually used — including per-test `record(target=…)` marks — because it is
 written by real runs. It never stores `storage_options`, but it does store each
-target URI verbatim, including any credentials written into it; pass
-credentials as [storage options](backends.md#credentials-and-connection-settings-ditto_storage_options)
-instead.
+target URI verbatim, so ditto refuses a target URI that contains a password or
+a secret query parameter; pass credentials as
+[storage options](backends.md#credentials-and-connection-settings-ditto_storage_options),
+or in a profile's `storage_options`, instead.
 
 ## How it is produced and maintained
 

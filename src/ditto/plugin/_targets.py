@@ -15,7 +15,7 @@ from ditto.exceptions import (
     DittoUnhashableStorageOptionsError,
 )
 
-from ._options import get_storage_options
+from ._options import get_storage_options, uri_credentials_error
 from ._profiles import load_target_profiles, resolve_profile
 from ._session import DittoSession, TargetCacheKey, maybe_enter, session_state
 
@@ -140,6 +140,9 @@ def resolve_uri(
 
     Raises
     ------
+    pytest.fail.Exception
+        When the URI contains a password or a secret query parameter. It is
+        reported without a traceback, whose frames would show the URI.
     ValueError
         When the scheme is unrecognised by both `BACKEND_REGISTRY` and fsspec.
     DittoBackendLoadError
@@ -152,6 +155,8 @@ def resolve_uri(
     DittoUnhashableStorageOptionsError
         When `opts` contains a value that cannot be hashed.
     """
+    if (message := uri_credentials_error(uri)) is not None:
+        pytest.fail(message, pytrace=False)
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
     scheme = urlparse(canonical_uri).scheme
