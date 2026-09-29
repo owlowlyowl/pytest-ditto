@@ -61,12 +61,16 @@ class RunOptions:
         `--ditto-prune` (`DELETE`) or `--ditto-prune-dry-run` (`DRY_RUN`).
     introspect_path : str
         `--ditto-introspect`: where to write the backend manifest, or `""`.
+    prune_shared : bool
+        `--ditto-prune-shared`: let `--ditto-prune` delete from a target that
+        may be shared with other checkouts (see `is_checkout_local`).
     """
 
     snapshot_mode: SnapshotMode
     rebuild_lock: bool
     prune: PruneMode
     introspect_path: str
+    prune_shared: bool = False
 
 
 RUN_OPTIONS = pytest.StashKey[RunOptions]()
@@ -122,6 +126,7 @@ def read_run_options(config: pytest.Config) -> RunOptions:
         rebuild_lock=rebuild_lock,
         prune=prune_mode,
         introspect_path=str(config.getoption("--ditto-introspect", default="")),
+        prune_shared=bool(config.getoption("--ditto-prune-shared", default=False)),
     )
 
 
@@ -147,6 +152,17 @@ def add_options(parser: pytest.Parser) -> None:
         help=(
             "Report snapshots that --ditto-prune would delete (backend keys not in "
             "ditto.lock), without deleting anything."
+        ),
+    )
+    group.addoption(
+        "--ditto-prune-shared",
+        action="store_true",
+        default=False,
+        help=(
+            "Let --ditto-prune delete from a target that other checkouts, branches "
+            "or projects may share: any target other than a file:// path inside "
+            "the rootdir. Only safe when each of them has its own target path. "
+            "Has no effect without --ditto-prune."
         ),
     )
     group.addoption(

@@ -377,6 +377,18 @@ def test_prune_without_check_forwards_delete_flag() -> None:
     assert "--ditto-prune-dry-run" not in cmd
 
 
+def test_prune_shared_forwards_prune_shared_flag() -> None:
+    """ditto prune --shared forwards --ditto-prune-shared with --ditto-prune."""
+    with patch("ditto.cli.subprocess.run") as run:
+        run.return_value.returncode = 0
+        result = CliRunner().invoke(cmd_prune, ["--shared"])
+
+    assert result.exit_code == 0
+    cmd = run.call_args.args[0]
+    assert "--ditto-prune" in cmd
+    assert "--ditto-prune-shared" in cmd
+
+
 # ── credential-free default + --live opt-in ───────────────────────────────────
 
 

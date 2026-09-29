@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Iterable, MutableMapping, Sequence
 from typing import NamedTuple
 
 import pytest
@@ -11,6 +11,7 @@ from ditto._lockfile import (
     LockEntry,
     LockFile,
     LOCKFILE_NAME,
+    is_checkout_local,
     split_nodeid,
     read_lockfile,
     storage_key,
@@ -21,12 +22,20 @@ from ditto.exceptions import DittoLockFileError, DittoWarning
 from ._session import fail_session, session_state
 
 
-__all__ = ("Orphan", "run_verify", "find_orphans", "delete_orphans")
+__all__ = (
+    "Orphan",
+    "run_verify",
+    "find_orphans",
+    "split_shared",
+    "refuse_shared_prune",
+    "delete_orphans",
+)
 
 
 class Orphan(NamedTuple):
-    """A backend key that is absent from `ditto.lock` and safe to prune."""
+    """A backend key under the suite's modules that `ditto.lock` doesn't record."""
 
+    target_id: str
     backend: MutableMapping[str, bytes]
     key: str
 
@@ -212,8 +221,37 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
                 category=DittoWarning,
                 stacklevel=1,
             )
-        orphans.extend(Orphan(backend, key) for key in orphan)
+        orphans.extend(Orphan(target_id, backend, key) for key in orphan)
     return orphans
+
+
+def split_shared(orphans: Sequence[Orphan]) -> tuple[list[Orphan], list[Orphan]]:
+    """Split `orphans` into those in checkout-local targets and those in shared ones.
+
+    Prune decides what this suite owns from its test-module paths, which other
+    branches of the project, or other projects with the same paths, share. On
+    a target they also write to, their snapshots look like this checkout's
+    orphans.
+    """
+    local = [o for o in orphans if is_checkout_local(o.target_id)]
+    shared = [o for o in orphans if not is_checkout_local(o.target_id)]
+    return local, shared
+
+
+def refuse_shared_prune(session: pytest.Session, shared: Sequence[Orphan]) -> None:
+    """Report each shared target prune won't delete from, and fail the run."""
+    counts: dict[str, int] = {}
+    for orphan in shared:
+        counts[orphan.target_id] = counts.get(orphan.target_id, 0) + 1
+    for target_id, count in sorted(counts.items()):
+        _prune_report_error(
+            f"not deleting {count} snapshot(s) from {target_id!r}: other "
+            "branches or projects may write to it, and their snapshots look like "
+            "orphans to this checkout. Give each its own target path, then pass "
+            "--ditto-prune-shared (`ditto prune --shared`); "
+            "`ditto prune --check` lists what would be deleted."
+        )
+    fail_session(session)
 
 
 def delete_orphans(orphans: Iterable[Orphan]) -> list[str]:
@@ -222,7 +260,7 @@ def delete_orphans(orphans: Iterable[Orphan]) -> list[str]:
     A failed deletion is warned about and left out of the result.
     """
     pruned: list[str] = []
-    for backend, key in orphans:
+    for _, backend, key in orphans:
         try:
             del backend[key]
         except Exception as exc:

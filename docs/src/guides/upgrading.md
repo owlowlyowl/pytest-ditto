@@ -103,6 +103,13 @@ the `ditto_storage_options` fixture, or, for a target profile, into the
 profile's `storage_options` (a profile ignores `ditto_storage_options`). See
 [Credentials and connection settings](backends.md#credentials-and-connection-settings-ditto_storage_options).
 
+`ditto prune` no longer deletes from a target that other checkouts might
+share, such as a remote URI or a `file://` path outside the project, unless you
+pass `--shared` (`pytest --ditto-prune-shared`). Another branch's snapshots on
+such a target look like orphans, so first make sure each project and branch has
+its own target path. See
+[Sharing a target](lock-file.md#sharing-a-target).
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by
