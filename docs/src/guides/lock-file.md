@@ -27,8 +27,8 @@ actually used — including per-test `record(target=…)` marks — because it i
 written by real runs. It never stores `storage_options`, but it does store each
 target URI verbatim, so ditto refuses a target URI that contains a password or
 a secret query parameter; pass credentials as
-[storage options](backends.md#credentials-and-connection-settings-ditto_storage_options)
-instead.
+[storage options](backends.md#credentials-and-connection-settings-ditto_storage_options),
+or in a profile's `storage_options`, instead.
 
 ## How it is produced and maintained
 

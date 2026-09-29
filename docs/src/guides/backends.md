@@ -153,11 +153,14 @@ commit, so a password in a URI would end up in version control. ditto refuses a
 target URI that contains a password (`redis://alice:secret@host`) or a query
 parameter that holds a secret (`password`, `passwd`, `pwd`, `secret`,
 `secret_key`, `token`, `access_token`, `api_key`, `apikey`, `sig`, `signature`,
-`X-Amz-Signature` or `X-Amz-Security-Token`, in any case). A test using one
-errors, and a `ditto_target` with one stops the run, with the secret masked in
-the message. A username alone is fine. Return credentials from a
-`ditto_storage_options` fixture in `conftest.py` instead. The fixture returns a
-dictionary keyed by scheme:
+`X-Amz-Signature` or `X-Amz-Security-Token`, in any case), including in any
+part of a chained fsspec URL such as `simplecache::s3://…`. A test using one
+errors, and a `ditto_target` with one stops the run. The error masks the secret
+and is reported without a traceback, so the URI doesn't appear in pytest's
+output (except under `--full-trace`). A username alone is fine. Return
+credentials from a `ditto_storage_options` fixture in `conftest.py` instead, or
+for a [profile](#named-profiles), from its own `storage_options`. The fixture
+returns a dictionary keyed by scheme:
 
 ```python
 # conftest.py

@@ -23,6 +23,7 @@ __all__ = (
     "validate_ini_options",
     "validate_target_config",
     "reject_uri_credentials",
+    "uri_credentials_error",
     "get_optional_fixturevalue",
     "get_storage_options",
     "is_xdist_worker",
@@ -211,41 +212,33 @@ def validate_ini_options(config: pytest.Config) -> None:
 # Query parameters whose values are secrets, compared case-insensitively: a
 # password, a token or key, or a signed URL's signature (Azure SAS `sig`,
 # S3 presigned `X-Amz-Signature` and `X-Amz-Security-Token`).
-_SECRET_QUERY_PARAMS = frozenset(
-    {
-        "password",
-        "passwd",
-        "pwd",
-        "secret",
-        "secret_key",
-        "token",
-        "access_token",
-        "api_key",
-        "apikey",
-        "sig",
-        "signature",
-        "x-amz-signature",
-        "x-amz-security-token",
-    }
-)
+_SECRET_QUERY_PARAMS = frozenset({
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "secret_key",
+    "token",
+    "access_token",
+    "api_key",
+    "apikey",
+    "sig",
+    "signature",
+    "x-amz-signature",
+    "x-amz-security-token",
+})
 
 
-def reject_uri_credentials(uri: str) -> None:
-    """Raise `pytest.UsageError` for a target URI that carries a secret.
+def _mask_uri_part(part: str) -> tuple[str, list[str]]:
+    """Return `part` with its secrets masked, and a description of each one.
 
-    A target URI other than `file://` is recorded verbatim in `ditto.lock`,
-    which is committed, so a password in its userinfo (`redis://u:pw@host`) or
-    a secret query parameter (`?sig=...`) would be committed with it. The
-    error shows the URI with the secrets masked and points to
-    `ditto_storage_options`. A username alone isn't a secret and is allowed.
+    `part` is returned unchanged when it holds no secret.
     """
-    if not uri:
-        return
-    parsed = urlparse(uri)
+    parsed = urlparse(part)
     query = parse_qsl(parsed.query, keep_blank_values=True)
     secret_params = [name for name, _ in query if name.lower() in _SECRET_QUERY_PARAMS]
     if parsed.password is None and not secret_params:
-        return
+        return part, []
     netloc = parsed.netloc
     if parsed.password is not None:
         userinfo, _, hostport = netloc.rpartition("@")
@@ -257,11 +250,41 @@ def reject_uri_credentials(uri: str) -> None:
     found = (["a password"] if parsed.password is not None else []) + [
         f"the query parameter {name!r}" for name in secret_params
     ]
-    raise pytest.UsageError(
+    return masked, found
+
+
+def uri_credentials_error(uri: str) -> str | None:
+    """Return why a target URI can't be used because it carries a secret, or None.
+
+    A target URI other than `file://` is recorded verbatim in `ditto.lock`,
+    which is committed, so a password in its userinfo (`redis://u:pw@host`) or
+    a secret query parameter (`?sig=...`) would be committed with it. Each
+    part of an fsspec chain (`simplecache::s3://...`) is checked. The message
+    shows the URI with the secrets masked. A username alone isn't a secret
+    and is allowed.
+    """
+    if not uri:
+        return None
+    parts = [_mask_uri_part(part) for part in uri.split("::")]
+    found = [description for _, descriptions in parts for description in descriptions]
+    if not found:
+        return None
+    masked = "::".join(masked_part for masked_part, _ in parts)
+    return (
         f"ditto target {masked!r} contains {' and '.join(found)}. Target URIs "
         "are recorded in ditto.lock, which is committed. Pass credentials "
-        "through the ditto_storage_options fixture instead."
+        "through the ditto_storage_options fixture, or a profile's "
+        "storage_options, instead."
     )
+
+
+def reject_uri_credentials(uri: str) -> None:
+    """Raise `pytest.UsageError` for a target URI that carries a secret.
+
+    See `uri_credentials_error`.
+    """
+    if (message := uri_credentials_error(uri)) is not None:
+        raise pytest.UsageError(message)
 
 
 def validate_target_config(config: pytest.Config) -> None:

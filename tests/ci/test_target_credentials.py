@@ -31,8 +31,26 @@ pytest_plugins = ["pytester"]
             "postgresql://u:***@h/db?password=***",
             "a password and the query parameter 'password'",
         ),
+        (
+            "simplecache::memory://alice:pw@bucket/snaps",
+            "simplecache::memory://alice:***@bucket/snaps",
+            "a password",
+        ),
+        (
+            "filecache::s3://bucket/key?sig=abc::memory://u:pw@b",
+            "filecache::s3://bucket/key?sig=***::memory://u:***@b",
+            "the query parameter 'sig' and a password",
+        ),
     ],
-    ids=["password", "password-only", "sas-sig", "presigned", "both"],
+    ids=[
+        "password",
+        "password-only",
+        "sas-sig",
+        "presigned",
+        "both",
+        "chained",
+        "chained-twice",
+    ],
 )
 def test_uri_with_a_secret_is_rejected_with_it_masked(uri, masked, found) -> None:
     """The error shows the URI with every secret masked and says what it found."""
@@ -55,8 +73,17 @@ def test_uri_with_a_secret_is_rejected_with_it_masked(uri, masked, found) -> Non
         "redis://localhost:6379/0",
         "redis://alice@host:6379/0",
         "s3://bucket/prefix/?region=eu-west-1",
+        "simplecache::s3://alice@bucket/prefix/",
     ],
-    ids=["empty", "file", "memory", "plain", "username-only", "harmless-query"],
+    ids=[
+        "empty",
+        "file",
+        "memory",
+        "plain",
+        "username-only",
+        "harmless-query",
+        "chained",
+    ],
 )
 def test_uri_without_a_secret_is_accepted(uri) -> None:
     """A username alone, or a query parameter that isn't a secret, is allowed."""
@@ -79,9 +106,50 @@ def test_mark_target_with_a_password_errors_and_is_not_locked(pytester) -> None:
     result = pytester.runpytest_subprocess()
 
     result.assert_outcomes(errors=1)
-    result.stdout.fnmatch_lines(
-        ["*memory://alice:***@bucket/snaps*contains a password*"]
+    result.stdout.fnmatch_lines([
+        "*memory://alice:***@bucket/snaps*contains a password*"
+    ])
+    lock = pytester.path / "ditto.lock"
+    assert not lock.exists() or "hunter2" not in lock.read_text()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [(), ("--showlocals",), ("--tb=long", "-l")],
+    ids=["default", "showlocals", "long-locals"],
+)
+@pytest.mark.parametrize("chain", ["", "simplecache::"], ids=["plain", "chained"])
+def test_rejected_target_never_appears_in_the_report_or_the_lock(
+    pytester, monkeypatch, chain, args
+) -> None:
+    """A rejected target from the environment is reported without a
+    traceback: nothing pytest prints or writes to JUnit shows the password,
+    and the lock never records it."""
+    monkeypatch.setenv(
+        "DITTO_TEST_TARGET", f"{chain}memory://alice:hunter2@bucket/snaps"
     )
+    pytester.makepyfile(
+        test_m="""
+        import os
+
+        import ditto
+
+        @ditto.record("json", target=os.environ["DITTO_TEST_TARGET"])
+        def test_t(snapshot):
+            snapshot(1, key="k")
+        """
+    )
+
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "--junitxml=junit.xml", *args
+    )
+
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines([
+        f"*{chain}memory://alice:***@bucket/snaps*contains a password*"
+    ])
+    assert "hunter2" not in result.stdout.str() + result.stderr.str()
+    assert "hunter2" not in (pytester.path / "junit.xml").read_text()
     lock = pytester.path / "ditto.lock"
     assert not lock.exists() or "hunter2" not in lock.read_text()
 
