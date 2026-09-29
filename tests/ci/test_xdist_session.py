@@ -68,8 +68,11 @@ def test_records_snapshots_under_distribution(pytester, dist_args):
     assert len(_snapshot_files(pytester)) == 2
 
 
-def test_compares_against_stored_snapshots_under_distribution(pytester):
+def test_compares_against_stored_snapshots_under_distribution(pytester, monkeypatch):
     """A value that no longer matches its stored snapshot fails on a worker."""
+    # The edit below keeps the module's size, and a fast run keeps its mtime, so
+    # the cached bytecode from the seeding run would still look current.
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
     _seed(pytester)
     pytester.makepyfile(
         test_mod=TEST_MODULE.replace(
