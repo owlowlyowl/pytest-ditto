@@ -165,7 +165,7 @@ jobs:
           retention-days: 30
 
   portable-json:
-    name: Strict JSON (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
+    name: Cross-platform (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -190,13 +190,20 @@ jobs:
           environments: py3${{ matrix.python-version }}
           cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Run recorder and plugin discovery tests
+      # The fixture, lock and drift modules check that snapshot keys don't
+      # depend on the platform's path separator.
+      - name: Run recorder, plugin discovery, fixture, lock and drift tests
         run: >-
           pixi run -e py3${{ matrix.python-version }} pytest
           tests/ci/test_recorders.py
           tests/ci/test_recorder_properties.py
           tests/ci/test_recorder_files.py
           tests/ci/test_plugins.py
+          tests/ci/test_fixture.py
+          tests/ci/test_lockfile.py
+          tests/ci/test_lockfile_session.py
+          tests/ci/test_verify_session.py
+          tests/ci/test_prune_session.py
 
   lock-file:
     name: Lock-file drift

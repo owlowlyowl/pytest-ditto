@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import pytest
 
 from ditto.snapshot import Snapshot
-from ditto._lockfile import portable_target_id
+from ditto._lockfile import portable_target_id, split_nodeid
 
 from ._options import run_options
 from ._selection import parse_mark_target_selection, resolve_recorder
@@ -19,7 +19,16 @@ __all__ = ("snapshot",)
 @pytest.fixture
 def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     rootdir = request.config.rootpath
-    module = request.path.relative_to(rootdir).with_suffix("").as_posix()
+    if not request.path.is_relative_to(rootdir):
+        # pytest gives such a test a node id without its file path, so it has
+        # no module to key its snapshots by.
+        raise ValueError(
+            f"ditto: {request.path} is outside the rootdir {rootdir}; snapshot "
+            "tests must live under the rootdir."
+        )
+    # Derive the identity from the node id exactly as the lock does, so the
+    # keys written here are the keys lock, verify and prune expect.
+    module, group_name = split_nodeid(request.node.nodeid)
     marks = list(request.node.iter_markers(name="record"))
     recorder_name, recorder = resolve_recorder(marks)
     options = run_options(request.config)
@@ -35,10 +44,6 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
 
     if options.introspect_path:
         state.introspect_backends.setdefault(abs_uri, backend)
-
-    file_prefix = str(request.path.relative_to(rootdir)) + "::"
-    qualified_name = request.node.nodeid.removeprefix(file_prefix)
-    group_name = qualified_name.replace("::", ".")
 
     return Snapshot(
         module=module,
