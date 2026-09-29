@@ -195,7 +195,11 @@ def choose_lock_action(options: RunOptions, authoritative: bool) -> LockAction:
 def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     """Apply `action` to `ditto.lock` for a single-process run.
 
-    Never raises — a lock-write failure is downgraded to a `DittoWarning`.
+    Never raises. A rebuild (`--ditto-lock`, or `--ditto-update` on a full run)
+    is lock maintenance the user asked for, so failing to write it prints the
+    error and fails the run; it's printed rather than warned so a warning
+    filter can't hide why. An ordinary run's append only warns: a test run
+    shouldn't fail over lock bookkeeping.
     """
     config = session.config
     try:
@@ -216,6 +220,10 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
             case LockAction.KEEP:
                 pass
     except Exception as exc:  # never crash a run over a lock-file write
+        if action is LockAction.REBUILD:
+            print(f"ditto: failed to write {LOCKFILE_NAME}: {exc}")
+            fail_session(session)
+            return
         warnings.warn(
             f"Failed to write {LOCKFILE_NAME}: {exc}",
             category=DittoWarning,

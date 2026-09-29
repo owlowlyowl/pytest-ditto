@@ -282,3 +282,39 @@ def test_nested_in_process_session_does_not_leak_into_outer_lockfile(pytester, a
         (e["nodeid"], e["key"]) for t in data["targets"].values() for e in t["entries"]
     }
     assert entries == {("test_outer.py::test_a_outer", "outer")}
+
+
+# ── A failed rebuild fails the run (#159) ─────────────────────────────────────
+
+
+def _make_lock_unwritable(pytester):
+    """Replace ditto.lock with a directory, which can be neither read nor written."""
+    lock = pytester.path / "ditto.lock"
+    lock.unlink(missing_ok=True)
+    lock.mkdir()
+
+
+@pytest.mark.parametrize("rebuild", ["--ditto-lock", "--ditto-update"])
+def test_a_rebuild_that_cannot_write_the_lock_fails_the_run(pytester, rebuild):
+    """`ditto lock` or a full `ditto update` that can't write the lock exits
+    non-zero and says why, even with warnings filtered out."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess(rebuild, "-W", "ignore::UserWarning")
+
+    result.assert_outcomes(passed=2)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto: failed to write ditto.lock*"])
+
+
+def test_an_ordinary_run_that_cannot_append_to_the_lock_only_warns(pytester):
+    """A plain run still passes when the lock can't be written; it warns."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess()
+
+    assert result.ret == pytest.ExitCode.OK
+    result.stdout.fnmatch_lines(["*DittoWarning: Failed to write ditto.lock*"])

@@ -33,9 +33,9 @@ instead.
 
 | Command | Effect on `ditto.lock` |
 |---|---|
-| `pytest` (normal run) | Appends entries for any snapshots recorded this run. |
-| `ditto lock` (`pytest --ditto-lock`) | Rebuilds the lock from a full run (authoritative; drops stale entries). Refuses on a partial/filtered run. |
-| `ditto update` (`pytest --ditto-update`) | On a full run, reconciles the lock (drops entries for deleted tests); on a filtered run, appends only. |
+| `pytest` (normal run) | Appends entries for any snapshots recorded this run. If it can't write the lock, it warns and the run still passes. |
+| `ditto lock` (`pytest --ditto-lock`) | Rebuilds the lock from a full run (authoritative; drops stale entries). Refuses on a partial/filtered run. If it can't write the lock, the run fails. |
+| `ditto update` (`pytest --ditto-update`) | On a full run, reconciles the lock (drops entries for deleted tests), and the run fails if it can't write the lock; on a filtered run, appends only. |
 | `ditto prune` (`pytest --ditto-prune`) | Does **not** write the lock; deletes backend snapshots absent from it. |
 
 Owned-prefix scoping keeps a shared backend safe: ditto only considers keys under
