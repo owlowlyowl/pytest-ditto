@@ -114,7 +114,7 @@ with the same interface as a `dict` of strings to bytes. Subclass
 | Method | ditto uses it to |
 | --- | --- |
 | `__getitem__` | read a snapshot. Raise `KeyError` for a missing key: `in` relies on it to tell ditto a snapshot doesn't exist yet. |
-| `__setitem__` | write a snapshot |
+| `__setitem__` | write a snapshot, replacing any previous value whole. If the write fails, the previous value must still be there: see [Failed writes](#failed-writes). |
 | `__delitem__` | remove a snapshot, in `ditto prune` |
 | `__iter__` | list the stored keys, in `ditto verify`, `ditto prune` and the `--live` mode of `ditto list`, `status`, `stats` and `lint` |
 | `__len__` | nothing directly, but `MutableMapping` requires it; `sum(1 for _ in self)` is enough |
@@ -132,6 +132,23 @@ Keys are ASCII apart from the test module, which is the test file's path. They
 contain `/`, `@`, `~` and `.`, so store them verbatim or encode them in a way
 you can reverse. Values are the bytes the recorder produced; store and return
 them unchanged.
+
+#### Failed writes
+
+`--ditto-update` overwrites existing baselines, so a write that fails partway
+through (a full disk, a dropped connection, an interrupted process) must not
+leave a snapshot half-written: `__setitem__` either stores the whole new value
+or leaves the previous one as it was, and raises. Object stores and databases
+that replace a value in one operation already work this way. On a filesystem,
+write to a temporary file in the same directory and `os.replace` it over the
+destination, as ditto's own `file://` backend does; opening the destination
+for writing would empty it first.
+
+Beyond that, the mapping needs no transactions and no compare-and-set: ditto
+doesn't expect several writes to succeed or fail together. It also doesn't
+support maintaining the lock concurrently: running `ditto lock`, `ditto update`
+or `ditto prune` at the same time against the same checkout or store can lose
+changes.
 
 `ditto verify` and `ditto prune` compare the keys that `__iter__` lists with
 `ditto.lock`. A listed key under one of the project's test modules that the

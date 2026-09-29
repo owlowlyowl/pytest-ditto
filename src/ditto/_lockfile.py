@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import msgspec
 
+from ._atomic import write_atomically
 from .exceptions import DittoLockFileError, DittoLockFileVersionError
 from .snapshot import SnapshotKey, _flat_key, _remote_key
 
@@ -104,18 +103,8 @@ def read_lockfile(path: Path) -> LockFile | None:
 
 
 def write_lockfile(path: Path, lock: LockFile) -> None:
-    """Atomically write `lock` to `path` (temp file in the same dir + os.replace)."""
-    data = serialise(lock)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=".ditto.lock.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    """Atomically write `lock` to `path`; see `write_atomically`."""
+    write_atomically(path, serialise(lock))
 
 
 def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
