@@ -105,6 +105,33 @@ older versions will not be found after upgrading:
   (one `.ditto/` directory, no per-module subdirectories)
 - **Class-based test keys** now include the class name
   (`TestClass.test_method` rather than `test_method`)
+- **Snapshot keys** can't contain `@`, `/`, `\` or control characters;
+  `snapshot()` raises `ValueError` for one. Rename such keys.
+- **`file://` snapshot names are percent-encoded** where the test name or key
+  holds `%`, `/` or a character Windows forbids in file names
+  (`\ : * ? " < > |` or a control character), so `test_at[12:00]` is stored as
+  `test_at[12%3A00]`. Before, a `/` in a parametrize ID put the snapshot in a
+  subdirectory of `.ditto/`. Names without these characters are unchanged.
+
+To keep the baselines of snapshots whose names are now encoded, rename them
+before the first run. This script does it for every `.ditto/` directory under
+the current one; adjust the glob if your snapshots live elsewhere:
+
+```python
+from pathlib import Path
+
+UNSAFE = set('%<>:"/\\|?*') | {chr(c) for c in range(32)}
+
+for ditto_dir in Path(".").rglob(".ditto"):
+    for path in [p for p in ditto_dir.rglob("*") if p.is_file()]:
+        old = path.relative_to(ditto_dir).as_posix()
+        new = "".join(f"%{ord(c):02X}" if c in UNSAFE else c for c in old)
+        if new != old:
+            path.rename(ditto_dir / new)
+```
+
+It encodes the whole name, so it assumes your test file paths contain none of
+these characters. Afterwards, remove any subdirectories it leaves empty.
 
 ## Migration Steps
 

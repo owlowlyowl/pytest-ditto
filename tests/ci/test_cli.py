@@ -72,6 +72,14 @@ def test_returns_empty_extension_when_no_dot_follows_at() -> None:
     assert ext == ""
 
 
+def test_splits_at_the_last_at_sign() -> None:
+    """A group name can hold '@' through a parametrize ID; a key can't."""
+    group, key, ext = _parse_snapshot_name("m.test_foo[a@b]@result.json")
+    assert group == "m.test_foo[a@b]"
+    assert key == "result"
+    assert ext == ".json"
+
+
 def test_preserves_dots_in_group_portion() -> None:
     """Group portion (before @) may itself contain dots (unittest class names)."""
     group, key, ext = _parse_snapshot_name("MyTestCase.test_method@snap.yaml")

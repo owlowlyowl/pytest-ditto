@@ -101,9 +101,12 @@ def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
     `@` carries the dotted module prefix (e.g. `tests.test_api.TestCase`).
     The ext may contain dots (e.g. `pandas.csv`).
     Returns ext with a leading dot (e.g. `.pandas.csv`), or `""` if absent.
+
+    Splits at the last `@`: a key can't contain one, but a group name can,
+    through a parametrize ID.
     """
-    group, _, rest = filename.partition("@")
-    if not rest:
+    group, sep, rest = filename.rpartition("@")
+    if not sep:
         return filename, "", ""
     key, dot, ext_suffix = rest.partition(".")
     return group, key, f"{dot}{ext_suffix}"

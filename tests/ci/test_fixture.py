@@ -273,6 +273,47 @@ def test_doctest_snapshot_keeps_its_key_and_matches_the_lock(pytester) -> None:
     pytester.runpytest_subprocess(*doctest_args).assert_outcomes(failed=1)
 
 
+def test_unportable_parametrize_ids_are_encoded_in_file_names(pytester) -> None:
+    """Characters a file name can't portably hold are percent-encoded.
+
+    `:` is forbidden on Windows, `/` would put the file in a subdirectory, and
+    `%` is encoded so the encoding is reversible. The lock must derive the same
+    names, so a clean verify passes.
+    """
+    pytester.makepyfile(
+        test_ids="""
+        import pytest
+
+        @pytest.mark.parametrize("v", ["12:00", "a/b", "50%", "plain"])
+        def test_id(snapshot, v):
+            assert snapshot(v, key="k") == v
+        """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=4)
+
+    ditto_dir = pytester.path / ".ditto"
+    written = {p.relative_to(ditto_dir).as_posix() for p in ditto_dir.rglob("*.json")}
+    assert written == {
+        "test_ids.test_id[12%3A00]@k.json",
+        "test_ids.test_id[a%2Fb]@k.json",
+        "test_ids.test_id[50%25]@k.json",
+        "test_ids.test_id[plain]@k.json",
+    }
+    lock = read_lockfile(pytester.path / LOCKFILE_NAME)
+    assert lock is not None
+    target = lock.targets[".ditto"]
+    assert {storage_key(e, target.scheme) for e in target.entries} == written
+    assert pytester.runpytest_subprocess("--ditto-verify").ret == pytest.ExitCode.OK
+
+
+@pytest.mark.parametrize("key", ["a@b", "a/b", "a\\b", "a\nb"])
+def test_rejects_key_with_forbidden_character(snapshot, key) -> None:
+    """A key can't hold `@`, which ends the group name in a storage key, a path
+    separator or a control character."""
+    with pytest.raises(ValueError, match="keys can't contain"):
+        snapshot(1, key=key)
+
+
 def test_snapshot_in_a_test_outside_the_rootdir_errors_clearly(pytester) -> None:
     """A test outside the rootdir has no module to key its snapshots by."""
     root = pytester.mkdir("root")

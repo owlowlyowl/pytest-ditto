@@ -58,6 +58,14 @@ def test_bad(snapshot):
     snapshot(2, key="x")  # raises DuplicateSnapshotKeyError
 ```
 
+## Snapshot Keys
+
+A key is a string naming one snapshot within a test. It can't contain `@`, `/`,
+`\` or control characters; `snapshot()` raises `ValueError` for such a key.
+The `@` separates the test's name from the key in a snapshot's name, and a
+test's name can itself contain `@` through a parametrize ID, so keeping it out
+of keys keeps every snapshot name unambiguous.
+
 ## Snapshot Storage Location
 
 By default, snapshots are stored in a `.ditto/` directory adjacent to the
@@ -77,6 +85,21 @@ def test_response(snapshot):
 ```
 
 Stores to: `.ditto/test_api.test_response@body.json`
+
+The test name includes any parametrize ID, which can hold characters a file
+name can't. In `file://` snapshot names, `%`, `/` and the characters Windows
+forbids in file names (`\ : * ? " < > |` and control characters) are
+percent-encoded, so the files work on every platform:
+
+| Test | File |
+|---|---|
+| `test_at[12:00]` | `.ditto/test_api.test_at[12%3A00]@body.json` |
+| `test_path[data/in.csv]` | `.ditto/test_api.test_path[data%2Fin.csv]@body.json` |
+| `test_pct[50%]` | `.ditto/test_api.test_pct[50%25]@body.json` |
+
+Other characters are left as they are, so most names aren't changed. Remote
+backends, which don't store snapshots as local files, use names without
+encoding.
 
 ## Updating Snapshots
 

@@ -19,6 +19,11 @@ DEFAULT_RECORDER_NAME = "json"
 # Stands in for a `Snapshot` recorder or recorder name that was not passed.
 _UNSET: Any = object()
 
+# Characters a snapshot key can't contain, besides control characters. A storage
+# key ends `@key.ext`, so with no `@` in the key it splits unambiguously at the
+# last `@` whatever the group name holds. `/` and `\` are path separators.
+_KEY_FORBIDDEN = frozenset("@/\\")
+
 
 @dataclass(frozen=True)
 class SnapshotKey:
@@ -165,15 +170,39 @@ class _SessionTracker:
         return self._records
 
 
+# Characters a file name can't contain on Windows (`/` on any platform), plus
+# "%", which marks an encoded character and so must itself be encoded for the
+# encoding to be reversible.
+_FILENAME_UNSAFE = frozenset('%<>:"/\\|?*') | {chr(c) for c in range(32)}
+
+
+def _encode_filename_part(text: str) -> str:
+    """Percent-encode the characters in `text` that a file name can't portably hold.
+
+    Only `%`, `/` and the characters Windows forbids are encoded (`:` becomes
+    `%3A`), so a name that is already portable is unchanged. `urllib.parse.unquote`
+    reverses it.
+    """
+    if not any(c in _FILENAME_UNSAFE for c in text):
+        return text
+    return "".join(f"%{ord(c):02X}" if c in _FILENAME_UNSAFE else c for c in text)
+
+
 def _flat_key(sk: SnapshotKey) -> str:
     """Flat filesystem key for file backends: 'module.group@key.ext'.
 
     Slashes in the module path are replaced with dots so the key maps to
     a single flat filename — no subdirectories inside `.ditto/`.
     Unique across all test files sharing the same `file://` target.
+
+    The group name and key are percent-encoded where they hold characters a
+    portable file name can't (see `_encode_filename_part`): a group name
+    carries the test's parametrize ID, which can contain any character.
     """
     module_dotted = sk.module.replace("/", ".")
-    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.identifier}"
+    group = _encode_filename_part(sk.group_name)
+    key = _encode_filename_part(sk.key)
+    return f"{module_dotted}.{group}@{key}.{sk.identifier}"
 
 
 class SnapshotMode(Enum):
@@ -294,6 +323,12 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
+        bad = sorted({c for c in key if c in _KEY_FORBIDDEN or ord(c) < 32})
+        if bad:
+            raise ValueError(
+                f"snapshot key {key!r} contains {', '.join(map(repr, bad))}; keys "
+                "can't contain '@', '/', '\\' or control characters."
+            )
         return SnapshotKey(self.module, self.group_name, key, self.recorder_name)
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:

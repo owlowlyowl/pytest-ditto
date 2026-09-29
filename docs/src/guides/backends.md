@@ -69,7 +69,9 @@ tests/api/.ditto/tests.api.test_users.test_create@response.json
 ```
 
 The module part is the test file's path relative to the rootdir, without
-`.py`.
+its extension. Characters in the test name or key that a file name can't hold,
+such as `:` from a parametrize ID, are percent-encoded; see
+[Snapshot Storage Location](snapshot-fixture.md#snapshot-storage-location).
 
 ### fsspec: cloud storage and memory
 
