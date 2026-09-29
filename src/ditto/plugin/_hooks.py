@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Generator, Sequence
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,8 @@ __all__ = (
     "pytest_addoption",
     "pytest_configure",
     "pytest_sessionstart",
+    "pytest_ignore_collect",
+    "pytest_make_collect_report",
     "pytest_collection_finish",
     "pytest_deselected",
     "pytest_runtest_makereport",
@@ -68,6 +71,32 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     session.config.stash[SESSION_STATE] = DittoSession()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_ignore_collect(
+    collection_path: Path, config: pytest.Config
+) -> Generator[None, bool | None, bool | None]:
+    ignored = yield
+    if ignored:
+        try:
+            relative = collection_path.relative_to(config.rootpath)
+        except ValueError:  # outside rootpath, so no lock entry can be under it
+            return ignored
+        session_state(config).excluded_nodeids.add(
+            "" if relative == Path() else relative.as_posix()
+        )
+    return ignored
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_make_collect_report(
+    collector: pytest.Collector,
+) -> Generator[None, pytest.CollectReport, pytest.CollectReport]:
+    report = yield
+    if report.skipped:
+        session_state(collector.config).excluded_nodeids.add(collector.nodeid)
+    return report
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:

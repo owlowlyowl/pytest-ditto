@@ -392,3 +392,84 @@ def test_a_passing_test_that_stops_using_a_key_loses_that_entry(pytester):
     data = json.loads((pytester.path / "ditto.lock").read_text())
     keys = {e["key"] for t in data["targets"].values() for e in t["entries"]}
     assert keys == {"a"}
+
+
+@pytest.mark.parametrize(
+    "skip",
+    [
+        "import pytest\npytest.skip('platform', allow_module_level=True)\n",
+        "import pytest\npytest.importorskip('ditto_no_such_module')\n",
+    ],
+    ids=["skip", "importorskip"],
+)
+def test_a_module_skipped_at_collection_keeps_its_entries(pytester, skip):
+    """A module skipped while being collected keeps its entries through a
+    rebuild, and verifies cleanly once it runs again."""
+    beta = "def test_beta(snapshot):\n    snapshot(2, key='b')\n"
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod=beta,
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    pytester.makepyfile(test_beta_mod=skip + beta)
+
+    result = pytester.runpytest_subprocess("--ditto-lock")
+
+    assert result.ret == 0
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+    pytester.makepyfile(test_beta_mod=beta)
+    assert pytester.runpytest_subprocess("--ditto-verify").ret == 0
+
+
+def test_a_test_in_a_directory_matched_by_ignore_glob_keeps_its_entry(pytester):
+    """--ignore-glob can match a directory, which pytest then doesn't enter;
+    the tests inside it keep their entries in the target they share."""
+    pytester.makeini(f"[pytest]\nditto_target = file://{pytester.path / 'snaps'}\n")
+    pytester.makepyfile(
+        test_alpha="def test_alpha(snapshot):\n    snapshot(1, key='a')\n"
+    )
+    platform = pytester.mkdir("platform_tests")
+    (platform / "test_beta.py").write_text(
+        "def test_beta(snapshot):\n    snapshot(2, key='b')\n"
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "--ignore-glob", "*platform_tests"
+    )
+
+    assert result.ret == 0
+    assert "platform_tests/test_beta.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_test_in_a_file_a_conftest_ignores_keeps_its_entry(pytester, monkeypatch):
+    """A file left out by a platform-dependent conftest `collect_ignore` keeps
+    its entries."""
+    pytester.makeconftest(
+        "import os\n"
+        "collect_ignore = ['test_beta_mod.py'] if os.environ.get('SKIP_BETA') else []\n"
+    )
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    monkeypatch.setenv("SKIP_BETA", "1")
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_deleted_module_still_loses_its_entries(pytester):
+    """Recording what pytest ignored or skipped doesn't keep a deleted test."""
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    (pytester.path / "test_beta_mod.py").unlink()
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+
+    assert _nodeids_in_lockfile(pytester) == {"test_alpha_mod.py::test_alpha"}

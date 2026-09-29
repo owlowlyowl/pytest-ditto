@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import warnings
 from enum import Enum
 
@@ -117,34 +116,34 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     return session.testsfailed == 0 and exitstatus == 0
 
 
-def _under_ignored_path(config: pytest.Config, nodeid: str) -> bool:
-    """True when `nodeid`'s file is excluded by `--ignore` or `--ignore-glob`.
+def _is_under(nodeid: str, excluded: str) -> bool:
+    """True when `nodeid` is `excluded` or a node inside it.
 
-    Mirrors pytest's own check: paths are relative to the invocation directory,
-    `--ignore` names a file or a directory, and `--ignore-glob` matches the
-    file's absolute path. A conftest `collect_ignore` isn't seen here.
+    `excluded` is a directory, a file, or a collector within a file; `""` is
+    the root directory.
     """
-    path = config.rootpath / nodeid.partition("::")[0]
-    base = config.invocation_params.dir
-    ignored = [(base / p).resolve() for p in config.getoption("ignore", None) or []]
-    if any(p == path or p in path.parents for p in ignored):
-        return True
-    globs = [str(base / g) for g in config.getoption("ignore_glob", None) or []]
-    return any(fnmatch.fnmatch(str(path), g) for g in globs)
+    return (
+        not excluded
+        or nodeid == excluded
+        or nodeid.startswith((f"{excluded}/", f"{excluded}::"))
+    )
 
 
 def _keeps_entry(config: pytest.Config, nodeid: str) -> bool:
     """Whether a rebuild keeps an existing entry this run didn't replace.
 
     A test that passed has its entries replaced by what it used this run. One
-    that was collected but didn't pass (skipped, xfailed, deselected), or whose
-    file was left out with `--ignore`/`--ignore-glob`, keeps its entries. An
-    entry for a test that no longer exists is dropped.
+    that was collected but didn't pass (skipped, xfailed, deselected), or that
+    pytest didn't collect because it ignored the path or a collector above the
+    test skipped, keeps its entries. An entry for a test that no longer exists
+    is dropped.
     """
     state = session_state(config)
     if nodeid in state.passed_nodeids:
         return False
-    return nodeid in state.collected_nodeids or _under_ignored_path(config, nodeid)
+    return nodeid in state.collected_nodeids or any(
+        _is_under(nodeid, excluded) for excluded in state.excluded_nodeids
+    )
 
 
 def _rewrite_lockfile(config: pytest.Config) -> None:

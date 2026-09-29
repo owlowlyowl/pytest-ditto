@@ -54,6 +54,11 @@ class DittoSession:
     # deselected), so a skip never drops its baseline.
     collected_nodeids: set[str] = field(default_factory=set)
     passed_nodeids: set[str] = field(default_factory=set)
+    # Node ids of what pytest didn't collect: paths it ignored (`--ignore`,
+    # `--ignore-glob`, conftest `collect_ignore`, `norecursedirs`, a plugin's
+    # `pytest_ignore_collect`) and collectors that skipped (a module-level
+    # `pytest.skip` or `importorskip`). A rebuild keeps the entries under them.
+    excluded_nodeids: set[str] = field(default_factory=set)
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()
