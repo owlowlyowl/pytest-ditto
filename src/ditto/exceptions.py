@@ -11,6 +11,7 @@ __all__ = (
     "DittoBackendChangedError",
     "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
+    "DittoSnapshotNameCollisionError",
     "DittoAmbiguousTargetError",
     "DittoUnknownProfileError",
     "DittoInvalidProfileError",
@@ -132,6 +133,20 @@ class DuplicateSnapshotKeyError(DittoException):
         super().__init__(
             f"Snapshot key '{key}' has already been used in this test. "
             "Each snapshot call within a test must use a unique key."
+        )
+
+
+class DittoSnapshotNameCollisionError(DittoException):
+    """Raised when two different snapshots would be stored under one name.
+
+    A stored name ends in a short hash of the snapshot's identity, so this
+    needs two snapshots whose readable labels and hashes both match.
+    """
+
+    def __init__(self, storage_key: str, first: str, second: str) -> None:
+        super().__init__(
+            f"Snapshots {first!r} and {second!r} would both be stored as "
+            f"{storage_key!r}. Change one of their keys or parametrize IDs."
         )
 
 

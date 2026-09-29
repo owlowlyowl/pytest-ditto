@@ -6,9 +6,9 @@ default (pickle) recorder, from the value `expected_value()` returns:
     def test_value(snapshot):
         assert snapshot(value(), key="value") == value()
 
-1.x stored it as `.ditto/test_value@value.pkl`. 2.0 derives a different key
-from the module path and names the file after the recorder, so the file was
-renamed to its 2.0 key, ending `.pickle`; its bytes are unchanged.
+1.x stored it as `.ditto/test_value@value.pkl`. 2.0 names the file after the
+module, test, key and a hash of them, ending with the recorder's name, so the
+file was renamed to its 2.0 name, ending `.pickle`; its bytes are unchanged.
 """
 
 import datetime
@@ -23,7 +23,7 @@ SNAPSHOT = (
     / ".ditto"
     / (
         "tests.ci.test_legacy.test_loads_a_snapshot_written_by_pytest_ditto_1x"
-        "@value.pickle"
+        "@value~30588965.pickle"
     )
 )
 SNAPSHOT_SHA256 = "503b118f791d9d8dfac3d509acb38e77230223ffa1517b57a87c184d1411146b"

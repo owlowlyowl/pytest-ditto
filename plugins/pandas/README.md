@@ -29,7 +29,7 @@ def awesome_fn_to_test(df: pd.DataFrame):
 
 # The following test uses pandas.DataFrame.to_parquet to write the data snapshot to the
 # `.ditto` directory with filename:
-# `<module>.test_fn_with_parquet_dataframe_snapshot@ab_dataframe.pandas.parquet`.
+# `<module>.test_fn_with_parquet_dataframe_snapshot@ab_dataframe~<hash>.pandas.parquet`.
 
 
 @ditto.pandas.parquet
@@ -41,7 +41,7 @@ def test_fn_with_parquet_dataframe_snapshot(snapshot):
 
 # The following test uses pandas.DataFrame.to_json(orient="table") to write the data
 # snapshot to the `.ditto` directory with filename:
-# `<module>.test_fn_with_json_dataframe_snapshot@ab_dataframe.pandas.json`.
+# `<module>.test_fn_with_json_dataframe_snapshot@ab_dataframe~<hash>.pandas.json`.
 
 
 @ditto.pandas.json

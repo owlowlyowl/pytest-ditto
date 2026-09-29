@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import msgspec
 
 from .exceptions import DittoLockFileError, DittoLockFileVersionError
-from .snapshot import SnapshotKey, _flat_key
+from .snapshot import SnapshotKey, _flat_key, _remote_key
 
 __all__ = (
     "LOCKFILE_VERSION",
@@ -163,7 +163,7 @@ def storage_key(entry: LockEntry, scheme: str) -> str:
     """
     module, group = split_nodeid(entry.nodeid)
     sk = SnapshotKey(module, group, entry.key, entry.recorder)
-    return _flat_key(sk) if scheme == "file" else str(sk)
+    return _flat_key(sk) if scheme == "file" else _remote_key(sk)
 
 
 def merge_append(

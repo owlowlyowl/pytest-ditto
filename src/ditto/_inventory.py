@@ -20,12 +20,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ._cli_introspect import run_introspect
-from ._lockfile import LOCKFILE_NAME, LockFile, read_lockfile, storage_key
+from ._lockfile import LOCKFILE_NAME, LockEntry, LockFile, read_lockfile, storage_key
 from ._manifest import BackendManifest, Manifest, ManifestEntry
 from .exceptions import DittoLockFileError, DittoWarning
 
 
-__all__ = ("InventoryError", "build_inventory", "lock_present")
+__all__ = ("InventoryError", "build_inventory", "lock_identities", "lock_present")
 
 
 class InventoryError(RuntimeError):
@@ -45,6 +45,29 @@ def _find_lock(path: Path) -> Path | None:
 def lock_present(path: Path) -> bool:
     """Return whether a `ditto.lock` governs `path` (for the no-lock hint)."""
     return _find_lock(path) is not None
+
+
+def lock_identities(path: Path) -> dict[str, LockEntry] | None:
+    """Map each storage key `ditto.lock` records to its entry, for display.
+
+    A stored name shortens and replaces characters of the test name and key, so
+    the lock is where their exact values are. Returns `None` when no readable
+    lock governs `path`; the inventory itself warns about an unreadable one.
+    """
+    lock_path = _find_lock(path)
+    if lock_path is None:
+        return None
+    try:
+        lock = read_lockfile(lock_path)
+    except DittoLockFileError:
+        return None
+    if lock is None:
+        return None
+    return {
+        storage_key(entry, target.scheme): entry
+        for target in lock.targets.values()
+        for entry in target.entries
+    }
 
 
 def _is_within(resolved: Path, base: Path) -> bool:

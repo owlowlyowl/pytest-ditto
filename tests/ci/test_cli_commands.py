@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
 from ditto._lockfile import LOCKFILE_VERSION
 from ditto._manifest import BackendManifest, ManifestEntry
@@ -251,7 +252,7 @@ def test_returns_no_issues_for_empty_entry_list(json_ext_map) -> None:
 
 def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
     """A well-named, non-empty entry with a known extension produces no issues."""
-    entry = ManifestEntry("test_foo@result.json", size_bytes=4, modified=None)
+    entry = ManifestEntry("test_foo@result~00000000.json", size_bytes=4, modified=None)
 
     assert _find_lint_issues([entry], json_ext_map) == []
 
@@ -259,20 +260,28 @@ def test_returns_no_issues_for_valid_entry(json_ext_map) -> None:
 # ── _find_lint_issues: issue detection ────────────────────────────────────────
 
 
-def test_reports_malformed_name_when_key_has_no_at_sign(json_ext_map) -> None:
-    """A storage key without '@' is flagged as malformed."""
-    entry = ManifestEntry("no_at_sign.json", size_bytes=4, modified=None)
+@pytest.mark.parametrize(
+    "name",
+    ["no_at_sign.json", "test_foo@result.json"],
+    ids=["no-at-sign", "unhashed-2.0.0b1-name"],
+)
+def test_reports_malformed_name_without_a_hash(json_ext_map, name) -> None:
+    """A name not in the `<label>~<hash>.<recorder>` form is flagged, including
+    one stored before names were hashed."""
+    entry = ManifestEntry(name, size_bytes=4, modified=None)
 
     issues = _find_lint_issues([entry], json_ext_map)
 
     assert len(issues) == 1
-    assert issues[0].filename == "no_at_sign.json"
+    assert issues[0].filename == name
     assert "Malformed" in issues[0].issue
 
 
 def test_reports_unknown_identifier_when_not_in_identifier_map() -> None:
     """An entry with an unregistered recorder identifier is flagged."""
-    entry = ManifestEntry("test_foo@result.mystery", size_bytes=4, modified=None)
+    entry = ManifestEntry(
+        "test_foo@result~00000000.mystery", size_bytes=4, modified=None
+    )
 
     issues = _find_lint_issues([entry], {})
 
@@ -282,7 +291,7 @@ def test_reports_unknown_identifier_when_not_in_identifier_map() -> None:
 
 def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
     """A zero-byte entry is flagged as empty."""
-    entry = ManifestEntry("test_foo@result.json", size_bytes=0, modified=None)
+    entry = ManifestEntry("test_foo@result~00000000.json", size_bytes=0, modified=None)
 
     issues = _find_lint_issues([entry], json_ext_map)
 
@@ -291,7 +300,9 @@ def test_reports_empty_file_when_size_is_zero(json_ext_map) -> None:
 
 def test_reports_empty_and_unknown_extension_as_separate_issues() -> None:
     """An empty entry with an unknown extension produces two separate issues."""
-    entry = ManifestEntry("test_foo@result.mystery", size_bytes=0, modified=None)
+    entry = ManifestEntry(
+        "test_foo@result~00000000.mystery", size_bytes=0, modified=None
+    )
 
     issue_texts = {i.issue for i in _find_lint_issues([entry], {})}
 
@@ -378,13 +389,44 @@ def test_list_default_does_not_run_introspect(tmp_path) -> None:
     assert "test_a" in result.output
 
 
+def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
+    pytester, monkeypatch
+) -> None:
+    """A name's label replaces `:`; `ditto list` shows the exact node id and key
+    from the lock instead, and marks a file the lock doesn't record."""
+    pytester.makepyfile(
+        test_mod="""
+        import pytest
+
+        @pytest.mark.parametrize("t", ["12:00"])
+        def test_get(snapshot, t):
+            snapshot(t, key="body:raw")
+        """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    (pytester.path / ".ditto" / "test_mod.test_old@v~0123abcd.json").write_text("1")
+    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+
+    assert result.exit_code == 0, result.output
+    locked = next(line for line in result.output.splitlines() if "test_get" in line)
+    assert "test_mod.py::test_get[12:00]" in locked
+    assert "body:raw" in locked
+    orphan = next(line for line in result.output.splitlines() if "test_old" in line)
+    assert "test_mod.test_old" in orphan
+    assert "not in lock" in orphan
+
+
 def test_list_live_runs_introspect(tmp_path) -> None:
     """`ditto list --live` delegates to the introspection pass."""
     manifest = [
         BackendManifest(
             location="redis://h/0",
             entries=[
-                ManifestEntry("mod.test_live@k.json", size_bytes=7, modified=None)
+                ManifestEntry(
+                    "mod.test_live@k~00000000.json", size_bytes=7, modified=None
+                )
             ],
         )
     ]

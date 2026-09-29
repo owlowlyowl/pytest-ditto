@@ -161,7 +161,7 @@ def test_derives_flat_dotted_key_for_file_scheme():
 
     actual = storage_key(entry, "file")
 
-    expected = "tests.test_api.TestX.test_foo@result.pkl"
+    expected = "tests.test_api.TestX.test_foo@result~5e58ed74.pkl"
     assert actual == expected
 
 
@@ -171,7 +171,7 @@ def test_derives_slash_namespaced_key_for_remote_scheme():
 
     actual = storage_key(entry, "s3")
 
-    expected = "tests/test_api/TestX.test_foo@result.pkl"
+    expected = "tests/test_api/TestX.test_foo@result~5e58ed74.pkl"
     assert actual == expected
 
 
@@ -181,7 +181,7 @@ def test_preserves_dotted_recorder_extension_in_key():
 
     actual = storage_key(entry, "file")
 
-    expected = "tests.test_etl.test_pipe@frame.pandas.parquet"
+    expected = "tests.test_etl.test_pipe@frame~d84b8b4e.pandas.parquet"
     assert actual == expected
 
 
