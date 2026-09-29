@@ -11,6 +11,8 @@ __all__ = (
     "DittoBackendChangedError",
     "DittoJSONSerializationError",
     "DuplicateSnapshotKeyError",
+    "DittoSnapshotNameCollisionError",
+    "DittoSnapshotNameTooLongError",
     "DittoAmbiguousTargetError",
     "DittoUnknownProfileError",
     "DittoInvalidProfileError",
@@ -132,6 +134,34 @@ class DuplicateSnapshotKeyError(DittoException):
         super().__init__(
             f"Snapshot key '{key}' has already been used in this test. "
             "Each snapshot call within a test must use a unique key."
+        )
+
+
+class DittoSnapshotNameCollisionError(DittoException):
+    """Raised when two different snapshots would be stored under one name.
+
+    A stored name ends in a short hash of the snapshot's identity, so this
+    needs two snapshots whose readable labels and hashes both match.
+    """
+
+    def __init__(self, storage_key: str, first: str, second: str) -> None:
+        super().__init__(
+            f"Snapshots {first!r} and {second!r} would both be stored as "
+            f"{storage_key!r}. Change one of their keys or parametrize IDs."
+        )
+
+
+class DittoSnapshotNameTooLongError(DittoException):
+    """Raised when a test module's path leaves no room for a snapshot's name.
+
+    A `file://` snapshot's name starts with the module path, dotted, and must
+    fit in the file system's limit for a file name.
+    """
+
+    def __init__(self, module: str, limit: int) -> None:
+        super().__init__(
+            f"The test module path {module!r} is too long to name its snapshots "
+            f"within {limit} bytes. Use a shorter path for the test file."
         )
 
 

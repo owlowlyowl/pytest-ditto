@@ -101,8 +101,15 @@ If snapshots live in a directory other than `.ditto`, for example one set with
 Recent versions changed how snapshot keys are derived. Snapshots recorded by
 older versions will not be found after upgrading:
 
-- **`file://` snapshots** are now stored as flat `module.group@key.ext` files
-  (one `.ditto/` directory, no per-module subdirectories)
+- **`file://` snapshots** are now stored as flat
+  `module.test@key~hash.recorder` files (one `.ditto/` directory, no
+  per-module subdirectories). Remote snapshots use the same name with the
+  module path's slashes kept. The test and key are made safe for every file
+  system and the hash keeps names apart; see
+  [Storage Backends](backends.md#local-files-file).
+- **Snapshots recorded by 2.0.0b1** used names without the hash
+  (`module.test@key.recorder`), so they aren't found either. `ditto lint`
+  reports them as malformed names.
 - **Class-based test keys** now include the class name
   (`TestClass.test_method` rather than `test_method`)
 

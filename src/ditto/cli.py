@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,14 @@ from ._theme import (
 )
 from ._manifest import Manifest, ManifestEntry
 from ._cli_introspect import IntrospectError
-from ._inventory import InventoryError, build_inventory, lock_present
+from ._inventory import (
+    InventoryError,
+    build_inventory,
+    location_key,
+    lock_identities,
+    lock_present,
+)
+from ._lockfile import LockEntry
 from .exceptions import DittoBackendConflictError, DittoRecorderConflictError
 from .recorders._contract import NAME_PATTERN
 from .recorders._plugins import RecorderRegistry
@@ -94,19 +102,51 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
     }
 
 
-def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
-    """Parse a snapshot filename into (name, key, ext).
+# A stored snapshot name: `<module>.<group label>@<key label>~<hash>.<recorder>`
+# (`/` after the module for remote backends). Labels never contain `@` or `~`
+# within a part, so the last `@` ends the test label, which always holds at
+# least the module; the key label may be empty. The hash follows the key, and
+# everything after it is the recorder.
+_SNAPSHOT_NAME = re.compile(
+    r"(?P<test>.+)@(?P<key>[^@~]*)~[0-9a-f]{16}\.(?P<recorder>.+)"
+)
 
-    File-backend snapshots are named `module.group@key.ext`, so the part before
-    `@` carries the dotted module prefix (e.g. `tests.test_api.TestCase`).
-    The ext may contain dots (e.g. `pandas.csv`).
-    Returns ext with a leading dot (e.g. `.pandas.csv`), or `""` if absent.
+
+def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
+    """Parse a snapshot name into (test label, key label, ext).
+
+    The test label keeps the module prefix (e.g. `tests.test_api.test_get[12_00]`).
+    Labels shorten and replace characters of the real test name and key, so
+    they are for display when the lock has no entry for the name. Returns ext
+    with a leading dot (e.g. `.pandas.parquet`), or `("name", "", "")` for a
+    name not in this form.
     """
-    group, _, rest = filename.partition("@")
-    if not rest:
+    match = _SNAPSHOT_NAME.fullmatch(filename)
+    if match is None:
         return filename, "", ""
-    key, dot, ext_suffix = rest.partition(".")
-    return group, key, f"{dot}{ext_suffix}"
+    return match["test"], match["key"], f".{match['recorder']}"
+
+
+def _test_and_key(
+    location: str,
+    storage_key: str,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+) -> tuple[Text, Text]:
+    """The test's node id and key from the lock, else the name's labels.
+
+    Looked up by the backend's location as well as the name: the same name
+    under another target is a different snapshot. A name the lock doesn't
+    record there (an orphan, or a snapshot recorded since the last
+    `ditto lock`) is marked when there is a lock to check against. Both are
+    `Text`, so Rich never reads a test name or key as markup.
+    """
+    label, key, _ = _parse_snapshot_name(storage_key)
+    if identities is None:
+        return Text(label), Text(key)
+    entry = identities.get((location_key(location), storage_key))
+    if entry is not None:
+        return Text(entry.nodeid), Text(entry.key)
+    return Text.assemble(label, ("  not in lock", MUTED)), Text(key)
 
 
 def _find_ditto_dirs(root: Path) -> list[Path]:
@@ -497,16 +537,19 @@ def cmd_list(path: Path, live: bool):
     table.add_column("Size", justify="right", style=MUTED)
     table.add_column("Modified", style=MUTED)
 
-    for entry in entries:
-        group, key, ext = _parse_snapshot_name(entry.storage_key)
+    identities = lock_identities(path)
+    rows = [(b.location, e) for b in manifest for e in b.entries]
+    for location, entry in rows:
+        _, _, ext = _parse_snapshot_name(entry.storage_key)
         recorder_name = _recorder_name(ext, em)
         modified = (
             datetime.fromtimestamp(entry.modified).strftime("%Y-%m-%d")
             if entry.modified is not None
             else "—"
         )
+        test, key = _test_and_key(location, entry.storage_key, identities)
         table.add_row(
-            group,
+            test,
             key,
             Text(recorder_name, style=colour_map.get(recorder_name, MUTED)),
             _human_size(entry.size_bytes),
@@ -787,12 +830,12 @@ def _find_lint_issues(
     """Return lint issues for inventory entries without further I/O."""
     issues: list[LintIssue] = []
     for entry in entries:
-        _, key, ext = _parse_snapshot_name(entry.storage_key)
-        if key == "":
+        _, _, ext = _parse_snapshot_name(entry.storage_key)
+        if ext == "":
             issues.append(
                 LintIssue(
                     filename=entry.storage_key,
-                    issue="Malformed name (missing @)",
+                    issue="Malformed name (expected <test>@<key>~<hash>.<recorder>)",
                 )
             )
         elif ext not in em:

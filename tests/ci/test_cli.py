@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 
+import pytest
 from click.testing import CliRunner
 
 from ditto import cli as cli_mod
@@ -40,44 +41,74 @@ def test_version_option_reports_the_installed_distribution_version() -> None:
 # ── _parse_snapshot_name ──────────────────────────────────────────────────────
 
 
-def test_splits_group_key_and_extension() -> None:
-    """Standard {group}@{key}.{ext} filename is split correctly."""
-    group, key, ext = _parse_snapshot_name("test_foo@result.yaml")
-    assert group == "test_foo"
-    assert key == "result"
-    assert ext == ".yaml"
+def test_splits_label_key_and_extension() -> None:
+    """A `<test label>@<key label>~<hash>.<ext>` name splits into its parts."""
+    test, key, ext = _parse_snapshot_name(
+        "tests.test_api.test_get@body~65d95e2289583fbe.json"
+    )
+    assert test == "tests.test_api.test_get"
+    assert key == "body"
+    assert ext == ".json"
 
 
-def test_preserves_multi_dot_extension() -> None:
-    """Extension with multiple dots (e.g. pandas.parquet) is preserved."""
-    group, key, ext = _parse_snapshot_name("test_foo@result.pandas.parquet")
-    assert group == "test_foo"
-    assert key == "result"
+def test_everything_after_the_hash_is_the_extension() -> None:
+    """A dotted recorder name and a dotted key both parse, as the hash marks
+    where the recorder starts."""
+    test, key, ext = _parse_snapshot_name(
+        "m.test_foo@v1.2~4956086b5a19330d.pandas.parquet"
+    )
+    assert test == "m.test_foo"
+    assert key == "v1.2"
     assert ext == ".pandas.parquet"
 
 
-def test_no_at_sign_returns_empty_key_and_ext() -> None:
-    """A filename with no '@' is treated as group only; key and ext are empty."""
-    group, key, ext = _parse_snapshot_name("invalid_filename")
-    assert group == "invalid_filename"
-    assert key == ""
-    assert ext == ""
-
-
-def test_returns_empty_extension_when_no_dot_follows_at() -> None:
-    """A file like 'group@key' (no dot) yields an empty ext."""
-    group, key, ext = _parse_snapshot_name("test_foo@key_only")
-    assert group == "test_foo"
-    assert key == "key_only"
-    assert ext == ""
-
-
-def test_preserves_dots_in_group_portion() -> None:
-    """Group portion (before @) may itself contain dots (unittest class names)."""
-    group, key, ext = _parse_snapshot_name("MyTestCase.test_method@snap.yaml")
-    assert group == "MyTestCase.test_method"
+def test_preserves_dots_in_the_test_label() -> None:
+    """The test label keeps the module prefix and class name."""
+    test, key, ext = _parse_snapshot_name(
+        "m.MyTestCase.test_method@snap~0a1b2c3d4e5f6a7b.yaml"
+    )
+    assert test == "m.MyTestCase.test_method"
     assert key == "snap"
     assert ext == ".yaml"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "invalid_filename",
+        # The format before hashed names.
+        "test_foo@result.yaml",
+        # The hash must be 16 lowercase hex characters.
+        "test_foo@result~0a1b2c3d.yaml",
+        "test_foo@result~0A1B2C3D4E5F6A7B.yaml",
+        "test_foo@result~0a1b2c3d4e5f6a7b",
+        # A hash and recorder, but no `@` or no test label before it.
+        "garbage~0123456789abcdef.json",
+        "~0123456789abcdef.json",
+        "@k~0123456789abcdef.json",
+    ],
+)
+def test_other_names_return_empty_key_and_ext(name) -> None:
+    """A name not in the stored form is returned whole, with empty key and ext."""
+    assert _parse_snapshot_name(name) == (name, "", "")
+
+
+def test_an_empty_key_parses() -> None:
+    """`key=""` is a valid key, so its name has an empty key label."""
+    assert _parse_snapshot_name("m.test_t@~0123456789abcdef.json") == (
+        "m.test_t",
+        "",
+        ".json",
+    )
+
+
+def test_the_last_at_ends_the_test_label() -> None:
+    """An `@` in the module path stays in the test label."""
+    assert _parse_snapshot_name("a@b.test_t@k~0123456789abcdef.json") == (
+        "a@b.test_t",
+        "k",
+        ".json",
+    )
 
 
 # ── _human_size ───────────────────────────────────────────────────────────────
@@ -228,7 +259,11 @@ def test_later_entry_wins_on_duplicate_identifier() -> None:
 def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     """An entry with a mapped extension is attributed to its recorder."""
     em = {".json": RecorderInfo("json", ".json", "pytest-ditto")}
-    entries = [ManifestEntry("test_foo@snap.json", size_bytes=100, modified=1000.0)]
+    entries = [
+        ManifestEntry(
+            "test_foo@snap~0000000000000000.json", size_bytes=100, modified=1000.0
+        )
+    ]
 
     stats = gather_stats(entries, em)
 
@@ -242,7 +277,11 @@ def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
 
 def test_attributes_unknown_extension_to_its_raw_name() -> None:
     """An unmapped extension uses the extension (minus leading dot) as recorder name."""
-    entries = [ManifestEntry("test_foo@snap.custom", size_bytes=50, modified=None)]
+    entries = [
+        ManifestEntry(
+            "test_foo@snap~0000000000000000.custom", size_bytes=50, modified=None
+        )
+    ]
 
     stats = gather_stats(entries, ext_map={})
 
@@ -261,8 +300,8 @@ def test_buckets_entry_with_no_extension_under_empty_string() -> None:
 def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
     """oldest and newest are the entries with the min/max modified timestamp."""
     entries = [
-        ManifestEntry("test_a@x.yaml", size_bytes=10, modified=100.0),
-        ManifestEntry("test_b@y.yaml", size_bytes=20, modified=999.0),
+        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=100.0),
+        ManifestEntry("test_b@y~0000000000000000.yaml", size_bytes=20, modified=999.0),
     ]
 
     stats = gather_stats(entries, ext_map={})
@@ -273,7 +312,9 @@ def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
 
 def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
     """Remote entries (modified=None) leave oldest/newest as None."""
-    entries = [ManifestEntry("test_a@x.yaml", size_bytes=10, modified=None)]
+    entries = [
+        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=None)
+    ]
 
     stats = gather_stats(entries, ext_map={})
 
@@ -285,9 +326,9 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     """Multiple entries of the same recorder type are summed correctly."""
     em = {".yaml": RecorderInfo("yaml", ".yaml", "pytest-ditto")}
     entries = [
-        ManifestEntry("test_a@s.yaml", size_bytes=100, modified=1.0),
-        ManifestEntry("test_b@s.yaml", size_bytes=200, modified=2.0),
-        ManifestEntry("test_c@s.yaml", size_bytes=300, modified=3.0),
+        ManifestEntry("test_a@s~0000000000000000.yaml", size_bytes=100, modified=1.0),
+        ManifestEntry("test_b@s~0000000000000000.yaml", size_bytes=200, modified=2.0),
+        ManifestEntry("test_c@s~0000000000000000.yaml", size_bytes=300, modified=3.0),
     ]
 
     stats = gather_stats(entries, em)
@@ -313,7 +354,7 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
     manifest = [
         BackendManifest(
             "file:///x/.ditto",
-            [ManifestEntry("mod.test_y@v.json", 7, None)],
+            [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
         )
     ]
     _patch_inventory(monkeypatch, manifest)

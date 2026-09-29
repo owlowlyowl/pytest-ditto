@@ -119,16 +119,17 @@ with the same interface as a `dict` of strings to bytes. Subclass
 | `__iter__` | list the stored keys, in `ditto verify`, `ditto prune` and the `--live` mode of `ditto list`, `status`, `stats` and `lint` |
 | `__len__` | nothing directly, but `MutableMapping` requires it; `sum(1 for _ in self)` is enough |
 
-Each key names one snapshot by its test module, test and snapshot key, and ends
-with the name of the recorder that wrote it:
+Each key names one snapshot by its test module, test, snapshot key and a short
+hash of them, and ends with the name of the recorder that wrote it:
 
 ```
-tests/api/test_users/test_create@response.json
-└────────┬─────────┘ └────┬────┘ └──┬───┘ └┬─┘
-    test module          test      key   recorder
+tests/api/test_users/test_create@response~90e755f5c20755bd.json
+└────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
+    test module         test       key         hash     recorder
 ```
 
-Keys contain `/`, `@` and `.`, so store them verbatim or encode them in a way
+Keys are ASCII apart from the test module, which is the test file's path. They
+contain `/`, `@`, `~` and `.`, so store them verbatim or encode them in a way
 you can reverse. Values are the bytes the recorder produced; store and return
 them unchanged.
 

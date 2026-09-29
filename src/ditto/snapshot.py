@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import string
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 
-from .exceptions import DuplicateSnapshotKeyError
+from .exceptions import (
+    DittoSnapshotNameCollisionError,
+    DittoSnapshotNameTooLongError,
+    DuplicateSnapshotKeyError,
+)
 from .recorders import Recorder, default as _default_recorder
 
 
@@ -36,28 +43,35 @@ class SnapshotKey:
         Per-snapshot identifier within the test.
     identifier : str
         Recorder identifier, e.g. "json", "yaml", "pandas.parquet".
+    nodeid : str
+        Full pytest node id of the owning test, exactly as pytest reports it,
+        or "" for a `Snapshot` built outside the fixture. `module` and
+        `group_name` are derived from it and lose detail (the file extension,
+        `::` inside a parametrize ID), so the stored name's hash uses the node
+        id when there is one.
     """
 
     module: str
     group_name: str
     key: str
     identifier: str
+    nodeid: str = ""
 
     @property
     def filename(self) -> str:
         """Short key: 'group@key.ext'. Not used as the storage key for any backend.
 
         Kept for reference and user code that inspects `SnapshotKey` objects.
-        File backends use `_flat_key` ('module.group@key.ext') and remote backends
-        use `str(key)` ('module/group@key.ext').
+        File backends store a snapshot under `_flat_key` and remote backends
+        under `_remote_key`.
         """
         return f"{self.group_name}@{self.key}.{self.identifier}"
 
     def __str__(self) -> str:
-        """Namespaced key for remote backends: 'module/group@key.ext'.
+        """Readable identity: 'module/group@key.ext'.
 
-        Unique across all test files in a shared backend (Redis, S3, etc.).
-        Also used as the human-readable display name in session reports.
+        Shown in session reports. Not a storage key: stored names replace
+        unsafe characters and add a hash (see `_flat_key`).
         """
         return f"{self.module}/{self.group_name}@{self.key}.{self.identifier}"
 
@@ -112,10 +126,12 @@ class _SessionTracker:
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
     created: list[SnapshotKey] = field(default_factory=list)
     updated: list[SnapshotKey] = field(default_factory=list)
-    # Tracks (id(backend), storage_key) — scopes duplicate detection to a single
-    # backend instance. Tests using different backends (separate fsspec mappers for
-    # different tmp dirs) cannot collide even when group_name and key are identical.
-    used_keys: set[tuple[int, str]] = field(default_factory=set)
+    # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
+    # a backend instance means tests using different backends (separate fsspec
+    # mappers for different tmp dirs) cannot collide even when group_name and key
+    # are identical; keeping the snapshot tells a reused key from two different
+    # snapshots whose names collide.
+    used_keys: dict[tuple[int, str], SnapshotKey] = field(default_factory=dict)
     # Maps id(backend) → set of module stems that used this backend this session.
     # Populated by the snapshot fixture at fixture-creation time (before any calls),
     # so modules that request snapshot but make no calls are still tracked. Used by
@@ -165,15 +181,99 @@ class _SessionTracker:
         return self._records
 
 
+# Characters a snapshot name's label keeps; every other character becomes "_".
+# ASCII only, so no platform forbids them in file names and macOS's Unicode
+# normalisation of file names can't apply. "@" separates the label's two parts
+# and "~" starts the hash, so neither appears within a part.
+_LABEL_SAFE = frozenset(string.ascii_letters + string.digits + "._-[]=,+")
+# The most the label keeps of the group name and key, for readability.
+_LABEL_GROUP_MAX = 80
+_LABEL_KEY_MAX = 40
+# Hex characters of the identity hash kept in a name: 64 bits. Two names only
+# rely on the hash when their labels match, and an accidental collision then
+# needs billions of snapshots with one label.
+_HASH_LENGTH = 16
+# The longest file name most file systems allow, in bytes.
+_NAME_MAX_BYTES = 255
+# The fewest label characters (both parts and their "@") a name must keep.
+_LABEL_MIN = 16
+
+
+def _label_part(text: str, limit: int) -> str:
+    return "".join(c if c in _LABEL_SAFE else "_" for c in text)[:limit]
+
+
+def _identity_hash(sk: SnapshotKey) -> str:
+    """The first hex characters of the SHA-256 of the snapshot's exact identity.
+
+    The identity is `[test, key, identifier]`, where `test` is the node id, or
+    `module::group_name` for a snapshot without one. It is serialised as a
+    compact JSON array (`ensure_ascii=False`, UTF-8), so no field's content can
+    be mistaken for a boundary between fields. This is part of the stored
+    format: changing it renames every snapshot.
+    """
+    test = sk.nodeid or f"{sk.module}::{sk.group_name}"
+    identity = json.dumps(
+        [test, sk.key, sk.identifier], ensure_ascii=False, separators=(",", ":")
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
+
+
+def _label(sk: SnapshotKey, room: int | None = None) -> str:
+    """The readable 'group@key' part of a name.
+
+    Characters outside `_LABEL_SAFE` become `_`. The group name keeps at most
+    `_LABEL_GROUP_MAX` characters and the key `_LABEL_KEY_MAX`. Given `room`,
+    the label is shortened further to at most that many characters, the group
+    name giving way first, to half the space.
+    """
+    group = _label_part(sk.group_name, _LABEL_GROUP_MAX)
+    key = _label_part(sk.key, _LABEL_KEY_MAX)
+    if room is not None:
+        room -= len("@")
+        group = group[: max(room - len(key), room // 2)]
+        key = key[: room - len(group)]
+    return f"{group}@{key}"
+
+
+def _snapshot_name(sk: SnapshotKey, label_room: int | None = None) -> str:
+    """The part of a storage key after the module: 'label~hash.ext'.
+
+    The label (see `_label`) is for people to read and isn't decoded;
+    `ditto.lock` records the exact identity. The hash tells apart snapshots
+    whose labels match, such as parametrize IDs that differ only in case or in
+    characters the label replaces.
+    """
+    return f"{_label(sk, label_room)}~{_identity_hash(sk)}.{sk.identifier}"
+
+
 def _flat_key(sk: SnapshotKey) -> str:
-    """Flat filesystem key for file backends: 'module.group@key.ext'.
+    """Storage key for file backends: 'module.label~hash.ext'.
 
     Slashes in the module path are replaced with dots so the key maps to
-    a single flat filename — no subdirectories inside `.ditto/`.
-    Unique across all test files sharing the same `file://` target.
+    a single flat filename — no subdirectories inside `.ditto/`. The label is
+    shortened so the whole name fits in `_NAME_MAX_BYTES`.
+
+    Raises
+    ------
+    DittoSnapshotNameTooLongError
+        When the module path leaves fewer than `_LABEL_MIN` label characters.
     """
-    module_dotted = sk.module.replace("/", ".")
-    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.identifier}"
+    prefix = sk.module.replace("/", ".") + "."
+    fixed = len(prefix.encode("utf-8")) + len(f"~{'0' * _HASH_LENGTH}.")
+    room = _NAME_MAX_BYTES - fixed - len(sk.identifier)
+    if room < _LABEL_MIN:
+        raise DittoSnapshotNameTooLongError(sk.module, _NAME_MAX_BYTES)
+    return f"{prefix}{_snapshot_name(sk, room)}"
+
+
+def _remote_key(sk: SnapshotKey) -> str:
+    """Storage key for all other backends: 'module/label~hash.ext'.
+
+    A remote key isn't a file name, so its label isn't shortened to fit one:
+    the module path can be as long as the test file's path.
+    """
+    return f"{sk.module}/{_snapshot_name(sk)}"
 
 
 class SnapshotMode(Enum):
@@ -294,12 +394,14 @@ class Snapshot:
     def _key(self, key: str) -> SnapshotKey:
         if not isinstance(key, str):
             raise TypeError(f"key must be a str, got {type(key).__name__}")
-        return SnapshotKey(self.module, self.group_name, key, self.recorder_name)
+        return SnapshotKey(
+            self.module, self.group_name, key, self.recorder_name, self.nodeid
+        )
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
-        # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
-        # stays a flat directory. All other backends use slash-namespaced keys.
-        return _flat_key if urlparse(self.target).scheme == "file" else str
+        # file:// backends use a flat dotted key so .ditto/ stays a flat
+        # directory. All other backends use slash-namespaced keys.
+        return _flat_key if urlparse(self.target).scheme == "file" else _remote_key
 
     def __call__(self, data: Any, key: str) -> Any:
         """Save or load the snapshot for `key`.
@@ -362,6 +464,8 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     ------
     DuplicateSnapshotKeyError
         When the same `key` is used more than once within a test.
+    DittoSnapshotNameCollisionError
+        When another snapshot this session has the same storage key.
     """
     sk = snapshot._key(key)
     key_of = snapshot._key_of()
@@ -370,9 +474,12 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     backend = snapshot._backend
     tracker = snapshot._tracker
     used_key = (id(backend), storage_key)
-    if used_key in tracker.used_keys:
+    previous = tracker.used_keys.get(used_key)
+    if previous == sk:
         raise DuplicateSnapshotKeyError(key)
-    tracker.used_keys.add(used_key)
+    if previous is not None:
+        raise DittoSnapshotNameCollisionError(storage_key, str(previous), str(sk))
+    tracker.used_keys[used_key] = sk
     tracker.register_access(backend, key_of, sk)
 
     recorder = snapshot.recorder

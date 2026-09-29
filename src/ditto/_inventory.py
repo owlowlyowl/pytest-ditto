@@ -20,12 +20,18 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ._cli_introspect import run_introspect
-from ._lockfile import LOCKFILE_NAME, LockFile, read_lockfile, storage_key
+from ._lockfile import LOCKFILE_NAME, LockEntry, LockFile, read_lockfile, storage_key
 from ._manifest import BackendManifest, Manifest, ManifestEntry
 from .exceptions import DittoLockFileError, DittoWarning
 
 
-__all__ = ("InventoryError", "build_inventory", "lock_present")
+__all__ = (
+    "InventoryError",
+    "build_inventory",
+    "location_key",
+    "lock_identities",
+    "lock_present",
+)
 
 
 class InventoryError(RuntimeError):
@@ -45,6 +51,52 @@ def _find_lock(path: Path) -> Path | None:
 def lock_present(path: Path) -> bool:
     """Return whether a `ditto.lock` governs `path` (for the no-lock hint)."""
     return _find_lock(path) is not None
+
+
+def location_key(location: str) -> str:
+    """Normalise a backend location so the inventory and the lock agree on it.
+
+    The default inventory names a local target by its directory and `--live`
+    by its `file://` URI; both become the resolved path. Other URIs are
+    returned unchanged.
+    """
+    if "://" not in location:
+        return str(Path(location).resolve())
+    parsed = urlparse(location)
+    if parsed.scheme == "file":
+        return str(Path(parsed.netloc + parsed.path).resolve())
+    return location
+
+
+def lock_identities(path: Path) -> dict[tuple[str, str], LockEntry] | None:
+    """Map each (target location, storage key) `ditto.lock` records to its entry.
+
+    A stored name shortens and replaces characters of the test name and key, so
+    the lock is where their exact values are. Keyed by target as well as name:
+    the same name under another target is a different snapshot. Locations are
+    normalised with `location_key`. Returns `None` when no readable lock
+    governs `path`; the inventory itself warns about an unreadable one.
+    """
+    lock_path = _find_lock(path)
+    if lock_path is None:
+        return None
+    try:
+        lock = read_lockfile(lock_path)
+    except DittoLockFileError:
+        return None
+    if lock is None:
+        return None
+    rootdir = lock_path.parent
+    identities: dict[tuple[str, str], LockEntry] = {}
+    for target_id, target in lock.targets.items():
+        location = (
+            str(_file_target_path(target_id, rootdir))
+            if target.scheme == "file"
+            else location_key(target_id)
+        )
+        for entry in target.entries:
+            identities[(location, storage_key(entry, target.scheme))] = entry
+    return identities
 
 
 def _is_within(resolved: Path, base: Path) -> bool:

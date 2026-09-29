@@ -234,8 +234,8 @@ def test_nested_snapshot_keys_match_the_keys_the_lock_derives(pytester) -> None:
     written = {p.name for p in (pytester.path / "tests/sub/.ditto").iterdir()}
     assert written == derived
     assert written == {
-        "tests.sub.test_nested.TestGroup.test_value[1]@v.json",
-        "tests.sub.test_nested.TestGroup.test_value[2]@v.json",
+        "tests.sub.test_nested.TestGroup.test_value[1]@v~8f4d5521135643b9.json",
+        "tests.sub.test_nested.TestGroup.test_value[2]@v~8181519ff641b5a5.json",
     }
 
 
@@ -246,13 +246,13 @@ _DOCTEST = """
 """
 
 
-def test_doctest_snapshot_keeps_its_key_and_matches_the_lock(pytester) -> None:
-    """A doctest file's snapshot key drops the file's extension, as it always has.
+def test_doctest_snapshot_name_drops_the_extension_and_matches_the_lock(
+    pytester,
+) -> None:
+    """A doctest file's module drops the file's extension, like a `.py` file's.
 
-    Before the fixture shared the lock's node-id parser it named this snapshot
-    `test_example.test_example.txt@v.json`, so a baseline recorded then must
-    still be the one compared against, and the lock must derive the same key
-    so a clean verify passes.
+    The lock must derive the same name from the node id, so a clean verify
+    passes, and a changed value must fail against the stored baseline.
     """
     doctest_args = ("--doctest-glob=*.txt",)
     doc = pytester.path / "test_example.txt"
@@ -260,7 +260,7 @@ def test_doctest_snapshot_keeps_its_key_and_matches_the_lock(pytester) -> None:
     pytester.runpytest_subprocess(*doctest_args).assert_outcomes(passed=1)
 
     written = {p.name for p in (pytester.path / ".ditto").iterdir()}
-    assert written == {"test_example.test_example.txt@v.json"}
+    assert written == {"test_example.test_example.txt@v~c88622f6052deede.json"}
     lock = read_lockfile(pytester.path / LOCKFILE_NAME)
     assert lock is not None
     target = lock.targets[".ditto"]
@@ -271,6 +271,26 @@ def test_doctest_snapshot_keeps_its_key_and_matches_the_lock(pytester) -> None:
 
     doc.write_text(_DOCTEST.format(value=999))
     pytester.runpytest_subprocess(*doctest_args).assert_outcomes(failed=1)
+
+
+def test_ids_differing_only_in_what_the_label_drops_keep_separate_baselines(
+    pytester,
+) -> None:
+    """`[a::b]` and `[a.b]` share a label but not a node id, so each test keeps
+    its own snapshot and never reads the other's."""
+    module = """
+    import pytest
+
+    @pytest.mark.parametrize("v", ["{first}", "{second}"], ids=["a::b", "a.b"])
+    def test_t(snapshot, v):
+        assert snapshot(v, key="k") == v
+    """
+    pytester.makepyfile(test_m=module.format(first="one", second="two"))
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+
+    assert len(list((pytester.path / ".ditto").iterdir())) == 2
+    pytester.makepyfile(test_m=module.format(first="one", second="changed"))
+    pytester.runpytest_subprocess().assert_outcomes(passed=1, failed=1)
 
 
 def test_snapshot_in_a_test_outside_the_rootdir_errors_clearly(pytester) -> None:
