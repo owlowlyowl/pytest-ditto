@@ -3,7 +3,9 @@ import types
 
 import pytest
 
+from ditto.plugin._lock import keeps_entry
 from ditto.plugin._options import xdist_is_distributing
+from ditto.plugin._session import CollectionRecord
 
 pytest_plugins = ["pytester"]
 
@@ -473,3 +475,39 @@ def test_a_deleted_module_still_loses_its_entries(pytester):
     pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
 
     assert _nodeids_in_lockfile(pytester) == {"test_alpha_mod.py::test_alpha"}
+
+
+NODE = "tests/unit/test_mod.py::TestC::test_m[a]"
+
+
+@pytest.mark.parametrize(
+    ("collection", "kept"),
+    [
+        (CollectionRecord(), False),
+        (CollectionRecord(collected={NODE}), True),
+        (CollectionRecord(collected={NODE}, passed={NODE}), False),
+        (CollectionRecord(uncollected={""}), True),
+        (CollectionRecord(uncollected={"tests"}), True),
+        (CollectionRecord(uncollected={"tests/unit/test_mod.py"}), True),
+        (CollectionRecord(uncollected={"tests/unit/test_mod.py::TestC"}), True),
+        (CollectionRecord(uncollected={"tests/un"}), False),
+        (CollectionRecord(uncollected={"tests/unit/test_mod"}), False),
+        (CollectionRecord(uncollected={"tests/other"}), False),
+    ],
+    ids=[
+        "deleted",
+        "collected",
+        "passed",
+        "root-ignored",
+        "directory-ignored",
+        "module-skipped",
+        "class-skipped",
+        "partial-directory-name",
+        "partial-file-name",
+        "sibling-directory",
+    ],
+)
+def test_keeps_entry(collection, kept):
+    """An entry is kept for a collected test that didn't pass, or one under
+    something pytest left out, matched on whole node-id segments."""
+    assert keeps_entry(NODE, collection) is kept

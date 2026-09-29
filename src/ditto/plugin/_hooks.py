@@ -73,19 +73,25 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     session.config.stash[SESSION_STATE] = DittoSession()
 
 
+def _path_nodeid(path: Path, rootpath: Path) -> str | None:
+    """Return the node id pytest gives `path`, or None when it's outside `rootpath`."""
+    try:
+        relative = path.relative_to(rootpath)
+    except ValueError:
+        return None
+    return "" if relative == Path() else relative.as_posix()
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_ignore_collect(
     collection_path: Path, config: pytest.Config
 ) -> Generator[None, bool | None, bool | None]:
     ignored = yield
-    if ignored:
-        try:
-            relative = collection_path.relative_to(config.rootpath)
-        except ValueError:  # outside rootpath, so no lock entry can be under it
-            return ignored
-        session_state(config).excluded_nodeids.add(
-            "" if relative == Path() else relative.as_posix()
-        )
+    if (
+        ignored
+        and (nodeid := _path_nodeid(collection_path, config.rootpath)) is not None
+    ):
+        session_state(config).collection.uncollected.add(nodeid)
     return ignored
 
 
@@ -95,28 +101,28 @@ def pytest_make_collect_report(
 ) -> Generator[None, pytest.CollectReport, pytest.CollectReport]:
     report = yield
     if report.skipped:
-        session_state(collector.config).excluded_nodeids.add(collector.nodeid)
+        session_state(collector.config).collection.uncollected.add(collector.nodeid)
     return report
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
-    session_state(session.config).collected_nodeids.update(
+    session_state(session.config).collection.collected.update(
         item.nodeid for item in session.items
     )
 
 
 def pytest_deselected(items: Sequence[pytest.Item]) -> None:
     for item in items:
-        session_state(item.config).collected_nodeids.add(item.nodeid)
+        session_state(item.config).collection.collected.add(item.nodeid)
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(
-    item: pytest.Item, call: pytest.CallInfo[None]
+    item: pytest.Item,
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     report = yield
     if report.when == "call" and report.passed:
-        session_state(item.config).passed_nodeids.add(item.nodeid)
+        session_state(item.config).collection.passed.add(item.nodeid)
     return report
 
 
