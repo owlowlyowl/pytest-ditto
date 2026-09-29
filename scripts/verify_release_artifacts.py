@@ -200,7 +200,7 @@ def test_external_recorder_and_namespaced_mark(snapshot):
     pytest_command = [str(python), "-m", "pytest", "-q", str(test_file)]
     _run(pytest_command, cwd=smoke)
 
-    json_snapshots = list((smoke / ".ditto").glob("*@value.json"))
+    json_snapshots = list((smoke / ".ditto").glob("*@value~*.json"))
     if len(json_snapshots) != 1:
         raise RuntimeError(
             "Installed-wheel smoke test did not create one JSON snapshot."
@@ -209,9 +209,9 @@ def test_external_recorder_and_namespaced_mark(snapshot):
         raise RuntimeError(
             "Installed wheel did not write the expected golden JSON bytes."
         )
-    if len(list((smoke / ".ditto").glob("*@value.synthetic"))) != 1:
+    if len(list((smoke / ".ditto").glob("*@value~*.synthetic"))) != 1:
         raise RuntimeError("Synthetic external recorder did not persist its snapshot.")
-    if len(list((smoke / ".ditto").glob("*@value.verify.dotted"))) != 1:
+    if len(list((smoke / ".ditto").glob("*@value~*.verify.dotted"))) != 1:
         raise RuntimeError("Namespaced external recorder did not persist its snapshot.")
 
     _run(pytest_command, cwd=smoke)
