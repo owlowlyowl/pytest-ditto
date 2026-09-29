@@ -44,9 +44,11 @@ def test_rename_script_keeps_every_baseline(tmp_path, monkeypatch, reverse):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(old)
     rglob = Path.rglob
-    monkeypatch.setattr(
-        Path, "rglob", lambda self, pattern: sorted(rglob(self, pattern), reverse=reverse)
-    )
+
+    def ordered_rglob(self, pattern):
+        return sorted(rglob(self, pattern), reverse=reverse)
+
+    monkeypatch.setattr(Path, "rglob", ordered_rglob)
     monkeypatch.chdir(tmp_path)
 
     exec(_rename_script(), {})
