@@ -2,7 +2,7 @@
 
 import pytest
 
-from ditto.plugin._options import reject_uri_credentials
+from ditto.plugin._credentials import uri_credentials_error
 
 pytest_plugins = ["pytester"]
 
@@ -39,7 +39,7 @@ pytest_plugins = ["pytester"]
         (
             "filecache::s3://bucket/key?sig=abc::memory://u:pw@b",
             "filecache::s3://bucket/key?sig=***::memory://u:***@b",
-            "the query parameter 'sig' and a password",
+            "a password and the query parameter 'sig'",
         ),
     ],
     ids=[
@@ -54,10 +54,9 @@ pytest_plugins = ["pytester"]
 )
 def test_uri_with_a_secret_is_rejected_with_it_masked(uri, masked, found) -> None:
     """The error shows the URI with every secret masked and says what it found."""
-    with pytest.raises(pytest.UsageError) as excinfo:
-        reject_uri_credentials(uri)
+    message = uri_credentials_error(uri)
 
-    message = str(excinfo.value)
+    assert message is not None
     assert repr(masked) in message
     assert f"contains {found}." in message
     assert "ditto_storage_options" in message
@@ -87,7 +86,7 @@ def test_uri_with_a_secret_is_rejected_with_it_masked(uri, masked, found) -> Non
 )
 def test_uri_without_a_secret_is_accepted(uri) -> None:
     """A username alone, or a query parameter that isn't a secret, is allowed."""
-    reject_uri_credentials(uri)
+    assert uri_credentials_error(uri) is None
 
 
 def test_mark_target_with_a_password_errors_and_is_not_locked(pytester) -> None:
@@ -150,6 +149,38 @@ def test_rejected_target_never_appears_in_the_report_or_the_lock(
     ])
     assert "hunter2" not in result.stdout.str() + result.stderr.str()
     assert "hunter2" not in (pytester.path / "junit.xml").read_text()
+    lock = pytester.path / "ditto.lock"
+    assert not lock.exists() or "hunter2" not in lock.read_text()
+
+
+def test_profile_target_with_a_password_errors_and_is_not_locked(pytester) -> None:
+    """A profile's URI goes through the same check as a mark's target."""
+    pytester.makeconftest(
+        """
+        import pytest
+
+        @pytest.fixture
+        def ditto_target_profiles():
+            return {"remote": "memory://alice:hunter2@bucket/snaps"}
+        """
+    )
+    pytester.makepyfile(
+        test_m="""
+        import ditto
+
+        @ditto.record("json", target_profile="remote")
+        def test_t(snapshot):
+            snapshot(1, key="k")
+        """
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines([
+        "*memory://alice:***@bucket/snaps*contains a password*"
+    ])
+    assert "hunter2" not in result.stdout.str() + result.stderr.str()
     lock = pytester.path / "ditto.lock"
     assert not lock.exists() or "hunter2" not in lock.read_text()
 

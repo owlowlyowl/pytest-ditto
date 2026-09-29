@@ -15,7 +15,8 @@ from ditto.exceptions import (
     DittoUnhashableStorageOptionsError,
 )
 
-from ._options import get_storage_options, uri_credentials_error
+from ._credentials import uri_credentials_error
+from ._options import StorageOptions, get_storage_options
 from ._profiles import load_target_profiles, resolve_profile
 from ._session import DittoSession, TargetCacheKey, maybe_enter, session_state
 
@@ -140,9 +141,6 @@ def resolve_uri(
 
     Raises
     ------
-    pytest.fail.Exception
-        When the URI contains a password or a secret query parameter. It is
-        reported without a traceback, whose frames would show the URI.
     ValueError
         When the scheme is unrecognised by both `BACKEND_REGISTRY` and fsspec.
     DittoBackendLoadError
@@ -155,8 +153,6 @@ def resolve_uri(
     DittoUnhashableStorageOptionsError
         When `opts` contains a value that cannot be hashed.
     """
-    if (message := uri_credentials_error(uri)) is not None:
-        pytest.fail(message, pytrace=False)
     canonical_uri = _canonicalize_uri(uri, test_dir)
     cache_key = _cache_key(canonical_uri, opts)
     scheme = urlparse(canonical_uri).scheme
@@ -192,6 +188,41 @@ def resolve_uri(
     return backend, canonical_uri
 
 
+def _scheme_options(uri: str, request: pytest.FixtureRequest) -> StorageOptions:
+    """Return the `ditto_storage_options` entry for `uri`'s scheme, or `{}`."""
+    return get_storage_options(request).get(urlparse(uri).scheme, {})
+
+
+def _select_target(
+    mark_target: str | None,
+    mark_target_profile: str | None,
+    request: pytest.FixtureRequest,
+) -> tuple[str, StorageOptions]:
+    """Return the URI this test's snapshots use and the options to build it with.
+
+    Precedence (first match wins):
+
+    1. Mark `target=` — raw URI supplied directly on the mark.
+    2. Mark `target_profile=` — named profile supplied on the mark.
+    3. `ditto_target_profile` ini — project-wide named profile default.
+    4. `ditto_target` ini — project-wide raw URI default.
+    5. `file://.ditto` — built-in fallback.
+
+    `ditto_target` and `ditto_target_profile` can't both be set, so 3 and 4
+    never compete. For a raw URI the options come from `ditto_storage_options`
+    keyed by scheme. For a profile only the profile's own `storage_options` are
+    used; `ditto_storage_options` is ignored.
+    """
+    if mark_target is not None:
+        return mark_target, _scheme_options(mark_target, request)
+    if mark_target_profile is not None:
+        return resolve_profile(mark_target_profile, load_target_profiles(request))
+    if ini_profile := request.config.getini("ditto_target_profile"):
+        return resolve_profile(ini_profile, load_target_profiles(request))
+    ini_target = request.config.getini("ditto_target") or "file://.ditto"
+    return ini_target, _scheme_options(ini_target, request)
+
+
 def resolve_target(
     mark_target: str | None,
     mark_target_profile: str | None,
@@ -199,17 +230,7 @@ def resolve_target(
 ) -> tuple[MutableMapping[str, bytes], str]:
     """Resolve the snapshot storage target for this test.
 
-    Precedence (first match wins):
-
-    1. Mark `target=` — raw URI supplied directly on the mark.
-    2. Mark `target_profile=` — named profile supplied on the mark.
-    3. `ditto_target` ini — project-wide raw URI default.
-    4. `ditto_target_profile` ini — project-wide named profile default.
-    5. `file://.ditto` — built-in fallback.
-
-    For raw URI paths, backend kwargs come from `ditto_storage_options` keyed
-    by scheme. For profile paths, only the profile's own `storage_options` are
-    used; `ditto_storage_options` is ignored.
+    See `_select_target` for which target a test uses.
 
     Parameters
     ----------
@@ -230,6 +251,9 @@ def resolve_target(
     ------
     TypeError
         When a `ditto_backend` fixture is detected (migration error).
+    pytest.fail.Exception
+        When the target URI contains a password or a secret query parameter.
+        It is reported without a traceback, whose frames would show the URI.
     """
     fixturedefs = request._fixturemanager.getfixturedefs("ditto_backend", request.node)
     if fixturedefs:
@@ -239,29 +263,7 @@ def resolve_target(
             "and configure runtime options via ditto_storage_options."
         )
 
-    test_dir = request.path.parent
-    storage_options = get_storage_options(request)
-    state = session_state(request.config)
-
-    if mark_target is not None:
-        parsed = urlparse(mark_target)
-        return resolve_uri(
-            mark_target, test_dir, storage_options.get(parsed.scheme, {}), state
-        )
-
-    if mark_target_profile is not None:
-        profiles = load_target_profiles(request)
-        profile_uri, profile_opts = resolve_profile(mark_target_profile, profiles)
-        return resolve_uri(profile_uri, test_dir, profile_opts, state)
-
-    ini_profile = request.config.getini("ditto_target_profile")
-    if ini_profile:
-        profiles = load_target_profiles(request)
-        profile_uri, profile_opts = resolve_profile(ini_profile, profiles)
-        return resolve_uri(profile_uri, test_dir, profile_opts, state)
-
-    ini_target = request.config.getini("ditto_target") or "file://.ditto"
-    parsed = urlparse(ini_target)
-    return resolve_uri(
-        ini_target, test_dir, storage_options.get(parsed.scheme, {}), state
-    )
+    uri, opts = _select_target(mark_target, mark_target_profile, request)
+    if (message := uri_credentials_error(uri)) is not None:
+        pytest.fail(message, pytrace=False)
+    return resolve_uri(uri, request.path.parent, opts, session_state(request.config))
