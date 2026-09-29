@@ -48,6 +48,12 @@ class DittoSession:
     introspect_backends: dict[str, MutableMapping[str, bytes]] = field(
         default_factory=dict
     )
+    # Node ids collected this session, including deselected ones, and those
+    # whose call phase passed. A lock rebuild replaces a passed test's entries
+    # and keeps those of a collected test that didn't pass (skipped, xfailed,
+    # deselected), so a skip never drops its baseline.
+    collected_nodeids: set[str] = field(default_factory=set)
+    passed_nodeids: set[str] = field(default_factory=set)
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()

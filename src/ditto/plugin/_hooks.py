@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Generator, Sequence
 
 import pytest
 
@@ -36,6 +37,9 @@ __all__ = (
     "pytest_addoption",
     "pytest_configure",
     "pytest_sessionstart",
+    "pytest_collection_finish",
+    "pytest_deselected",
+    "pytest_runtest_makereport",
     "pytest_sessionfinish",
     "pytest_unconfigure",
 )
@@ -64,6 +68,27 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     session.config.stash[SESSION_STATE] = DittoSession()
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    session_state(session.config).collected_nodeids.update(
+        item.nodeid for item in session.items
+    )
+
+
+def pytest_deselected(items: Sequence[pytest.Item]) -> None:
+    for item in items:
+        session_state(item.config).collected_nodeids.add(item.nodeid)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    report = yield
+    if report.when == "call" and report.passed:
+        session_state(item.config).passed_nodeids.add(item.nodeid)
+    return report
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:

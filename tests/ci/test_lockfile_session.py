@@ -282,3 +282,113 @@ def test_nested_in_process_session_does_not_leak_into_outer_lockfile(pytester, a
         (e["nodeid"], e["key"]) for t in data["targets"].values() for e in t["entries"]
     }
     assert entries == {("test_outer.py::test_a_outer", "outer")}
+
+
+# ── Rebuilds keep the entries of tests that didn't run (#156) ─────────────────
+
+SKIPPABLE_MODULE = """
+import os
+import pytest
+
+def test_alpha(snapshot):
+    assert snapshot(1, key="a") == 1
+
+@pytest.mark.skipif(os.environ.get("SKIP_BETA") == "1", reason="platform")
+def test_beta(snapshot):
+    assert snapshot(2, key="b") == 2
+"""
+
+
+def _beta_snapshot(pytester):
+    return [p for p in (pytester.path / ".ditto").iterdir() if "test_beta" in p.name]
+
+
+@pytest.mark.parametrize("rebuild", ["--ditto-lock", "--ditto-update"])
+def test_a_skipped_test_keeps_its_entry_and_baseline_through_rebuild_and_prune(
+    pytester, monkeypatch, rebuild
+):
+    """A test skipped on this machine keeps its lock entry through a rebuild, so
+    the next prune doesn't delete its baseline."""
+    pytester.makepyfile(test_mod=SKIPPABLE_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    monkeypatch.setenv("SKIP_BETA", "1")
+
+    pytester.runpytest_subprocess(rebuild).assert_outcomes(passed=1, skipped=1)
+    pruned = pytester.runpytest_subprocess("--ditto-prune")
+
+    assert pruned.ret == 0
+    assert any("test_beta" in n for n in _nodeids_in_lockfile(pytester))
+    assert _beta_snapshot(pytester)
+
+
+def test_a_deselected_test_keeps_its_entry(pytester):
+    """A test left out with --deselect keeps its entry through a full rebuild."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "--deselect", "test_mod.py::test_beta"
+    )
+
+    assert result.ret == 0
+    assert "test_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+@pytest.mark.parametrize(
+    "narrowing",
+    [("--ignore", "test_beta_mod.py"), ("--ignore-glob", "*beta_mod.py")],
+    ids=["ignore", "ignore-glob"],
+)
+def test_a_test_in_an_ignored_file_keeps_its_entry(pytester, narrowing):
+    """A test in a file left out with --ignore or --ignore-glob keeps its entry
+    through a full rebuild."""
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess("--ditto-lock", *narrowing)
+
+    assert result.ret == 0
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_test_skipped_partway_keeps_the_entries_it_did_not_reach(
+    pytester, monkeypatch
+):
+    """A test that skips after some snapshots keeps the entries it didn't reach."""
+    module = """
+    import os
+    import pytest
+
+    def test_t(snapshot):
+        snapshot(1, key="first")
+        if os.environ.get("STOP") == "1":
+            pytest.skip("stopped")
+        snapshot(2, key="second")
+    """
+    pytester.makepyfile(test_mod=module)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+    monkeypatch.setenv("STOP", "1")
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(skipped=1)
+
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    keys = {e["key"] for t in data["targets"].values() for e in t["entries"]}
+    assert keys == {"first", "second"}
+
+
+def test_a_passing_test_that_stops_using_a_key_loses_that_entry(pytester):
+    """A test that passed is authoritative for its own entries."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    pytester.makepyfile(
+        test_mod=TEST_MODULE.replace('snapshot(2, key="b") == 2', "True")
+    )
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    keys = {e["key"] for t in data["targets"].values() for e in t["entries"]}
+    assert keys == {"a"}

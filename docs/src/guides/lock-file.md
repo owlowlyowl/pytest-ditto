@@ -38,6 +38,19 @@ instead.
 | `ditto update` (`pytest --ditto-update`) | On a full run, reconciles the lock (drops entries for deleted tests); on a filtered run, appends only. |
 | `ditto prune` (`pytest --ditto-prune`) | Does **not** write the lock; deletes backend snapshots absent from it. |
 
+A rebuild works test by test. A test that passed this run has its entries
+replaced by the snapshots it used. A test that didn't run its body to a pass
+keeps its entries: one that was skipped (for example by a platform `skipif`),
+xfailed, deselected with `--deselect`, or in a file left out with `--ignore` or
+`--ignore-glob`. Entries for tests that no longer exist are dropped, which is
+what cleans up after a renamed or deleted test. A skip on one machine therefore
+never removes a snapshot that another machine still runs.
+
+One case still looks like a deleted test: a file left out by a `conftest.py`
+`collect_ignore` or `collect_ignore_glob` that depends on the platform. Its
+entries are dropped on a machine that ignores it; prefer a `skipif` mark for
+platform-specific tests.
+
 Owned-prefix scoping keeps a shared backend safe: ditto only considers keys under
 the modules your suite owns, so two suites or branches sharing one backend never
 delete each other's data.

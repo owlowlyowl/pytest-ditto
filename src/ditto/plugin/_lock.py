@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import warnings
 from enum import Enum
 
@@ -116,10 +117,42 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     return session.testsfailed == 0 and exitstatus == 0
 
 
-def _rewrite_lockfile(config: pytest.Config) -> None:
-    """Rewrite each exercised target's entries to this run's accessed-or-created set.
+def _under_ignored_path(config: pytest.Config, nodeid: str) -> bool:
+    """True when `nodeid`'s file is excluded by `--ignore` or `--ignore-glob`.
 
-    Targets present in the existing file but not exercised this run are preserved.
+    Mirrors pytest's own check: paths are relative to the invocation directory,
+    `--ignore` names a file or a directory, and `--ignore-glob` matches the
+    file's absolute path. A conftest `collect_ignore` isn't seen here.
+    """
+    path = config.rootpath / nodeid.partition("::")[0]
+    base = config.invocation_params.dir
+    ignored = [(base / p).resolve() for p in config.getoption("ignore", None) or []]
+    if any(p == path or p in path.parents for p in ignored):
+        return True
+    globs = [str(base / g) for g in config.getoption("ignore_glob", None) or []]
+    return any(fnmatch.fnmatch(str(path), g) for g in globs)
+
+
+def _keeps_entry(config: pytest.Config, nodeid: str) -> bool:
+    """Whether a rebuild keeps an existing entry this run didn't replace.
+
+    A test that passed has its entries replaced by what it used this run. One
+    that was collected but didn't pass (skipped, xfailed, deselected), or whose
+    file was left out with `--ignore`/`--ignore-glob`, keeps its entries. An
+    entry for a test that no longer exists is dropped.
+    """
+    state = session_state(config)
+    if nodeid in state.passed_nodeids:
+        return False
+    return nodeid in state.collected_nodeids or _under_ignored_path(config, nodeid)
+
+
+def _rewrite_lockfile(config: pytest.Config) -> None:
+    """Rebuild each exercised target's entries from this run, test by test.
+
+    An exercised target's new entries are those accessed or created this run,
+    plus the existing entries `_keeps_entry` keeps. Targets present in the
+    existing file but not exercised this run are preserved.
     """
     grouped = _grouped(session_state(config).tracker.lock_accessed)
     path = config.rootpath / LOCKFILE_NAME
@@ -142,8 +175,13 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
         # (matching merge_append) and only use the observed scheme for a new target.
         current = targets.get(target_id)
         target_scheme = current.scheme if current is not None else scheme
+        kept = (
+            {e for e in current.entries if _keeps_entry(config, e.nodeid)}
+            if current is not None
+            else set()
+        )
         targets[target_id] = LockTarget(
-            scheme=target_scheme, entries=tuple(sorted(set(entries)))
+            scheme=target_scheme, entries=tuple(sorted(set(entries) | kept))
         )
     lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
     if lock != existing:
