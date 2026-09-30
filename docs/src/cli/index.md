@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `ditto` command provides snapshot management tools independent of a test run.
+The `ditto` command inspects snapshots and drives pytest snapshot workflows.
 
 ## Commands
 
@@ -9,6 +9,7 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto run`](run.md) | Run pytest with snapshot reporting |
 | [`ditto update`](update.md) | Regenerate all snapshots |
 | [`ditto prune`](prune.md) | Remove stale snapshots |
+| [`ditto lock`](lock.md) | Rebuild the lock from a complete test run |
 | [`ditto verify`](verify.md) | Fail if the backend drifted from `ditto.lock` |
 | [`ditto list`](list.md) | List all snapshot files |
 | [`ditto status`](status.md) | Show aggregate statistics |

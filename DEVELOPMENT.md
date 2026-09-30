@@ -258,10 +258,10 @@ See `.github/workflows/docs.yml`.
 ```
 ├── src/ditto/            # Package source
 │   ├── __init__.py       # Public API exports
-│   ├── plugin.py         # pytest plugin hooks
+│   ├── plugin/           # pytest plugin hooks
 │   ├── snapshot.py       # Snapshot fixture implementation
-│   ├── cli.py            # CLI commands (click)
-│   ├── recorders/        # Built-in recorders (pickle, yaml, json)
+│   ├── cli/              # Click commands, rendering, diagnostics, and statistics
+│   ├── recorders/        # Built-in recorders (yaml, json)
 │   ├── backends/         # Storage backends (fsspec, transforms)
 │   └── exceptions.py     # Exception hierarchy
 ├── tests/ci/             # Test suite
@@ -269,4 +269,19 @@ See `.github/workflows/docs.yml`.
 ├── docs/                 # Documentation source
 ├── pyproject.toml        # Package metadata + pixi config
 └── .github/workflows/    # CI workflows
+```
+
+### CLI presentation
+
+`src/ditto/cli/__init__.py` registers commands and preserves the `ditto.cli:cli`
+entry point. `_pytest.py` handles pytest passthrough; `_inventory.py` handles
+read-only inventory commands; `_maintenance.py` handles cleanup and plugin
+commands. `_data.py`, `_summary.py`, and `_diagnostics.py` contain the metadata
+and computation, while `_display.py` owns Rich rendering.
+
+Rendering tests cover narrow and wide terminals, literal user data, file grouping,
+and target identity. Regenerate the documentation's terminal examples with:
+
+```bash
+pixi run -e py312 python scripts/render_cli_examples.py
 ```

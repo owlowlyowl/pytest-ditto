@@ -145,7 +145,9 @@ def _local_ditto_dirs(
     """
     base = path.resolve()
     dirs: dict[Path, None] = dict.fromkeys(
-        d.resolve() for d in base.rglob(".ditto") if d.is_dir()
+        d.resolve()
+        for d in (base, *base.rglob(".ditto"))
+        if d.name == ".ditto" and d.is_dir()
     )
     if lock is not None and rootdir is not None:
         for target_id, target in lock.targets.items():

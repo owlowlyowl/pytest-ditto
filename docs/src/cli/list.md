@@ -6,7 +6,7 @@ key, recorder, file size, and last-modified date.
 ## Usage
 
 ```
-ditto list [PATH]
+ditto list [--flat] [--live] [PATH]
 ```
 
 ## Examples
@@ -17,19 +17,36 @@ ditto list
 
 # List snapshots in a specific directory
 ditto list tests/ci/
+
+# Show full pytest node IDs on individual rows
+ditto list --flat
 ```
 
 ## Screenshot
 
-![ditto list](../img/ditto-list.png)
+![ditto list](../img/ditto-list.svg)
 
 ## Output
 
-Displays a table with columns:
+Groups snapshots by **storage target**, then by **test file**, with tree branches
+for the tests beneath each file. Shared file paths appear once; keys, recorders,
+and sizes stay aligned with their snapshot rows. Local targets are relative to
+the current directory where possible, and remote targets retain their URI.
+
+Exact test names and keys come from `ditto.lock`. Without a matching entry,
+the stored filename's labels remain intact; when a lock exists, unmatched
+snapshots are marked `not in lock`. Labels are never guessed into file paths.
+Use `--flat` to show complete node IDs on each row.
+
+Long names wrap instead of being truncated. Below 100 columns, size and modified
+date share a **Details** column; below 60 columns it also includes the key and
+recorder. The footer reports the number of snapshots and targets.
+
+At wider terminal widths the columns are:
 
 | Column | Description |
 |--------|-------------|
-| Test | Test function name |
+| Target / test | Storage target, test file, and test name (full node ID with `--flat`) |
 | Key | Snapshot key |
 | Recorder | Format used (json, yaml, external formats, etc.) |
 | Size | File size |

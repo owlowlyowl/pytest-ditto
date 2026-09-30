@@ -35,3 +35,8 @@ ditto clean tests/ci/ --yes
 
 !!! note
     `ditto clean` is local-only and never touches remote snapshots.
+
+Nested `.ditto/` directories are removed with their parent and are not scheduled
+twice. PATH can be a `.ditto/` directory itself. Directory symlinks are not
+followed for cleanup; an explicitly selected symlink is rejected. Filesystem
+failures are reported on stderr with a non-zero exit status.

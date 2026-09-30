@@ -73,7 +73,8 @@ def json_ext_map():
 def test_pytest_check_passes_when_pytest_is_importable() -> None:
     """The pytest check is marked passing when importlib can locate pytest."""
     with patch(
-        "ditto.cli.importlib.metadata.entry_points", side_effect=_entry_points()
+        "ditto.cli._diagnostics.importlib.metadata.entry_points",
+        side_effect=_entry_points(),
     ):
         checks = _doctor_checks()
 
@@ -84,8 +85,11 @@ def test_pytest_check_passes_when_pytest_is_importable() -> None:
 def test_pytest_check_fails_when_pytest_is_not_importable() -> None:
     """The pytest check is marked failing when find_spec returns None."""
     with (
-        patch("ditto.cli.importlib.util.find_spec", return_value=None),
-        patch("ditto.cli.importlib.metadata.entry_points", side_effect=_entry_points()),
+        patch("ditto.cli._diagnostics.importlib.util.find_spec", return_value=None),
+        patch(
+            "ditto.cli._diagnostics.importlib.metadata.entry_points",
+            side_effect=_entry_points(),
+        ),
     ):
         checks = _doctor_checks()
 
@@ -98,7 +102,7 @@ def test_pytest_check_fails_when_pytest_is_not_importable() -> None:
 
 def _plugin_check(*pytest11: MagicMock):
     with patch(
-        "ditto.cli.importlib.metadata.entry_points",
+        "ditto.cli._diagnostics.importlib.metadata.entry_points",
         side_effect=_entry_points(pytest11=pytest11),
     ):
         checks = _doctor_checks()
@@ -347,7 +351,9 @@ def test_clean_exits_one_when_no_ditto_dirs_exist(tmp_path) -> None:
 
 def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
     """ditto recorders exits 1 when no recorder entry points are registered."""
-    with patch("ditto.cli.importlib.metadata.entry_points", return_value=[]):
+    with patch(
+        "ditto.cli._diagnostics.importlib.metadata.entry_points", return_value=[]
+    ):
         result = CliRunner().invoke(cmd_recorders, [])
 
     assert result.exit_code == 1
@@ -355,7 +361,7 @@ def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
 
 def test_prune_check_forwards_dry_run_flag() -> None:
     """ditto prune --check forwards --ditto-prune-dry-run, not --ditto-prune."""
-    with patch("ditto.cli.subprocess.run") as run:
+    with patch("ditto.cli._pytest.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, ["--check"])
 
@@ -367,7 +373,7 @@ def test_prune_check_forwards_dry_run_flag() -> None:
 
 def test_prune_without_check_forwards_delete_flag() -> None:
     """Plain ditto prune forwards --ditto-prune (delete)."""
-    with patch("ditto.cli.subprocess.run") as run:
+    with patch("ditto.cli._pytest.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, [])
 
@@ -379,7 +385,7 @@ def test_prune_without_check_forwards_delete_flag() -> None:
 
 def test_prune_shared_forwards_prune_shared_flag() -> None:
     """ditto prune --shared forwards --ditto-prune-shared with --ditto-prune."""
-    with patch("ditto.cli.subprocess.run") as run:
+    with patch("ditto.cli._pytest.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, ["--shared"])
 
@@ -428,13 +434,14 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
     pytester.runpytest_subprocess().assert_outcomes(passed=1)
     orphan_name = "test_mod.test_old@v~0123abcd0123abcd.json"
     (pytester.path / ".ditto" / orphan_name).write_text("1")
-    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
     result = CliRunner().invoke(cmd_list, [str(pytester.path)])
 
     assert result.exit_code == 0, result.output
     locked = next(line for line in result.output.splitlines() if "test_get" in line)
-    assert "test_mod.py::test_get[12:00]" in locked
+    assert "test_mod.py" in result.output
+    assert "test_get[12:00]" in locked
     assert "body:raw" in locked
     orphan = next(line for line in result.output.splitlines() if "test_old" in line)
     assert "test_mod.test_old" in orphan
@@ -451,7 +458,7 @@ def test_list_shows_a_bracketed_key_literally(pytester, monkeypatch) -> None:
         """
     )
     pytester.runpytest_subprocess().assert_outcomes(passed=1)
-    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
     result = CliRunner().invoke(cmd_list, [str(pytester.path)])
 
@@ -474,7 +481,7 @@ def test_list_checks_the_lock_per_target(pytester, monkeypatch) -> None:
     other = pytester.mkdir("other") / ".ditto"
     other.mkdir()
     (other / locked.name).write_bytes(locked.read_bytes())
-    monkeypatch.setattr("ditto.cli.console", Console(width=200))
+    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
     result = CliRunner().invoke(cmd_list, [str(pytester.path)])
 
@@ -482,7 +489,8 @@ def test_list_checks_the_lock_per_target(pytester, monkeypatch) -> None:
     rows = [line for line in result.output.splitlines() if "test_t" in line]
     assert len(rows) == 2
     assert sum("not in lock" in row for row in rows) == 1
-    assert any("test_mod.py::test_t" in row for row in rows)
+    assert "test_mod.py" in result.output
+    assert any("test_t" in row for row in rows)
 
 
 def test_list_live_runs_introspect(tmp_path) -> None:

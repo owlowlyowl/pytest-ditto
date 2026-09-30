@@ -36,7 +36,7 @@ BASE = "#1e1e2e"
 MANTLE = "#181825"
 CRUST = "#11111b"
 
-# ── Semantic aliases used across _report.py and cli.py ───────────────────────
+# ── Semantic aliases used across _report.py and cli/ ───────────────────────
 CREATED = GREEN  # new snapshot files
 UPDATED = BLUE  # overwritten snapshot files
 WOULD_PRUNE = YELLOW  # backend keys a --ditto-prune run would delete

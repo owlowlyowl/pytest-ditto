@@ -1,7 +1,9 @@
 # ditto lint
 
 Checks snapshot files for naming issues, unknown recorder formats, and empty
-files. Exits non-zero if any issues are found.
+files. Exits non-zero if any issues are found. Issues are grouped by storage
+target so the same filename in different backends remains distinguishable.
+An empty inventory reports `No snapshot files found.` and exits successfully.
 
 ## Usage
 

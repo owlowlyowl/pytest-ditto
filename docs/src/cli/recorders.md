@@ -14,7 +14,7 @@ ditto recorders
 
 ## Screenshot
 
-![ditto recorders](../img/ditto-recorders.png)
+![ditto recorders](../img/ditto-recorders.svg)
 
 ## Output
 
@@ -25,4 +25,4 @@ Displays a table with columns:
 | Name | Recorder name, as used in `@ditto.record("name")` (e.g., `json`, `pandas.parquet`) |
 | Mark | Mark derived from the name (e.g., `@ditto.json`, `@ditto.pandas.parquet`) |
 | Identifier | Snapshot file suffix, taken from the name (e.g., `.json`, `.pandas.parquet`) |
-| Package | Source package (e.g., `pytest-ditto`, `pytest-ditto-pandas`) |
+| Source | Source package (e.g., `pytest-ditto`, `pytest-ditto-pandas`) |

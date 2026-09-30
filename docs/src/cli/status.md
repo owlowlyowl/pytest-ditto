@@ -21,7 +21,7 @@ ditto status tests/ci/
 
 ## Screenshot
 
-![ditto status](../img/ditto-status.png)
+![ditto status](../img/ditto-status.svg)
 
 ## Output
 

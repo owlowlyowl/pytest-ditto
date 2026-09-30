@@ -7,7 +7,7 @@ import importlib.metadata
 import pytest
 from click.testing import CliRunner
 
-from ditto import cli as cli_mod
+from ditto.cli import _inventory as cli_mod
 from ditto._inventory import InventoryError
 from ditto._manifest import BackendManifest, ManifestEntry
 from ditto.cli import (
