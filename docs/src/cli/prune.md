@@ -36,7 +36,8 @@ ditto prune --shared
   `ditto lock` to record it.
 - Needs a `ditto.lock`; without one it deletes nothing and fails.
 - Deletes nothing from a target that other checkouts might share (a remote URI,
-  or a `file://` path outside the project) unless you pass `--shared`. Without
+  or a `file://` path outside the project, after following symlinks) unless
+  you pass `--shared`. Without
   it, the run fails and says how many snapshots it left there. Pass `--shared`
   only when each project and branch has its own target path: another branch's
   snapshots look like orphans. See

@@ -1,6 +1,7 @@
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
 from importlib.metadata import EntryPoint
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -26,7 +27,12 @@ from ditto.plugin._options import validate_target_config
 from ditto.plugin._profiles import merge_profile_sources, resolve_profile
 from ditto.plugin._selection import parse_mark_target_selection, resolve_recorder
 from ditto.plugin._session import DittoSession, maybe_enter
-from ditto.plugin._targets import freeze_options, resolve_target, resolve_uri
+from ditto.plugin._targets import (
+    freeze_options,
+    is_checkout_local,
+    resolve_target,
+    resolve_uri,
+)
 
 json_recorder = recorders.get("json")
 yaml_recorder = recorders.get("yaml")
@@ -650,3 +656,65 @@ def test_raises_when_profile_mapping_has_unknown_keys() -> None:
 
     with pytest.raises(DittoInvalidProfileError, match="unknown key.*storage_optoins"):
         resolve_profile("bad", profiles)
+
+
+# ── Whether a target is local to the checkout (#161) ─────────────────────────
+
+needs_symlinks = pytest.mark.skipif(
+    sys.platform == "win32", reason="creating symlinks needs privileges on Windows"
+)
+
+
+@pytest.mark.parametrize(
+    ("uri", "local"),
+    [
+        ("file://{root}/.ditto", True),
+        ("file://{root}/tests/.ditto", True),
+        ("file://{root}/../outside", False),
+        ("file:///srv/shared/snapshots", False),
+        ("s3://bucket/snapshots", False),
+        ("redis://localhost:6379/0", False),
+        ("memory://snapshots", False),
+    ],
+    ids=["root-ditto", "nested", "dotdot-out", "outside", "s3", "redis", "memory"],
+)
+def test_is_checkout_local(tmp_path: Path, uri: str, local: bool) -> None:
+    """Only a file:// directory inside the rootdir is local to the checkout."""
+    root = tmp_path / "project"
+    root.mkdir()
+
+    assert is_checkout_local(uri.format(root=root.as_posix()), root) is local
+
+
+@needs_symlinks
+def test_is_checkout_local_follows_a_symlink_out_of_the_rootdir(tmp_path) -> None:
+    """A directory inside the project that links to one outside it is shared."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (tmp_path / "shared").mkdir()
+    (root / ".ditto").symlink_to(tmp_path / "shared", target_is_directory=True)
+
+    assert not is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
+
+
+@needs_symlinks
+def test_is_checkout_local_keeps_a_symlink_within_the_rootdir(tmp_path) -> None:
+    """A link from one directory in the project to another stays local."""
+    root = tmp_path / "project"
+    (root / "snapshots").mkdir(parents=True)
+    (root / ".ditto").symlink_to(root / "snapshots", target_is_directory=True)
+
+    assert is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
+
+
+@needs_symlinks
+def test_is_checkout_local_resolves_a_symlinked_rootdir(tmp_path) -> None:
+    """A rootdir reached through a symlink still contains its own directories,
+    whichever of the two paths the target is written with."""
+    real = tmp_path / "real"
+    (real / ".ditto").mkdir(parents=True)
+    linked = tmp_path / "linked"
+    linked.symlink_to(real, target_is_directory=True)
+
+    assert is_checkout_local(f"file://{(real / '.ditto').as_posix()}", linked)
+    assert is_checkout_local(f"file://{(linked / '.ditto').as_posix()}", real)

@@ -1,4 +1,7 @@
 import json
+import sys
+
+import pytest
 
 pytest_plugins = ["pytester"]
 
@@ -195,3 +198,46 @@ def test_remote_gone(snapshot):
     assert not any("test_local_gone" in f for f in _backend_files(pytester))
     assert any("test_local@" in f for f in _backend_files(pytester))
     assert any("test_remote_gone" in p.name for p in shared.iterdir())
+
+
+def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, target):
+    """Like `_branches_sharing_a_target`, but each checkout's `snaps` directory
+    is a symlink to the shared one, and `target` names `snaps` from inside the
+    checkout (`{root}` is filled in with the checkout's path)."""
+    shared = pytester.mkdir("shared")
+    roots = {}
+    for name, module in (("a", API_MODULE), ("b", API_MODULE_WITH_NEW_TEST)):
+        root = pytester.mkdir(name)
+        (root / "snaps").symlink_to(shared, target_is_directory=True)
+        uri = target.format(root=root.as_posix())
+        (root / "pytest.ini").write_text(f"[pytest]\nditto_target = {uri}\n")
+        (root / "tests").mkdir()
+        (root / "tests" / "test_api.py").write_text(module)
+        roots[name] = root
+    _run_in(pytester, monkeypatch, roots["b"], "--ditto-lock").assert_outcomes(passed=2)
+    _run_in(pytester, monkeypatch, roots["a"], "--ditto-lock").assert_outcomes(passed=1)
+    return roots["a"], shared
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="creating symlinks needs privileges on Windows"
+)
+@pytest.mark.parametrize(
+    "target",
+    ["file://{root}/snaps", "file://../snaps"],
+    ids=["absolute", "relative"],
+)
+def test_prune_does_not_delete_through_a_symlink_to_a_shared_directory(
+    pytester, monkeypatch, target
+):
+    """A target inside the checkout that is a symlink to a shared directory is
+    shared, however the target names it."""
+    a, shared = _branches_sharing_a_target_through_symlinks(
+        pytester, monkeypatch, target
+    )
+
+    result = _run_in(pytester, monkeypatch, a, "--ditto-prune")
+
+    assert result.ret != 0
+    result.stdout.fnmatch_lines(["*ditto prune: not deleting 1 snapshot(s) from*"])
+    assert any("test_new" in p.name for p in shared.iterdir())

@@ -163,7 +163,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             case PruneMode.DELETE:
                 orphans = find_orphans(session)
                 if not options.prune_shared:
-                    orphans, shared = split_shared(orphans)
+                    orphans, shared = split_shared(
+                        orphans, session_state(config).checkout_local_targets
+                    )
                     if shared:
                         refuse_shared_prune(session, shared)
                 pruned = delete_orphans(orphans)

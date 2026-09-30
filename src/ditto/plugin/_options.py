@@ -63,7 +63,7 @@ class RunOptions:
         `--ditto-introspect`: where to write the backend manifest, or `""`.
     prune_shared : bool
         `--ditto-prune-shared`: let `--ditto-prune` delete from a target that
-        may be shared with other checkouts (see `is_checkout_local`).
+        may be shared with other checkouts (see `_targets.is_checkout_local`).
     """
 
     snapshot_mode: SnapshotMode
@@ -161,7 +161,8 @@ def add_options(parser: pytest.Parser) -> None:
         help=(
             "Let --ditto-prune delete from a target that other checkouts, branches "
             "or projects may share: any target other than a file:// path inside "
-            "the rootdir. Only safe when each of them has its own target path. "
+            "the rootdir, after following symlinks. Only safe when each of them "
+            "has its own target path. "
             "Has no effect without --ditto-prune."
         ),
     )

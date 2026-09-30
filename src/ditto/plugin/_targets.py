@@ -21,7 +21,7 @@ from ._profiles import load_target_profiles, resolve_profile
 from ._session import DittoSession, TargetCacheKey, maybe_enter, session_state
 
 
-__all__ = ("freeze_options", "resolve_uri", "resolve_target")
+__all__ = ("freeze_options", "is_checkout_local", "resolve_uri", "resolve_target")
 
 
 def freeze_options(value: object) -> Hashable:
@@ -58,6 +58,22 @@ def _canonicalize_uri(uri: str, test_dir: Path) -> str:
     if not path.is_absolute():
         path = (test_dir / path).resolve()
     return f"file://{path.as_posix()}"
+
+
+def is_checkout_local(canonical_uri: str, rootdir: Path) -> bool:
+    """True when `canonical_uri` is a `file://` directory inside `rootdir`.
+
+    Both paths are resolved first, so a directory inside the project that is a
+    symlink to one outside it isn't local, and a rootdir reached through a
+    symlink still contains its own directories. Any other target (another
+    scheme, or a `file://` path outside `rootdir`) may be shared with other
+    checkouts, branches or projects.
+    """
+    parsed = urlparse(canonical_uri)
+    if parsed.scheme != "file":
+        return False
+    path = Path(parsed.netloc + parsed.path).resolve()
+    return path.is_relative_to(rootdir.resolve())
 
 
 # Backend sources for schemes that don't come from `BACKEND_REGISTRY`.

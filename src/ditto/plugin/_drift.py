@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, MutableMapping, Sequence
+from collections.abc import Iterable, MutableMapping, Sequence, Set
 from typing import NamedTuple
 
 import pytest
@@ -11,7 +11,6 @@ from ditto._lockfile import (
     LockEntry,
     LockFile,
     LOCKFILE_NAME,
-    is_checkout_local,
     split_nodeid,
     read_lockfile,
     storage_key,
@@ -225,16 +224,18 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
     return orphans
 
 
-def split_shared(orphans: Sequence[Orphan]) -> tuple[list[Orphan], list[Orphan]]:
+def split_shared(
+    orphans: Sequence[Orphan], checkout_local_targets: Set[str]
+) -> tuple[list[Orphan], list[Orphan]]:
     """Split `orphans` into those in checkout-local targets and those in shared ones.
 
     Prune decides what this suite owns from its test-module paths, which other
     branches of the project, or other projects with the same paths, share. On
     a target they also write to, their snapshots look like this checkout's
-    orphans.
+    orphans. A target missing from `checkout_local_targets` counts as shared.
     """
-    local = [o for o in orphans if is_checkout_local(o.target_id)]
-    shared = [o for o in orphans if not is_checkout_local(o.target_id)]
+    local = [o for o in orphans if o.target_id in checkout_local_targets]
+    shared = [o for o in orphans if o.target_id not in checkout_local_targets]
     return local, shared
 
 
