@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence, Set
 from pathlib import Path
 from typing import NamedTuple
 
@@ -27,6 +27,7 @@ __all__ = (
     "Orphan",
     "run_verify",
     "find_orphans",
+    "local_target_ids",
     "split_shared",
     "refuse_shared_prune",
     "delete_orphans",
@@ -226,45 +227,41 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
     return orphans
 
 
-def _is_local_now(target_id: str, canonical_uri: str, rootdir: Path) -> bool:
-    """Whether the target is inside `rootdir` as its path resolves right now.
+def local_target_ids(
+    targets: Mapping[str, _RegisteredTarget], rootdir: Path
+) -> set[str]:
+    """Return the ids of `targets` whose paths resolve inside `rootdir` now.
 
-    Decided when prune runs, not when the target was first used, because a
+    Decided when prune runs, not when a target was first used, because a
     `file://` backend follows its path again on every operation. A path that
-    can't be resolved (a symlink loop, say) is warned about and counts as
-    shared, so it isn't pruned.
+    can't be resolved (a symlink loop, say) is warned about and left out, so
+    it counts as shared.
     """
-    try:
-        return is_checkout_local(canonical_uri, rootdir)
-    except (OSError, RuntimeError) as exc:
-        warnings.warn(
-            f"ditto prune: could not resolve {target_id!r} ({exc}); treating it "
-            "as shared.",
-            category=DittoWarning,
-            stacklevel=1,
-        )
-        return False
+    local: set[str] = set()
+    for target_id, target in targets.items():
+        try:
+            if is_checkout_local(target.canonical_uri, rootdir):
+                local.add(target_id)
+        except (OSError, RuntimeError) as exc:
+            warnings.warn(
+                f"ditto prune: could not resolve {target_id!r} ({exc}); treating "
+                "it as shared.",
+                category=DittoWarning,
+                stacklevel=1,
+            )
+    return local
 
 
 def split_shared(
-    orphans: Sequence[Orphan],
-    targets: Mapping[str, _RegisteredTarget],
-    rootdir: Path,
+    orphans: Sequence[Orphan], local_ids: Set[str]
 ) -> tuple[list[Orphan], list[Orphan]]:
     """Split `orphans` into those in checkout-local targets and those in shared ones.
 
     Prune decides what this suite owns from its test-module paths, which other
     branches of the project, or other projects with the same paths, share. On
     a target they also write to, their snapshots look like this checkout's
-    orphans. Each target is classified once, from its canonical URI in
-    `targets`; one missing from `targets` counts as shared.
+    orphans. A target whose id isn't in `local_ids` counts as shared.
     """
-    local_ids = {
-        target_id
-        for target_id in {o.target_id for o in orphans}
-        if target_id in targets
-        and _is_local_now(target_id, targets[target_id].canonical_uri, rootdir)
-    }
     local = [o for o in orphans if o.target_id in local_ids]
     shared = [o for o in orphans if o.target_id not in local_ids]
     return local, shared

@@ -26,7 +26,7 @@ def test_gitignore_guard_warns_with_ditto_category(tmp_path, recwarn):
     assert any(issubclass(w.category, DittoWarning) for w in recwarn.list)
 
 
-def test_tracker_registers_target_backend():
+def test_records_a_targets_uri_scheme_and_backend_by_target_id():
     """A target id maps to its canonical URI, scheme and backend for later
     enumeration."""
     tracker = _SessionTracker()
@@ -34,11 +34,9 @@ def test_tracker_registers_target_backend():
 
     tracker.register_target_backend("tests/.ditto", "file:///p/tests/.ditto", backend)
 
-    assert tracker.target_backends["tests/.ditto"] == (
-        "file:///p/tests/.ditto",
-        "file",
-        backend,
-    )
+    actual = tracker.target_backends["tests/.ditto"]
+    expected = ("file:///p/tests/.ditto", "file", backend)
+    assert actual == expected
 
 
 VERIFY_MODULE = """

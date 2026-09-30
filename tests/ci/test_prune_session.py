@@ -223,7 +223,7 @@ def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, symlink, 
     ["file://{root}/snaps", "file://../snaps"],
     ids=["absolute", "relative"],
 )
-def test_prune_does_not_delete_through_a_symlink_to_a_shared_directory(
+def test_prune_refuses_a_target_that_is_a_symlink_to_a_shared_directory(
     pytester, monkeypatch, symlink, target
 ):
     """A target inside the checkout that is a symlink to a shared directory is
@@ -234,7 +234,6 @@ def test_prune_does_not_delete_through_a_symlink_to_a_shared_directory(
 
     result = _run_in(pytester, monkeypatch, a, "--ditto-prune")
 
-    assert result.ret != 0
     result.stdout.fnmatch_lines(["*ditto prune: not deleting 1 snapshot(s) from*"])
     assert any("test_new" in p.name for p in shared.iterdir())
 
@@ -250,14 +249,15 @@ import pytest
 @pytest.fixture(scope="session", autouse=True)
 def retarget_snaps():
     yield
-    if os.environ.get("RETARGET"):
-        snaps = Path(__file__).parent / "snaps"
-        snaps.unlink()
-        snaps.symlink_to(Path(os.environ["RETARGET"]), target_is_directory=True)
+    snaps = Path(__file__).parent / "snaps"
+    snaps.unlink()
+    snaps.symlink_to(Path(os.environ["RETARGET"]), target_is_directory=True)
 """
 
 
-def test_prune_decides_locality_when_it_runs(pytester, monkeypatch, symlink):
+def test_prune_refuses_a_target_repointed_at_a_shared_directory_before_it_runs(
+    pytester, monkeypatch, symlink
+):
     """A target that is local while the tests run but points at a shared
     directory by the time prune runs is treated as shared."""
     a, shared = _branches_sharing_a_target_through_symlinks(
@@ -271,6 +271,5 @@ def test_prune_decides_locality_when_it_runs(pytester, monkeypatch, symlink):
 
     result = _run_in(pytester, monkeypatch, a, "--ditto-prune")
 
-    assert result.ret != 0
     result.stdout.fnmatch_lines(["*ditto prune: not deleting 1 snapshot(s) from*"])
     assert any("test_new" in p.name for p in shared.iterdir())

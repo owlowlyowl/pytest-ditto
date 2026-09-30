@@ -1,7 +1,14 @@
+from pathlib import Path
+
 import pytest
 
 from ditto.exceptions import DittoWarning
-from ditto.plugin._drift import Orphan, delete_orphans, split_shared
+from ditto.plugin._drift import (
+    Orphan,
+    delete_orphans,
+    local_target_ids,
+    split_shared,
+)
 from ditto.snapshot import _RegisteredTarget
 
 
@@ -47,41 +54,49 @@ def test_omits_and_warns_about_a_key_that_fails_to_delete() -> None:
     assert actual == expected
 
 
-def _target(uri: str) -> _RegisteredTarget:
-    return _RegisteredTarget(uri, uri.partition(":")[0], {})
+def _file_target(path) -> _RegisteredTarget:
+    return _RegisteredTarget(f"file://{path.as_posix()}", "file", {})
 
 
-def test_split_shared_classifies_each_target_from_its_uri(tmp_path) -> None:
-    """Orphans in a target inside the rootdir are local; the rest, including
-    a target that was never registered, are shared."""
-    targets = {
-        ".ditto": _target(f"file://{(tmp_path / '.ditto').as_posix()}"),
-        "s3://bucket/snaps": _target("s3://bucket/snaps"),
-    }
+def test_treats_orphans_as_shared_when_their_target_is_not_local() -> None:
+    """Only orphans whose target id is in the local ids count as local."""
     local = Orphan(".ditto", {}, "a")
-    remote = Orphan("s3://bucket/snaps", {}, "b")
-    unknown = Orphan("elsewhere", {}, "c")
+    shared = Orphan("s3://bucket/snaps", {}, "b")
 
-    assert split_shared([local, remote, unknown], targets, tmp_path) == (
-        [local],
-        [remote, unknown],
-    )
+    actual = split_shared([local, shared], local_ids={".ditto"})
+
+    expected = ([local], [shared])
+    assert actual == expected
 
 
-def test_split_shared_treats_an_unresolvable_target_as_shared(
+def test_local_target_ids_include_only_targets_inside_the_rootdir(tmp_path) -> None:
+    """A file target inside the rootdir is local; one outside it or on another
+    scheme isn't."""
+    root = tmp_path / "project"
+    targets = {
+        ".ditto": _file_target(root / ".ditto"),
+        "outside": _file_target(tmp_path / "outside"),
+        "s3://bucket/snaps": _RegisteredTarget("s3://bucket/snaps", "s3", {}),
+    }
+
+    actual = local_target_ids(targets, root)
+
+    expected = {".ditto"}
+    assert actual == expected
+
+
+def test_treats_a_target_as_shared_when_its_path_cannot_be_resolved(
     tmp_path, monkeypatch
 ) -> None:
-    """A target whose path can't be resolved is warned about and not pruned."""
-    uri = f"file://{(tmp_path / '.ditto').as_posix()}"
+    """A target whose path can't be resolved is warned about and not local."""
+    targets = {".ditto": _file_target(tmp_path / ".ditto")}
 
-    def unresolvable(canonical_uri, rootdir):
+    def unresolvable(self, strict=False):
         raise OSError("Symlink loop")
 
-    monkeypatch.setattr("ditto.plugin._drift.is_checkout_local", unresolvable)
-    orphan = Orphan(".ditto", {}, "a")
+    monkeypatch.setattr(Path, "resolve", unresolvable)
 
     with pytest.warns(DittoWarning, match="could not resolve '.ditto'"):
-        assert split_shared([orphan], {".ditto": _target(uri)}, tmp_path) == (
-            [],
-            [orphan],
-        )
+        actual = local_target_ids(targets, tmp_path)
+
+    assert actual == set()

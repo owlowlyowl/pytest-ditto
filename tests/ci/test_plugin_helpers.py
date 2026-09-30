@@ -673,15 +673,19 @@ def test_raises_when_profile_mapping_has_unknown_keys() -> None:
     ],
     ids=["root-ditto", "nested", "dotdot-out", "outside", "s3", "redis", "memory"],
 )
-def test_is_checkout_local(tmp_path: Path, uri: str, local: bool) -> None:
+def test_is_local_only_when_target_is_a_file_path_inside_the_rootdir(
+    tmp_path: Path, uri: str, local: bool
+) -> None:
     """Only a file:// directory inside the rootdir is local to the checkout."""
     root = tmp_path / "project"
     root.mkdir()
 
-    assert is_checkout_local(uri.format(root=root.as_posix()), root) is local
+    actual = is_checkout_local(uri.format(root=root.as_posix()), root)
+
+    assert actual is local
 
 
-def test_is_checkout_local_follows_a_symlink_out_of_the_rootdir(
+def test_is_not_local_when_target_is_a_symlink_out_of_the_rootdir(
     tmp_path, symlink
 ) -> None:
     """A directory inside the project that links to one outside it is shared."""
@@ -693,7 +697,7 @@ def test_is_checkout_local_follows_a_symlink_out_of_the_rootdir(
     assert not is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
 
 
-def test_is_checkout_local_keeps_a_symlink_within_the_rootdir(
+def test_is_local_when_target_is_a_symlink_within_the_rootdir(
     tmp_path, symlink
 ) -> None:
     """A link from one directory in the project to another stays local."""
@@ -704,13 +708,20 @@ def test_is_checkout_local_keeps_a_symlink_within_the_rootdir(
     assert is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
 
 
-def test_is_checkout_local_resolves_a_symlinked_rootdir(tmp_path, symlink) -> None:
-    """A rootdir reached through a symlink still contains its own directories,
-    whichever of the two paths the target is written with."""
-    real = tmp_path / "real"
-    (real / ".ditto").mkdir(parents=True)
-    linked = tmp_path / "linked"
-    symlink(linked, real)
+@pytest.mark.parametrize(
+    ("target_via", "rootdir_via"),
+    [("real", "linked"), ("linked", "real")],
+    ids=["target-via-real-path", "target-via-symlink"],
+)
+def test_is_local_when_rootdir_is_reached_through_a_symlink(
+    tmp_path, symlink, target_via, rootdir_via
+) -> None:
+    """A rootdir reached through a symlink contains its own directories,
+    whichever of the two paths names them."""
+    (tmp_path / "real" / ".ditto").mkdir(parents=True)
+    symlink(tmp_path / "linked", tmp_path / "real")
+    target = f"file://{(tmp_path / target_via / '.ditto').as_posix()}"
 
-    assert is_checkout_local(f"file://{(real / '.ditto').as_posix()}", linked)
-    assert is_checkout_local(f"file://{(linked / '.ditto').as_posix()}", real)
+    actual = is_checkout_local(target, tmp_path / rootdir_via)
+
+    assert actual is True
