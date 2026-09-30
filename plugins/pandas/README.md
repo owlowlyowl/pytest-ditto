@@ -14,6 +14,8 @@ Each mark is shorthand for `@ditto.record("pandas.<format>")`.
 pip install pytest-ditto[pandas]
 ```
 
+It needs pandas 2.2 or later and pyarrow 16.1.0 or later.
+
 ## Usage
 
 ```python
@@ -65,6 +67,12 @@ Loading a snapshot whose stored `freq` doesn't fit its dates raises
 `ValueError`. CSV doesn't read dates back as a `DatetimeIndex`, so it doesn't
 store a `freq`.
 
+A `freq` is only stored if its string rebuilds the same offset. Fixed and
+calendar frequencies such as `D`, `2h`, `W-SUN`, `B`, `ME` and `QE-DEC` do. A
+`CustomBusinessDay` with its own weekmask or holidays, or a `pd.DateOffset`
+built from keywords, doesn't: its index loads back with no `freq`, as pandas
+would load it, so compare with `check_freq=False`.
+
 | Format | Where the marker lives |
 |--------|------------------------|
 | parquet | Arrow schema metadata under the key `ditto` |
@@ -76,6 +84,9 @@ pandas writes. Another tool reading a file with a marker ignores it in parquet,
 but needs to know about it in JSON and CSV. A Series also reads back as a
 one-column frame without it. For CSV, skip the marker with
 `pd.read_csv(..., skiprows=1)`.
+
+A marker from a newer version of the plugin, or one that's incomplete, fails to
+load with `ValueError` rather than loading the wrong thing.
 
 The Series name must be `None`, a `str`, `int`, `float` or `bool`, or a
 non-nested tuple of those. Anything else raises `TypeError` at write time.

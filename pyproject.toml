@@ -257,6 +257,11 @@ libstdcxx-ng = ">=14"
 test-pandas = { cmd = "pytest", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 verify-pandas = { cmd = "ditto verify", cwd = "plugins/pandas", env = { LD_PRELOAD = "$CONDA_PREFIX/lib/libstdc++.so.6" } }
 
+# The oldest pandas and pyarrow pytest-ditto-pandas declares support for.
+[tool.pixi.feature.pandas-floor.dependencies]
+pandas = "2.2.*"
+pyarrow = "16.1.*"
+
 [tool.pixi.feature.pickle.pypi-dependencies]
 pytest-ditto-pickle = { path = "plugins/pickle", editable = true }
 
@@ -312,6 +317,7 @@ examples = { features = ["examples", "py312", "test"], solve-group = "default" }
 pandas-py312 = { features = ["pandas", "py312", "test"] }
 pandas-py313 = { features = ["pandas", "py313", "test"] }
 pandas-py314 = { features = ["pandas", "py314", "test"] }
+pandas-floor-py312 = { features = ["pandas", "pandas-floor", "py312", "test"] }
 pickle-py312 = { features = ["pickle", "py312", "test"] }
 pickle-py313 = { features = ["pickle", "py313", "test"] }
 pickle-py314 = { features = ["pickle", "py314", "test"] }

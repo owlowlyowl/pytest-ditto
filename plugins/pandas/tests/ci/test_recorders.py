@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 import ditto
@@ -316,6 +317,137 @@ def test_csv_does_not_record_an_index_freq() -> None:
     assert actual == df.to_csv(lineterminator="\n").encode("utf-8")
 
 
+@pytest.mark.parametrize(
+    "offset",
+    [
+        pytest.param(
+            pd.offsets.CustomBusinessDay(weekmask="Mon Tue Wed Thu"),
+            id="custom-business-day",
+        ),
+        pytest.param(pd.DateOffset(days=2), id="date-offset"),
+    ],
+)
+@pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
+def test_freq_its_string_cannot_rebuild_is_not_recorded(
+    name: str, offset: pd.DateOffset
+) -> None:
+    """A freq whose string loses parameters or can't be parsed loads back as None.
+
+    Restoring "C" would give a CustomBusinessDay with the default weekmask, and
+    "<DateOffset: days=2>" doesn't parse, so neither is stored.
+    """
+    index = pd.date_range("2020-01-06", periods=4, freq=offset)
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0]}, index=index)
+    recorder = recorders.get(name)
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    pd.testing.assert_frame_equal(
+        actual, df, check_freq=False, check_index_type=_index_type_kept(name)
+    )
+    assert actual.index.freq is None
+
+
+def test_parquet_dataframe_with_attrs_bytes_match_to_parquet() -> None:
+    """The recorder writes a DataFrame's attrs as pandas does, byte for byte."""
+    df = _sample_dataframe()
+    df.attrs = {"units": "kg"}
+    buffer = io.BytesIO()
+    df.to_parquet(buffer)
+
+    assert recorders.get("pandas.parquet").dumps(df) == buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(_sample_dataframe(), id="frame"),
+        pytest.param(
+            pd.DataFrame({"a": [1.0]}, index=pd.date_range("2020-01-01", periods=1)),
+            id="frame-with-marker",
+        ),
+    ],
+)
+def test_parquet_round_trips_attrs(data: pd.DataFrame) -> None:
+    """DataFrame attrs survive the parquet recorder, with or without a marker."""
+    df = data.copy()
+    df.attrs = {"units": "kg"}
+    recorder = recorders.get("pandas.parquet")
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    assert actual.attrs == {"units": "kg"}
+
+
+def test_parquet_loads_attrs_from_a_file_pandas_wrote() -> None:
+    """An existing snapshot written by DataFrame.to_parquet keeps its attrs."""
+    df = _sample_dataframe()
+    df.attrs = {"units": "kg"}
+    buffer = io.BytesIO()
+    df.to_parquet(buffer)
+
+    actual = recorders.get("pandas.parquet").loads(buffer.getvalue())
+
+    pd.testing.assert_frame_equal(actual, df)
+    assert actual.attrs == {"units": "kg"}
+
+
+@pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
+def test_round_trips_a_series_with_a_multiindex_level_named_values(name: str) -> None:
+    """The Series column avoids every index level's name, not just the first."""
+    index = pd.MultiIndex.from_tuples([("a", 1), ("b", 2)], names=["values", "k"])
+    series = pd.Series([1.0, 2.0], name="x", index=index)
+    recorder = recorders.get(name)
+
+    actual = recorder.loads(recorder.dumps(series))
+
+    pd.testing.assert_series_equal(actual, series)
+
+
+@pytest.mark.parametrize("index_name", ["# ditto: hello", '# ditto: {"a": 1}'])
+def test_csv_header_that_starts_like_a_marker_is_read_as_data(index_name: str) -> None:
+    """Only a complete marker is taken as one; other headers load as normal."""
+    df = pd.DataFrame({"a": [1, 2]}, index=pd.Index(["x", "y"], name=index_name))
+    recorder = recorders.get("pandas.csv")
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    pd.testing.assert_frame_equal(actual, df)
+
+
+@pytest.mark.parametrize(
+    ("name", "old", "new"),
+    [
+        ("pandas.json", b'"version":1', b'"version":2'),
+        ("pandas.csv", b'"version":1', b'"version":2'),
+        ("pandas.json", b'"kind":"series"', b'"kind":"panel"'),
+        ("pandas.csv", b',"column":"values"', b""),
+    ],
+)
+def test_loading_a_marker_it_cannot_read_raises(
+    name: str, old: bytes, new: bytes
+) -> None:
+    """A marker with an unknown version or kind, or missing fields, fails to load."""
+    recorder = recorders.get(name)
+    raw = recorder.dumps(_sample_series()).replace(old, new)
+
+    with pytest.raises(ValueError, match="ditto marker"):
+        recorder.loads(raw)
+
+
+def test_parquet_rejects_a_marker_with_an_unknown_version() -> None:
+    """The version check covers the marker in parquet schema metadata too."""
+    raw = recorders.get("pandas.parquet").dumps(_sample_series())
+    table = pq.read_table(io.BytesIO(raw))
+    meta = dict(table.schema.metadata)
+    meta[b"ditto"] = meta[b"ditto"].replace(b'"version":1', b'"version":2')
+    buffer = io.BytesIO()
+    pq.write_table(table.replace_schema_metadata(meta), buffer)
+
+    with pytest.raises(ValueError, match="ditto marker has version 2"):
+        recorders.get("pandas.parquet").loads(buffer.getvalue())
+
+
 # ── Committed snapshots ───────────────────────────────────────────────────────
 
 SNAPSHOTS = Path(__file__).parent / ".ditto"
@@ -326,6 +458,12 @@ def _recorder_name(path: Path) -> str:
     return path.name.rpartition("@")[2].partition(".")[2]
 
 
+# pandas 3 writes string columns with "extDtype":"str" and pandas 2 doesn't, so
+# the committed snapshots, written by pandas 3, only re-dump byte for byte there.
+@pytest.mark.skipif(
+    int(pd.__version__.split(".")[0]) < 3,
+    reason="the committed snapshots were written by pandas 3",
+)
 @pytest.mark.parametrize(
     "path",
     [

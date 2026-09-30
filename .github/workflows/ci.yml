@@ -164,6 +164,40 @@ jobs:
           path: plugins/${{ matrix.plugin }}/.pytest/test-results.xml
           retention-days: 30
 
+  # pytest-ditto-pandas declares pandas>=2.2 and pyarrow>=16.1.0; this runs its
+  # suite at those floors, which the plugin matrix above doesn't reach.
+  test-plugin-floor:
+    name: Plugin pandas at its dependency floor (Python 3.12)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: pandas-floor-py312
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Run plugin tests read-only against its ditto.lock
+        run: pixi run -e pandas-floor-py312 verify-pandas
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results-pandas-floor-py312
+          path: plugins/pandas/.pytest/test-results.xml
+          retention-days: 30
+
   portable-json:
     name: Cross-platform (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -269,6 +303,7 @@ jobs:
       - typecheck
       - test
       - test-plugin
+      - test-plugin-floor
       - portable-json
       - lock-file
       - coverage

@@ -88,9 +88,10 @@ def test_csv_snapshot_matches_the_recorded_series(snapshot) -> None:
 @ditto.pandas.parquet
 def test_parquet_snapshot_keeps_the_index_freq(snapshot) -> None:
     """A time-series frame matches its snapshot with the default check_freq (#178)."""
-    df = pd.DataFrame(
-        {"a": [1.0, 2.0, 3.0]}, index=pd.date_range("2020-01-01", periods=3)
-    )
+    # unit="us": pandas 2 defaults to "ns" and pandas 3 to "us", and the
+    # snapshot has to match on both.
+    index = pd.date_range("2020-01-01", periods=3, unit="us")
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0]}, index=index)
 
     actual = snapshot(df, "frame")
 

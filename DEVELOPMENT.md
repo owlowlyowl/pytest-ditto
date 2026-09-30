@@ -85,6 +85,14 @@ pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
 pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
 ```
 
+`pandas-floor-py312` runs the pandas plugin with the oldest pandas and pyarrow
+its `pyproject.toml` allows. Raise its pins in the `pandas-floor` feature when
+you raise those floors:
+
+```bash
+pixi run -e pandas-floor-py312 verify-pandas
+```
+
 The core environments (`default`, `py312`–`py314`) never install a plugin.
 Plugins share core's version, computed from the same git tag.
 
