@@ -13,7 +13,7 @@ from rich.text import Text
 
 from .._inventory import location_key
 from .._lockfile import LockEntry
-from .._manifest import Manifest
+from .._manifest import BackendManifest, Manifest
 from .._theme import (
     CREATED,
     UPDATED,
@@ -246,6 +246,28 @@ def _render_lint_issues(issues: list[LintIssue], console: Console) -> None:
         table.add_row(issue.filename, issue.issue)
 
     console.print(table)
+
+
+def _render_unreadable_backends(
+    backends: list[BackendManifest], console: Console
+) -> None:
+    """Print each backend the live pass couldn't read, with its error."""
+    for backend in backends:
+        console.print(
+            Text.assemble(
+                ("Could not read ", f"bold {PRUNED}"),
+                (backend.location, PATH),
+                f": {backend.error}",
+            )
+        )
+    n = len(backends)
+    console.print(
+        Text(
+            f"Inventory incomplete: {n} backend{'s' if n != 1 else ''} "
+            "could not be read.",
+            style=PRUNED,
+        )
+    )
 
 
 def _render_stats_table(

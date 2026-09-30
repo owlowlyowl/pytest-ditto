@@ -27,10 +27,15 @@ class ManifestEntry:
 
 @dataclass(frozen=True)
 class BackendManifest:
-    """The snapshots under one resolved backend, keyed by its canonical URI."""
+    """The snapshots under one resolved backend, keyed by its canonical URI.
+
+    `error` is why the backend couldn't be enumerated, when it couldn't; its
+    `entries` are then empty because they are unknown, not because it holds none.
+    """
 
     location: str
     entries: list[ManifestEntry]
+    error: str | None = None
 
 
 # The whole inventory for one CLI invocation: one BackendManifest per resolved
@@ -49,6 +54,7 @@ def from_json(text: str) -> Manifest:
         BackendManifest(
             location=b["location"],
             entries=[ManifestEntry(**e) for e in b["entries"]],
+            error=b.get("error"),
         )
         for b in json.loads(text)
     ]

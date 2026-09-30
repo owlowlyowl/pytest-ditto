@@ -376,6 +376,65 @@ def test_stats_shows_a_configured_backend_even_with_no_snapshots(
     assert "redis://h/0" in result.output
 
 
+_UNREADABLE = BackendManifest("redis://down/0", [], error="connection refused")
+
+
+@pytest.mark.parametrize("command", ["list", "status", "stats", "lint"])
+def test_live_command_exits_one_and_names_a_backend_it_could_not_read(
+    tmp_path, monkeypatch, command
+) -> None:
+    """A backend the live pass couldn't read is reported with its error, and the
+    command fails rather than presenting an incomplete inventory as complete."""
+    healthy = BackendManifest(
+        "file:///x/.ditto",
+        [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
+    )
+    _patch_inventory(monkeypatch, [healthy, _UNREADABLE])
+
+    result = CliRunner().invoke(cli, [command, "--live", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Could not read redis://down/0: connection refused" in result.output
+
+
+def test_list_live_still_shows_the_backends_it_could_read(
+    tmp_path, monkeypatch
+) -> None:
+    """One unreadable backend doesn't hide another backend's snapshots."""
+    healthy = BackendManifest(
+        "file:///x/.ditto",
+        [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
+    )
+    _patch_inventory(monkeypatch, [healthy, _UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
+
+    assert "test_y" in result.output
+
+
+def test_stats_live_does_not_count_an_unreadable_backend_as_empty(
+    tmp_path, monkeypatch
+) -> None:
+    """An unreadable backend is named only in the failure, not as a row of zero
+    snapshots."""
+    _patch_inventory(monkeypatch, [_UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["stats", "--live", str(tmp_path)])
+
+    assert result.output.count("redis://down/0") == 1
+
+
+def test_lint_live_does_not_call_an_incomplete_inventory_valid(
+    tmp_path, monkeypatch
+) -> None:
+    """Lint doesn't report every snapshot valid when it couldn't read them all."""
+    _patch_inventory(monkeypatch, [_UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["lint", "--live", str(tmp_path)])
+
+    assert "All snapshots are valid." not in result.output
+
+
 def test_list_reports_failure_and_exits_one_when_introspection_errors(
     tmp_path, monkeypatch
 ) -> None:
