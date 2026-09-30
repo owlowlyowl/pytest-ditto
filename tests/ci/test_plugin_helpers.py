@@ -26,7 +26,12 @@ from ditto.plugin._options import validate_target_config
 from ditto.plugin._profiles import merge_profile_sources, resolve_profile
 from ditto.plugin._selection import parse_mark_target_selection, resolve_recorder
 from ditto.plugin._session import DittoSession, maybe_enter
-from ditto.plugin._targets import freeze_options, resolve_target, resolve_uri
+from ditto.plugin._targets import (
+    freeze_options,
+    is_checkout_local,
+    resolve_target,
+    resolve_uri,
+)
 
 json_recorder = recorders.get("json")
 yaml_recorder = recorders.get("yaml")
@@ -650,3 +655,73 @@ def test_raises_when_profile_mapping_has_unknown_keys() -> None:
 
     with pytest.raises(DittoInvalidProfileError, match="unknown key.*storage_optoins"):
         resolve_profile("bad", profiles)
+
+
+# ── Whether a target is local to the checkout (#161) ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("uri", "local"),
+    [
+        ("file://{root}/.ditto", True),
+        ("file://{root}/tests/.ditto", True),
+        ("file://{root}/../outside", False),
+        ("file:///srv/shared/snapshots", False),
+        ("s3://bucket/snapshots", False),
+        ("redis://localhost:6379/0", False),
+        ("memory://snapshots", False),
+    ],
+    ids=["root-ditto", "nested", "dotdot-out", "outside", "s3", "redis", "memory"],
+)
+def test_is_local_only_when_target_is_a_file_path_inside_the_rootdir(
+    tmp_path: Path, uri: str, local: bool
+) -> None:
+    """Only a file:// directory inside the rootdir is local to the checkout."""
+    root = tmp_path / "project"
+    root.mkdir()
+
+    actual = is_checkout_local(uri.format(root=root.as_posix()), root)
+
+    assert actual is local
+
+
+def test_is_not_local_when_target_is_a_symlink_out_of_the_rootdir(
+    tmp_path, symlink
+) -> None:
+    """A directory inside the project that links to one outside it is shared."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (tmp_path / "shared").mkdir()
+    symlink(root / ".ditto", tmp_path / "shared")
+
+    assert not is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
+
+
+def test_is_local_when_target_is_a_symlink_within_the_rootdir(
+    tmp_path, symlink
+) -> None:
+    """A link from one directory in the project to another stays local."""
+    root = tmp_path / "project"
+    (root / "snapshots").mkdir(parents=True)
+    symlink(root / ".ditto", root / "snapshots")
+
+    assert is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
+
+
+@pytest.mark.parametrize(
+    ("target_via", "rootdir_via"),
+    [("real", "linked"), ("linked", "real")],
+    ids=["target-via-real-path", "target-via-symlink"],
+)
+def test_is_local_when_rootdir_is_reached_through_a_symlink(
+    tmp_path, symlink, target_via, rootdir_via
+) -> None:
+    """A rootdir reached through a symlink contains its own directories,
+    whichever of the two paths names them."""
+    (tmp_path / "real" / ".ditto").mkdir(parents=True)
+    symlink(tmp_path / "linked", tmp_path / "real")
+    target = f"file://{(tmp_path / target_via / '.ditto').as_posix()}"
+
+    actual = is_checkout_local(target, tmp_path / rootdir_via)
+
+    assert actual is True

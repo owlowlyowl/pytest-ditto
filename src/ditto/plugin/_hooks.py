@@ -15,6 +15,7 @@ from ditto.snapshot import SnapshotMode
 from ._drift import (
     delete_orphans,
     find_orphans,
+    local_target_ids,
     refuse_shared_prune,
     run_verify,
     split_shared,
@@ -163,7 +164,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             case PruneMode.DELETE:
                 orphans = find_orphans(session)
                 if not options.prune_shared:
-                    orphans, shared = split_shared(orphans)
+                    local_ids = local_target_ids(
+                        session_state(config).tracker.target_backends,
+                        config.rootpath,
+                    )
+                    orphans, shared = split_shared(orphans, local_ids)
                     if shared:
                         refuse_shared_prune(session, shared)
                 pruned = delete_orphans(orphans)

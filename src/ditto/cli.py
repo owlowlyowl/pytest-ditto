@@ -439,8 +439,8 @@ def cmd_update(pytest_args):
     default=False,
     help=(
         "Also delete from targets other checkouts, branches or projects may "
-        "share (any target but a file:// path inside the project). Only safe "
-        "when each has its own target path."
+        "share (any target but a file:// path inside the project, after "
+        "following symlinks). Only safe when each has its own target path."
     ),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)

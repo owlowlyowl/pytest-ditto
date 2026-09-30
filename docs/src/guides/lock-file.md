@@ -70,7 +70,9 @@ prune` deletes nothing from one that might be shared unless you pass
 snapshots it left in each such target and the run fails. A target might be
 shared when it is anything other than a `file://` path inside the project,
 such as the default `.ditto`: a remote URI, or a `file://` path outside the
-project. `ditto prune --check` lists what would be deleted either way.
+project. Symlinks are followed first, so a `.ditto` inside the project that
+links to a directory outside it counts as shared. `ditto prune --check` lists
+what would be deleted either way.
 
 ## How the lock is used
 

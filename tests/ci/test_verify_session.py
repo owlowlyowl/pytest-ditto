@@ -26,23 +26,26 @@ def test_gitignore_guard_warns_with_ditto_category(tmp_path, recwarn):
     assert any(issubclass(w.category, DittoWarning) for w in recwarn.list)
 
 
-def test_tracker_registers_target_backend():
-    """A target id maps to its (scheme, backend) for later enumeration."""
+def test_records_a_targets_uri_scheme_and_backend_by_target_id():
+    """A target id maps to its canonical URI, scheme and backend for later
+    enumeration."""
     tracker = _SessionTracker()
     backend = object()
 
-    tracker.register_target_backend("tests/.ditto", "file", backend)
+    tracker.register_target_backend("tests/.ditto", "file:///p/tests/.ditto", backend)
 
-    assert tracker.target_backends["tests/.ditto"] == ("file", backend)
+    actual = tracker.target_backends["tests/.ditto"]
+    expected = ("file:///p/tests/.ditto", "file", backend)
+    assert actual == expected
 
 
-VERIFY_MODULE = '''
+VERIFY_MODULE = """
 def test_alpha(snapshot):
     assert snapshot(1, key="a") == 1
 
 def test_beta(snapshot):
     assert snapshot(2, key="b") == 2
-'''
+"""
 
 
 def _seed_lock(pytester):
@@ -90,10 +93,10 @@ def test_verify_fails_when_a_test_produces_an_unrecorded_snapshot(pytester):
     _seed_lock(pytester)
     pytester.makepyfile(
         test_mod=VERIFY_MODULE
-        + '''
+        + """
 def test_gamma(snapshot):
     assert snapshot(3, key="c") == 3
-'''
+"""
     )
 
     result = pytester.runpytest_subprocess("--ditto-verify")

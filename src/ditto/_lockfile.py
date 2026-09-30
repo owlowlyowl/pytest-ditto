@@ -21,7 +21,6 @@ __all__ = (
     "read_lockfile",
     "write_lockfile",
     "portable_target_id",
-    "is_checkout_local",
     "split_nodeid",
     "storage_key",
     "merge_append",
@@ -122,17 +121,6 @@ def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
         return path.relative_to(rootdir).as_posix()
     except ValueError:
         return canonical_uri
-
-
-def is_checkout_local(target_id: str) -> bool:
-    """True when `target_id` is a `file://` target inside the rootdir.
-
-    `portable_target_id` gives such a target a rootdir-relative path and every
-    other target (another scheme, or a `file://` path outside the rootdir) its
-    full URI, so a target id without a scheme is local to this checkout. Any
-    other target may be shared with other checkouts, branches or projects.
-    """
-    return not urlparse(target_id).scheme
 
 
 def split_nodeid(nodeid: str) -> tuple[str, str]:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 import pytest
 
 from ditto.snapshot import Snapshot
@@ -36,11 +34,10 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     mark_target, mark_profile = parse_mark_target_selection(marks)
     backend, abs_uri = resolve_target(mark_target, mark_profile, request)
 
+    target_id = portable_target_id(abs_uri, rootdir)
     state = session_state(request.config)
     state.tracker.register_backend_module(id(backend), module)
-    state.tracker.register_target_backend(
-        portable_target_id(abs_uri, rootdir), urlparse(abs_uri).scheme, backend
-    )
+    state.tracker.register_target_backend(target_id, abs_uri, backend)
 
     if options.introspect_path:
         state.introspect_backends.setdefault(abs_uri, backend)
@@ -54,6 +51,6 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
         recorder_name=recorder_name,
         mode=options.snapshot_mode,
         nodeid=request.node.nodeid,
-        target_id=portable_target_id(abs_uri, rootdir),
+        target_id=target_id,
         _tracker=state.tracker,
     )
