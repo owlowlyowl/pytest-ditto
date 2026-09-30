@@ -1,6 +1,5 @@
 name: Bug report
 description: A defect in pytest-ditto's behavior, correctness, or safety.
-title: "[Bug]: "
 labels: ["kind: bug"]
 body:
   - type: markdown

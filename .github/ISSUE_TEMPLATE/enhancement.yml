@@ -1,6 +1,5 @@
 name: Enhancement
 description: A hardening improvement or missing capability — not a broken behavior.
-title: "[Enhancement]: "
 labels: ["kind: enhancement"]
 body:
   - type: markdown
