@@ -15,9 +15,7 @@ from .._theme import CREATED, MUTED, PATH, PRUNED, TEXT
 from ..recorders._plugins import RecorderRegistry
 from ._data import _load_recorder_infos
 from ._diagnostics import _doctor_checks
-from ._display import _render_doctor, _render_recorders
-
-console = Console()
+from ._display import _render_doctor, _render_recorders, pass_console
 
 
 def _find_ditto_dirs(root: Path) -> list[Path]:
@@ -29,7 +27,8 @@ def _find_ditto_dirs(root: Path) -> list[Path]:
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
 @click.option("--yes", is_flag=True, default=False, help="Skip confirmation prompt.")
-def cmd_clean(path: Path, yes: bool):
+@pass_console
+def cmd_clean(console: Console, path: Path, yes: bool):
     """Delete all .ditto/ directories under PATH.
 
     Shows a preview of what will be deleted and requires confirmation
@@ -71,7 +70,8 @@ def cmd_clean(path: Path, yes: bool):
 
 
 @click.command(name="recorders")
-def cmd_recorders():
+@pass_console
+def cmd_recorders(console: Console):
     """List all registered recorder plugins.
 
     \b
@@ -92,7 +92,8 @@ def cmd_recorders():
 
 
 @click.command(name="doctor")
-def cmd_doctor():
+@pass_console
+def cmd_doctor(console: Console):
     """Run health checks: plugin loading, pytest availability.
 
     \b
