@@ -86,9 +86,9 @@ test and key, and `ditto list` shows them.
 
 A snapshot is written to a temporary file next to it, then renamed into place,
 so a write that fails partway through (a full disk, an interrupted run) leaves
-the previous snapshot intact. A process killed mid-write can leave the
-temporary file, `.ditto-tmp-<random>.tmp`, behind. ditto ignores it, and it's
-safe to delete.
+the previous snapshot intact. An overwritten snapshot keeps its permissions. A
+process killed mid-write can leave the temporary file behind: `.ditto-tmp-`,
+then 32 hex characters, then `.tmp`. ditto ignores it, and it's safe to delete.
 
 ### fsspec: cloud storage and memory
 

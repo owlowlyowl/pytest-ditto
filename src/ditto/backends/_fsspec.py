@@ -35,9 +35,10 @@ def _info_mtime(info: Mapping[str, object]) -> float | None:
 
 
 def _is_leftover_temp(path: str) -> bool:
-    """True for a temporary file an interrupted atomic write left behind.
+    """True for a temporary file an interrupted local write left behind.
 
-    It isn't a snapshot, so the mapping never lists it.
+    It isn't a snapshot, so the mapping doesn't list it on the local
+    filesystem, the only one it writes temporary files to.
     """
     return is_temp_name(posixpath.basename(path))
 
@@ -69,6 +70,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         # plugin.py's _get_root() uses it to register this backend's root directory
         # so ghost-detection (Pass 2) doesn't flag its own .ditto/ as unused.
         self.root = self._root
+        self._local = isinstance(fs, LocalFileSystem)
 
     def _full_path(self, key: str) -> str:
         if posixpath.isabs(key):
@@ -101,7 +103,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         p = self._full_path(key)
         parent = posixpath.dirname(p)
         self._fs.makedirs(parent, exist_ok=True)
-        if isinstance(self._fs, LocalFileSystem):
+        if self._local:
             write_atomically(Path(p), value)
             return
         with self._fs.open(p, "wb") as f:
@@ -125,7 +127,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         return (
             p[len(prefix) :]
             for p in self._fs.find(self._root, detail=False)
-            if p.startswith(prefix) and not _is_leftover_temp(p)
+            if p.startswith(prefix) and not (self._local and _is_leftover_temp(p))
         )
 
     def __len__(self) -> int:
@@ -143,6 +145,6 @@ class FsspecMapping(MutableMapping[str, bytes]):
         prefix = self._root + "/"
         entries: dict[str, dict[str, object]] = self._fs.find(self._root, detail=True)  # type: ignore[assignment]
         for path, info in entries.items():
-            if not path.startswith(prefix) or _is_leftover_temp(path):
+            if not path.startswith(prefix) or (self._local and _is_leftover_temp(path)):
                 continue
             yield path[len(prefix) :], int(info.get("size") or 0), _info_mtime(info)  # type: ignore[arg-type]
