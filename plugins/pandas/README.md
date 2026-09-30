@@ -9,6 +9,11 @@ Use the following marks for their associated recorder:
 
 Each mark is shorthand for `@ditto.record("pandas.<format>")`.
 
+**Use `@ditto.pandas.parquet` unless you need a snapshot you can read as text.**
+It's the only format that keeps every dtype and value exactly. JSON and CSV are
+readable, but they change some data on the way through; see
+[Format notes](#format-notes).
+
 ## Installation
 ```bash
 pip install pytest-ditto[pandas]
@@ -108,17 +113,35 @@ dtype rules as a DataFrame in each format.
 | Format | Index | Values and dtypes |
 |--------|-------|-------------------|
 | parquet | preserved | preserved |
-| json | preserved, except an index named `index` | preserved, except numeric widths |
+| json | preserved, except as listed below | changed in several cases, listed below |
 | csv | single-level only; values re-parsed | re-parsed from text |
 
-**JSON** (`to_json(orient="table")`):
+**JSON** (`to_json(orient="table")`) suits simple frames: `int64`, `bool`,
+strings, categoricals, and floats where approximate values are fine. It changes
+other data, in the columns and the index alike:
 
-- An index named `index` is read back unnamed, and pandas warns that the name is
-  not round-trippable.
+> **Warning: JSON rounds floats without failing the test.** pandas writes floats
+> to 10 decimal places, so most floats lose precision, small ones most of all
+> (`1.234567e-8` comes back as `1.23e-8`), and values between about `1e-15` and
+> `1e-10`, such as `1.23e-12`, are written as `0.0`.
+> `pd.testing.assert_frame_equal` passes anyway, since the difference is inside
+> its default tolerance, so the snapshot doesn't hold the exact values and a
+> later change that small isn't caught. Use `@ditto.pandas.parquet` when exact
+> float values matter.
+
+These other changes make the comparison fail, usually on the first run:
+
+- **Datetimes come back in nanoseconds.** pandas 3 creates datetimes in
+  microseconds by default, so on pandas 3 **any datetime column or index**
+  changes dtype. Convert it first with `.as_unit("ns")`, or use parquet.
+- Datetimes are written to the millisecond, so anything finer is truncated.
+- `inf` and `-inf` are written as `null` and come back as `NaN`.
 - Numeric columns are widened to 64 bits, so `int8`, `int32` and `uint16` come
   back as `int64`, and `float32` as `float64`.
-- Datetimes come back in nanoseconds. On pandas 3, where they default to
-  microseconds, the dtype of a datetime column or index changes.
+- An index named `index` is read back unnamed, and pandas warns that the name is
+  not round-trippable.
+- Timedelta, interval and complex data can't be read back, and a period column
+  can't be written. A `PeriodIndex` is fine.
 
 **CSV** keeps no type information, so every column and the index are parsed
 from text on load:
@@ -135,4 +158,5 @@ from text on load:
   version. Pass `check_index_type=False` to `pd.testing.assert_frame_equal` to
   allow for that. It does not help with any of the changed values above.
 
-Use `@ditto.pandas.parquet` for DataFrames or Series that hit any of these cases.
+Use `@ditto.pandas.parquet` for DataFrames or Series that hit any of these
+cases.

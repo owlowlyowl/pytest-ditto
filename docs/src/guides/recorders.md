@@ -111,6 +111,25 @@ exactly what pandas writes. See the
 [plugin README](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas)
 for what each format keeps.
 
+!!! warning "Prefer `pandas.parquet`; `pandas.json` changes some data"
+    Parquet is the only pandas format that keeps every dtype and value exactly.
+    Use `pandas.json` only for simple frames you want to read as text:
+
+    - It rounds floats to 10 decimal places and writes values between about
+      `1e-15` and `1e-10` as `0.0`. `pd.testing.assert_frame_equal` still
+      passes, because the difference is inside its default tolerance, so the
+      snapshot doesn't hold the exact values.
+    - It reads datetimes back in nanoseconds. pandas 3 creates them in
+      microseconds by default, so on pandas 3 any datetime column or index fails
+      the comparison unless it's converted with `.as_unit("ns")` first.
+    - It also truncates datetimes to the millisecond, turns `inf` into `NaN`,
+      widens narrow integers and `float32`, and can't read back timedelta,
+      interval or complex data.
+
+    See the plugin README's
+    [format notes](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas#format-notes)
+    for the full list.
+
 ### PyArrow (`pytest-ditto-pyarrow`)
 
 ```bash
@@ -186,7 +205,7 @@ registry key, including custom ones.
 | Strict reviewable Python data | `json` (default) |
 | Human-readable diffs in version control | `json` or `yaml` |
 | Values outside strict JSON | An explicitly installed suitable recorder |
-| pandas DataFrames or Series with type fidelity | `pandas.parquet` |
+| pandas DataFrames or Series | `pandas.parquet` |
 | Polars DataFrames with type fidelity | `polars.parquet` |
 | Large datasets, fast I/O | `parquet` variants |
 | Interop with other tools | `json` or `csv` |
