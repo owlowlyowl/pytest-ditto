@@ -304,6 +304,36 @@ def test_fsspec_mapping_keeps_permissions_when_overwriting_a_local_file(
     assert (tmp_path / "mod.test@k.json").stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_stages_an_overwrite_with_the_existing_permissions(
+    tmp_path, monkeypatch
+) -> None:
+    """The temporary file holding the new value is created with the existing
+    snapshot's permissions, so it is never readable by more users than the
+    snapshot, even before it is renamed into place."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    (tmp_path / "mod.test@k.json").chmod(0o600)
+    staged_modes = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        staged_modes.append(os.stat(src).st_mode & 0o777)
+        real_replace(src, dst)
+
+    # Without the final chmod, the temporary file keeps the mode it was
+    # created with, which is what the rename then sees.
+    monkeypatch.setattr("ditto._atomic.os.chmod", lambda path, mode: None)
+    monkeypatch.setattr("ditto._atomic.os.replace", recording_replace)
+    umask = os.umask(0o022)
+    try:
+        m["mod.test@k.json"] = b"new"
+    finally:
+        os.umask(umask)
+
+    assert staged_modes == [0o600]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="path exceeds MAX_PATH")
 def test_fsspec_mapping_writes_a_local_file_with_the_longest_name(tmp_path) -> None:
     """A snapshot name using the whole 255-byte limit can be written: the

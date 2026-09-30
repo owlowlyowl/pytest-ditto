@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
+import stat
 import uuid
 from pathlib import Path
 
@@ -35,7 +35,9 @@ def write_atomically(path: Path, data: bytes) -> None:
 
     The replacement is a new file. When `path` already exists, it gets
     `path`'s permission bits; otherwise the default ones, as `open` would give
-    it. Ownership, ACLs and a symlink at `path` aren't preserved.
+    it. The temporary file is created with those bits, less the umask, so it
+    is never readable by more users than `path` is, even while `data` is being
+    written. Ownership, ACLs and a symlink at `path` aren't preserved.
 
     Notes
     -----
@@ -53,15 +55,22 @@ def write_atomically(path: Path, data: bytes) -> None:
     first) when the two are on different filesystems. They also change the
     shared, cached filesystem instance.
     """
-    tmp = path.with_name(f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
-    f = tmp.open("xb")  # if this fails, there's no file of ours to remove
     try:
-        with f:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        mode = None
+    tmp = path.with_name(f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp")
+    # If this fails, there's no file of ours to remove.
+    fd = os.open(
+        tmp,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+        0o666 if mode is None else mode,
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
             f.write(data)
-        try:
-            shutil.copymode(path, tmp)
-        except FileNotFoundError:
-            pass
+        if mode is not None:
+            os.chmod(tmp, mode)  # restore any bits the umask removed
         os.replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
