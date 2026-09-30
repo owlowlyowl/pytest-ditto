@@ -84,6 +84,12 @@ which are the same file name on Windows and macOS) or only in replaced
 characters (`[12:00]` and `[12_00]`). `ditto.lock` records each snapshot's exact
 test and key, and `ditto list` shows them.
 
+A snapshot is written to a temporary file next to it, then renamed into place,
+so a write that fails partway through (a full disk, an interrupted run) leaves
+the previous snapshot intact. An overwritten snapshot keeps its permissions. A
+process killed mid-write can leave the temporary file behind: `.ditto-tmp-`,
+then 32 hex characters, then `.tmp`. ditto ignores it, and it's safe to delete.
+
 ### fsspec: cloud storage and memory
 
 fsspec itself only understands a few protocols, such as `memory`. Most cloud
