@@ -1,7 +1,7 @@
 [project]
 name = "pytest-ditto-pandas"
 dynamic = ["version", "dependencies"]
-description = "pytest-ditto plugin for pandas DataFrame snapshots."
+description = "pytest-ditto plugin for pandas DataFrame and Series snapshots."
 keywords = ["pytest", "testing", "pandas", "snapshot"]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]

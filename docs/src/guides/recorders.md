@@ -101,6 +101,16 @@ def test_dataframe(snapshot):
     pd.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
 ```
 
+The same marks record a `pd.Series`, which loads back as a Series with its name.
+Parquet and JSON also restore a `DatetimeIndex` or `TimedeltaIndex` `freq`,
+which pandas itself drops. Both are recorded in a small `ditto` marker stored
+inside the file: in the Arrow schema metadata for parquet, as a `"ditto"` key
+beside `schema` and `data` for JSON, and as a first `# ditto: {…}` line for a
+CSV Series. A DataFrame with no index `freq` gets no marker, so its file is
+exactly what pandas writes. See the
+[plugin README](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas)
+for what each format keeps.
+
 ### PyArrow (`pytest-ditto-pyarrow`)
 
 ```bash
@@ -176,7 +186,7 @@ registry key, including custom ones.
 | Strict reviewable Python data | `json` (default) |
 | Human-readable diffs in version control | `json` or `yaml` |
 | Values outside strict JSON | An explicitly installed suitable recorder |
-| pandas DataFrames with type fidelity | `pandas.parquet` |
+| pandas DataFrames or Series with type fidelity | `pandas.parquet` |
 | Polars DataFrames with type fidelity | `polars.parquet` |
 | Large datasets, fast I/O | `parquet` variants |
 | Interop with other tools | `json` or `csv` |
