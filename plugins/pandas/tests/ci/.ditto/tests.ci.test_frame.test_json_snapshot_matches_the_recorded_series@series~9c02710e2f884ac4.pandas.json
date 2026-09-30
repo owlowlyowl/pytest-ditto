@@ -1,0 +1,1 @@
+{"schema":{"fields":[{"name":"k","type":"string","extDtype":"str"},{"name":"values","type":"number"}],"primaryKey":["k"],"pandas_version":"1.4.0"},"data":[{"k":"a","values":1.0},{"k":"b","values":2.0},{"k":"c","values":3.0}],"ditto":{"version":1,"series":{"name":"x"}}}

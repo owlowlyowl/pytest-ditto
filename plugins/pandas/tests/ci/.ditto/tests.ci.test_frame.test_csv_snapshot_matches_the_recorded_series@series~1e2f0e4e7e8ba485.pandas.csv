@@ -1,0 +1,5 @@
+# ditto: {"version":1,"series":{"name":"x"}}
+k,values
+a,1.0
+b,2.0
+c,3.0

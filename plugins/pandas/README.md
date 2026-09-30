@@ -1,6 +1,6 @@
 # pytest-ditto-pandas
 
-Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto) for `pandas` DataFrame snapshots.
+Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto) for `pandas` DataFrame and Series snapshots.
 
 Use the following marks for their associated recorder:
 - `@ditto.pandas.parquet`
@@ -13,6 +13,8 @@ Each mark is shorthand for `@ditto.record("pandas.<format>")`.
 ```bash
 pip install pytest-ditto[pandas]
 ```
+
+It needs pandas 2.2 or later and pyarrow 16.1.0 or later.
 
 ## Usage
 
@@ -51,11 +53,57 @@ def test_fn_with_json_dataframe_snapshot(snapshot):
     pd.testing.assert_frame_equal(result, snapshot(result, key="ab_dataframe"))
 ```
 
+## Series and index frequency
+
+The same three marks record a `pd.Series`. A Series is stored as a one-column
+DataFrame plus a small `ditto` marker that records it was a Series and its
+name.
+
+pandas doesn't store a `DatetimeIndex` or `TimedeltaIndex` `freq` in parquet or
+JSON, so parquet and JSON snapshots put it in the same marker as
+`"index_freq"` and restore it on load. `pd.testing.assert_frame_equal` then
+passes without `check_freq=False`, and still catches a change of frequency.
+Loading a snapshot whose stored `freq` doesn't fit its dates raises
+`ValueError`. CSV doesn't read dates back as a `DatetimeIndex`, so it doesn't
+store a `freq`.
+
+A `freq` is only stored if its string rebuilds the same offset. Fixed and
+calendar frequencies such as `D`, `2h`, `W-SUN`, `B`, `ME` and `QE-DEC` do. A
+`CustomBusinessDay` with its own weekmask or holidays, or a `pd.DateOffset`
+built from keywords, doesn't: its index loads back with no `freq`, as pandas
+would load it, so compare with `check_freq=False`.
+
+The `freq` is stored as its pandas alias, such as `ME`. pandas has renamed
+aliases before (`M` became `ME` in 2.2, `H` became `h`), so a later rename could
+make an old snapshot warn or fail to load; record it again if that happens.
+
+| Format | Where the marker lives |
+|--------|------------------------|
+| parquet | Arrow schema metadata under the key `ditto` |
+| json | a top-level `"ditto"` key beside `schema` and `data` |
+| csv | a first line: `# ditto: {…}` (Series only) |
+
+A DataFrame without an index `freq` has no marker, so its file is exactly what
+pandas writes. Another tool reading a file with a marker ignores it in parquet,
+but needs to know about it in JSON and CSV. A Series also reads back as a
+one-column frame without it. For CSV, skip the marker with
+`pd.read_csv(..., skiprows=1)`.
+
+A marker from a newer version of the plugin fails to load with `ValueError`
+rather than loading the wrong thing.
+
+The Series name must be `None`, a `str`, `int`, `float` or `bool`, or a
+non-nested tuple of those. A numpy scalar name, as `df.iloc[i]` gives, is
+recorded as the matching Python value. Anything else, such as the `Timestamp`
+name `df.loc[date]` gives, raises `TypeError` at write time; `rename()` the
+Series first.
+
 ### Format notes
 
-Only parquet round-trips a DataFrame exactly. JSON and CSV change some values or
-types on the way through, and a snapshot comparison then fails even though the
-code under test didn't change.
+Only parquet round-trips a DataFrame or Series exactly. JSON and CSV change some
+values or types on the way through, and a snapshot comparison then fails even
+though the code under test didn't change. A Series follows the same index and
+dtype rules as a DataFrame in each format.
 
 | Format | Index | Values and dtypes |
 |--------|-------|-------------------|
@@ -69,6 +117,8 @@ code under test didn't change.
   not round-trippable.
 - Numeric columns are widened to 64 bits, so `int8`, `int32` and `uint16` come
   back as `int64`, and `float32` as `float64`.
+- Datetimes come back in nanoseconds. On pandas 3, where they default to
+  microseconds, the dtype of a datetime column or index changes.
 
 **CSV** keeps no type information, so every column and the index are parsed
 from text on load:
@@ -79,9 +129,10 @@ from text on load:
 - dtypes are inferred again, so `int32` comes back as `int64`, and categoricals
   come back as plain strings.
 - Only a single-level index is supported. `DatetimeIndex`, `PeriodIndex`,
-  `CategoricalIndex` and `MultiIndex` are not.
+  `CategoricalIndex` and `MultiIndex` are not. Recording a Series with a
+  `MultiIndex` raises `ValueError`.
 - A `RangeIndex` may come back as a plain integer index, depending on the pandas
   version. Pass `check_index_type=False` to `pd.testing.assert_frame_equal` to
   allow for that. It does not help with any of the changed values above.
 
-Use `@ditto.pandas.parquet` for DataFrames that hit any of these cases.
+Use `@ditto.pandas.parquet` for DataFrames or Series that hit any of these cases.

@@ -1,7 +1,7 @@
 [project]
 name = "pytest-ditto-pandas"
 dynamic = ["version", "dependencies"]
-description = "pytest-ditto plugin for pandas DataFrame snapshots."
+description = "pytest-ditto plugin for pandas DataFrame and Series snapshots."
 keywords = ["pytest", "testing", "pandas", "snapshot"]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
@@ -44,10 +44,11 @@ targets.sdist.only-include = ["src", "README.md", "LICENSE", "hatch_build.py"]
 
 # hatch_build.py adds pytest-ditto>=<this version>,<3 to these.
 [tool.hatch.metadata.hooks.custom]
+# The floors are what CI's pandas-floor-py312 environment tests.
 dependencies = [
-    "pandas",
+    "pandas>=2.2",
     # pandas reads and writes parquet through pyarrow.
-    "pyarrow",
+    "pyarrow>=16.1.0",
 ]
 
 # Versioned in lockstep with pytest-ditto, from the same git tag.
