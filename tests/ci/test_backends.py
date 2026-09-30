@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import errno
+import os
+import subprocess
+import sys
 import uuid
 from collections.abc import Iterator, MutableMapping
 
@@ -9,6 +13,7 @@ import pytest
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.memory import MemoryFileSystem
 
+from ditto._atomic import TEMP_PREFIX
 from ditto.backends import FsspecMapping, PrefixedMapping
 
 
@@ -192,6 +197,197 @@ def test_fsspec_mapping_raises_when_key_resolves_to_root() -> None:
 
     with pytest.raises(ValueError):
         m["."] = b"x"
+
+
+def _local(tmp_path) -> FsspecMapping:
+    """FsspecMapping on the local filesystem, rooted in `tmp_path`."""
+    return FsspecMapping(LocalFileSystem(), tmp_path.as_posix())
+
+
+# Writes a baseline, then caps the process's file size so the next write fails
+# partway through, as it would on a full disk, whichever code path writes it.
+_WRITE_PAST_A_FILE_SIZE_LIMIT = """
+import resource, signal, sys
+from fsspec.implementations.local import LocalFileSystem
+from ditto.backends import FsspecMapping
+
+m = FsspecMapping(LocalFileSystem(), sys.argv[1])
+m["mod.test@k.json"] = b"old baseline"
+signal.signal(signal.SIGXFSZ, signal.SIG_IGN)  # fail with EFBIG, don't die
+resource.setrlimit(resource.RLIMIT_FSIZE, (4, resource.RLIM_INFINITY))
+try:
+    m["mod.test@k.json"] = b"a new value longer than the limit"
+except OSError as exc:
+    print(exc.errno)
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs RLIMIT_FSIZE")
+def test_fsspec_mapping_keeps_previous_local_value_when_a_write_fails(
+    tmp_path,
+) -> None:
+    """A local write that fails partway through leaves the previous value
+    intact and no temporary file behind."""
+    result = subprocess.run(
+        [sys.executable, "-c", _WRITE_PAST_A_FILE_SIZE_LIMIT, tmp_path.as_posix()],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.strip() == str(errno.EFBIG)
+    assert _local(tmp_path)["mod.test@k.json"] == b"old baseline"
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.test@k.json"]
+
+
+def test_fsspec_mapping_keeps_previous_local_value_when_the_replace_fails(
+    tmp_path, monkeypatch
+) -> None:
+    """A local write whose final rename fails leaves the previous value intact."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+
+    def failing_replace(src, dst):
+        raise OSError("rename failed")
+
+    monkeypatch.setattr("ditto._atomic.os.replace", failing_replace)
+    with pytest.raises(OSError):
+        m["mod.test@k.json"] = b"new"
+
+    monkeypatch.undo()
+    assert m["mod.test@k.json"] == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.test@k.json"]
+
+
+def test_fsspec_mapping_does_not_list_a_leftover_temporary_file(tmp_path) -> None:
+    """A temporary file an interrupted write left behind isn't a snapshot."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"x"
+    (tmp_path / f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp").write_bytes(b"partial")
+
+    assert list(m) == ["mod.test@k.json"]
+    assert [key for key, _, _ in m.stat_entries()] == ["mod.test@k.json"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_creates_local_files_with_default_permissions(
+    tmp_path,
+) -> None:
+    """An atomically written snapshot gets the permissions `open` would give
+    it, not the owner-only mode of a secure temporary file."""
+    umask = os.umask(0o022)
+    try:
+        _local(tmp_path)["mod.test@k.json"] = b"x"
+    finally:
+        os.umask(umask)
+
+    assert (tmp_path / "mod.test@k.json").stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_keeps_permissions_when_overwriting_a_local_file(
+    tmp_path,
+) -> None:
+    """Overwriting a snapshot keeps its permission bits, as writing to it in
+    place would, rather than giving the replacement the default ones."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    (tmp_path / "mod.test@k.json").chmod(0o600)
+
+    umask = os.umask(0o022)
+    try:
+        m["mod.test@k.json"] = b"new"
+    finally:
+        os.umask(umask)
+
+    assert m["mod.test@k.json"] == b"new"
+    assert (tmp_path / "mod.test@k.json").stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_stages_an_overwrite_with_the_existing_permissions(
+    tmp_path, monkeypatch
+) -> None:
+    """The temporary file holding the new value is created with the existing
+    snapshot's permissions, so it is never readable by more users than the
+    snapshot, even before it is renamed into place."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    (tmp_path / "mod.test@k.json").chmod(0o600)
+    staged_modes = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        staged_modes.append(os.stat(src).st_mode & 0o777)
+        real_replace(src, dst)
+
+    # Without the final chmod, the temporary file keeps the mode it was
+    # created with, which is what the rename then sees.
+    monkeypatch.setattr("ditto._atomic.os.chmod", lambda path, mode: None)
+    monkeypatch.setattr("ditto._atomic.os.replace", recording_replace)
+    umask = os.umask(0o022)
+    try:
+        m["mod.test@k.json"] = b"new"
+    finally:
+        os.umask(umask)
+
+    assert staged_modes == [0o600]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="path exceeds MAX_PATH")
+def test_fsspec_mapping_writes_a_local_file_with_the_longest_name(tmp_path) -> None:
+    """A snapshot name using the whole 255-byte limit can be written: the
+    temporary file's name doesn't include it."""
+    key = "m" * 250 + ".json"
+    m = _local(tmp_path)
+
+    m[key] = b"old"
+    m[key] = b"new"
+
+    assert m[key] == b"new"
+
+
+def test_fsspec_mapping_lists_a_local_file_named_like_but_not_as_a_temporary_file(
+    tmp_path,
+) -> None:
+    """Only the exact name a temporary file gets is hidden on the local
+    filesystem; other names that share its prefix are listed."""
+    m = _local(tmp_path)
+    m[f"{TEMP_PREFIX}real.json"] = b"x"
+
+    assert list(m) == [f"{TEMP_PREFIX}real.json"]
+
+
+def test_fsspec_mapping_lists_temporary_file_names_on_other_filesystems() -> None:
+    """Only a local mapping writes temporary files, so other filesystems list
+    every stored key, even one named like a temporary file."""
+    m = _mem()
+    temp_name = f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
+    m[temp_name] = b"x"
+    m[f"{TEMP_PREFIX}real.json"] = b"y"
+
+    assert sorted(m) == sorted([temp_name, f"{TEMP_PREFIX}real.json"])
+    assert sorted(key for key, _, _ in m.stat_entries()) == sorted(m)
+
+
+def test_fsspec_mapping_leaves_another_writers_temporary_file_when_its_name_is_taken(
+    tmp_path, monkeypatch
+) -> None:
+    """When the temporary file's name is already taken, the write fails
+    without removing that file or touching the destination."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    taken = uuid.UUID(int=0)
+    other = tmp_path / f"{TEMP_PREFIX}{taken.hex}.tmp"
+    other.write_bytes(b"another writer's")
+
+    monkeypatch.setattr("ditto._atomic.uuid.uuid4", lambda: taken)
+    with pytest.raises(FileExistsError):
+        m["mod.test@k.json"] = b"new"
+
+    monkeypatch.undo()
+    assert other.read_bytes() == b"another writer's"
+    assert m["mod.test@k.json"] == b"old"
 
 
 # ---------------------------------------------------------------------------

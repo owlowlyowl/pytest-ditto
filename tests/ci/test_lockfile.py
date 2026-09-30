@@ -1,4 +1,5 @@
 import dataclasses
+import sys
 from pathlib import Path
 
 import fsspec
@@ -105,6 +106,18 @@ def test_leaves_no_temp_file_after_write(tmp_path):
 
     leftovers = [p.name for p in tmp_path.iterdir() if p.name != "ditto.lock"]
     assert leftovers == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_keeps_permissions_of_an_existing_lock_file(tmp_path):
+    """Rewriting the lock file keeps its permission bits."""
+    path = tmp_path / "ditto.lock"
+    write_lockfile(path, _canonical_sample())
+    path.chmod(0o640)
+
+    write_lockfile(path, _canonical_sample())
+
+    assert path.stat().st_mode & 0o777 == 0o640
 
 
 def test_raises_when_lockfile_is_corrupt(tmp_path):
