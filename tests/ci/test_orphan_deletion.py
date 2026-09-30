@@ -4,7 +4,9 @@ import pytest
 
 from ditto.exceptions import DittoWarning
 from ditto.plugin._drift import (
+    FailedDeletion,
     Orphan,
+    PruneResult,
     delete_orphans,
     local_target_ids,
     split_shared,
@@ -30,27 +32,28 @@ def test_deletes_every_orphan_from_its_backend() -> None:
     assert second == {}
 
 
-def test_returns_the_keys_deleted() -> None:
-    """The result lists the deleted keys, in orphan order."""
+def test_returns_the_orphans_deleted() -> None:
+    """The result lists the deleted orphans, in orphan order, and no failures."""
     backend = {"a@k.json": b"1", "b@k.json": b"2"}
     orphans = [Orphan("t", backend, "a@k.json"), Orphan("t", backend, "b@k.json")]
 
     actual = delete_orphans(orphans)
 
-    expected = ["a@k.json", "b@k.json"]
+    expected = PruneResult(deleted=orphans, failed=[])
     assert actual == expected
 
 
-def test_omits_and_warns_about_a_key_that_fails_to_delete() -> None:
-    """A failed deletion is warned about, left out of the result, and not fatal."""
-    stuck = _UndeletableBackend({"stuck@k.json": b"1"})
-    backend = {"gone@k.json": b"2"}
-    orphans = [Orphan("t", stuck, "stuck@k.json"), Orphan("t", backend, "gone@k.json")]
+def test_records_a_failed_deletion_with_its_reason_and_deletes_the_rest() -> None:
+    """A deletion that raises is recorded with the error, and the remaining
+    orphans are still deleted."""
+    stuck = Orphan("t", _UndeletableBackend({"stuck@k.json": b"1"}), "stuck@k.json")
+    gone = Orphan("t", {"gone@k.json": b"2"}, "gone@k.json")
 
-    with pytest.warns(DittoWarning, match="stuck@k.json.*read-only store"):
-        actual = delete_orphans(orphans)
+    actual = delete_orphans([stuck, gone])
 
-    expected = ["gone@k.json"]
+    expected = PruneResult(
+        deleted=[gone], failed=[FailedDeletion(stuck, "read-only store")]
+    )
     assert actual == expected
 
 

@@ -92,6 +92,85 @@ def test_prune_and_dry_run_are_mutually_exclusive(pytester):
     result.stderr.fnmatch_lines(["*--ditto-prune*--ditto-prune-dry-run*"])
 
 
+# ── A prune that can't finish fails the run (#183) ───────────────────────────
+
+UNDELETABLE_CONFTEST = """
+from ditto.backends._fsspec import FsspecMapping
+
+def _refuse(self, key):
+    raise PermissionError("read-only store")
+
+FsspecMapping.__delitem__ = _refuse
+"""
+
+
+def _orphan_that_cannot_be_deleted(pytester):
+    """Leave test_beta's snapshot as an orphan on a backend that refuses deletes."""
+    _drop_beta_from_lock(_seed_lock(pytester))
+    pytester.makeconftest(UNDELETABLE_CONFTEST)
+
+
+def test_prune_fails_the_run_when_a_snapshot_cannot_be_deleted(pytester):
+    """An orphan prune meant to delete but couldn't fails the run."""
+    _orphan_that_cannot_be_deleted(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-prune")
+
+    assert result.ret != 0
+    assert any("test_beta" in f for f in _backend_files(pytester))
+
+
+def test_prune_names_each_snapshot_it_could_not_delete_and_why(pytester):
+    """The report gives the target's deleted and failed counts, then each key
+    that failed with its error."""
+    _orphan_that_cannot_be_deleted(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-prune")
+
+    result.stdout.fnmatch_lines([
+        "*ditto prune: deleted 0 of 1 snapshot(s) from '.ditto'; "
+        "1 could not be deleted:",
+        "*test_mod.test_beta@*: read-only store",
+    ])
+
+
+UNLISTABLE_TARGET_CONFTEST = """
+from collections.abc import MutableMapping
+from ditto.backends import BACKEND_REGISTRY
+
+class UnlistableBackend(MutableMapping):
+    def __init__(self): self._d = {}
+    def __getitem__(self, k): return self._d[k]
+    def __setitem__(self, k, v): self._d[k] = v
+    def __delitem__(self, k): del self._d[k]
+    def __len__(self): return len(self._d)
+    def __iter__(self): raise ConnectionError("network gone")
+
+BACKEND_REGISTRY.overrides["unlistable"] = lambda uri, **kwargs: UnlistableBackend()
+"""
+
+
+def test_prune_still_deletes_from_other_targets_when_one_cannot_be_read(pytester):
+    """A target prune can't read doesn't stop it deleting another target's
+    orphans."""
+    _drop_beta_from_lock(_seed_lock(pytester))
+    pytester.makeconftest(UNLISTABLE_TARGET_CONFTEST)
+    pytester.makepyfile(
+        test_a_remote="""
+import ditto
+
+@ditto.record("json", target="unlistable://store")
+def test_remote(snapshot):
+    snapshot(1, key="r")
+"""
+    )
+
+    result = pytester.runpytest_subprocess("--ditto-prune", "--ditto-prune-shared")
+
+    result.stdout.fnmatch_lines(["*ditto prune: could not read*: network gone"])
+    assert not any("test_beta" in f for f in _backend_files(pytester))
+
+
 # ── A shared target isn't pruned without --ditto-prune-shared (#161) ─────────
 
 API_MODULE = "def test_old(snapshot):\n    snapshot(1, key='a')\n"
