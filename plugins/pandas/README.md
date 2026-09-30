@@ -56,8 +56,8 @@ def test_fn_with_json_dataframe_snapshot(snapshot):
 ## Series and index frequency
 
 The same three marks record a `pd.Series`. A Series is stored as a one-column
-DataFrame plus a small `ditto` marker that records it was a Series, its name,
-and the column it was written under.
+DataFrame plus a small `ditto` marker that records it was a Series and its
+name.
 
 pandas doesn't store a `DatetimeIndex` or `TimedeltaIndex` `freq` in parquet or
 JSON, so parquet and JSON snapshots put it in the same marker as
@@ -73,6 +73,10 @@ calendar frequencies such as `D`, `2h`, `W-SUN`, `B`, `ME` and `QE-DEC` do. A
 built from keywords, doesn't: its index loads back with no `freq`, as pandas
 would load it, so compare with `check_freq=False`.
 
+The `freq` is stored as its pandas alias, such as `ME`. pandas has renamed
+aliases before (`M` became `ME` in 2.2, `H` became `h`), so a later rename could
+make an old snapshot warn or fail to load; record it again if that happens.
+
 | Format | Where the marker lives |
 |--------|------------------------|
 | parquet | Arrow schema metadata under the key `ditto` |
@@ -85,11 +89,14 @@ but needs to know about it in JSON and CSV. A Series also reads back as a
 one-column frame without it. For CSV, skip the marker with
 `pd.read_csv(..., skiprows=1)`.
 
-A marker from a newer version of the plugin, or one that's incomplete, fails to
-load with `ValueError` rather than loading the wrong thing.
+A marker from a newer version of the plugin fails to load with `ValueError`
+rather than loading the wrong thing.
 
 The Series name must be `None`, a `str`, `int`, `float` or `bool`, or a
-non-nested tuple of those. Anything else raises `TypeError` at write time.
+non-nested tuple of those. A numpy scalar name, as `df.iloc[i]` gives, is
+recorded as the matching Python value. Anything else, such as the `Timestamp`
+name `df.loc[date]` gives, raises `TypeError` at write time; `rename()` the
+Series first.
 
 ### Format notes
 
@@ -122,7 +129,8 @@ from text on load:
 - dtypes are inferred again, so `int32` comes back as `int64`, and categoricals
   come back as plain strings.
 - Only a single-level index is supported. `DatetimeIndex`, `PeriodIndex`,
-  `CategoricalIndex` and `MultiIndex` are not.
+  `CategoricalIndex` and `MultiIndex` are not. Recording a Series with a
+  `MultiIndex` raises `ValueError`.
 - A `RangeIndex` may come back as a plain integer index, depending on the pandas
   version. Pass `check_index_type=False` to `pd.testing.assert_frame_equal` to
   allow for that. It does not help with any of the changed values above.

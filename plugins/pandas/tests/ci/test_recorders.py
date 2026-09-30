@@ -3,6 +3,7 @@
 import io
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
@@ -125,6 +126,10 @@ SERIES_CASES = [
     pytest.param(_sample_series(name=("x",)), id="1-tuple"),
     pytest.param(_sample_series(name=("x", "y")), id="2-tuple"),
     pytest.param(_sample_series(name=("x", None)), id="tuple-with-none"),
+    # df.iloc[i] and df.loc[label] name a Series with a numpy scalar label.
+    pytest.param(_sample_series(name=np.int64(10)), id="numpy-int"),
+    pytest.param(_sample_series(name=np.bool_(True)), id="numpy-bool"),
+    pytest.param(_sample_series(name=("x", np.int64(2))), id="tuple-with-numpy-int"),
     pytest.param(
         _sample_series(index=pd.Index(["a", "b"], name="values")),
         id="index-named-values",
@@ -159,9 +164,11 @@ def test_one_column_dataframe_still_loads_as_a_dataframe(name: str) -> None:
     pd.testing.assert_frame_equal(actual, df)
 
 
-def test_parquet_dataframe_bytes_match_to_parquet() -> None:
-    """A DataFrame's parquet bytes are unchanged from DataFrame.to_parquet."""
+@pytest.mark.parametrize("attrs", [{}, {"units": "kg"}], ids=["plain", "with-attrs"])
+def test_parquet_dataframe_bytes_match_to_parquet(attrs: dict[str, str]) -> None:
+    """A DataFrame's parquet bytes, attrs included, are DataFrame.to_parquet's."""
     df = _sample_dataframe()
+    df.attrs = attrs
     buffer = io.BytesIO()
     df.to_parquet(buffer)
 
@@ -185,14 +192,27 @@ def test_csv_dataframe_bytes_match_to_csv() -> None:
     assert recorders.get("pandas.csv").dumps(df) == expected
 
 
-@pytest.mark.parametrize("name", NAMES)
-def test_rewriting_a_series_snapshot_reproduces_its_bytes(name: str) -> None:
-    """Loading a Series snapshot and dumping it again gives the same bytes."""
-    series = _sample_series()
-    recorder = recorders.get(name)
-    raw = recorder.dumps(series)
+MARKED_DATA = [
+    pytest.param(_sample_series(), id="series"),
+    pytest.param(
+        pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2)),
+        id="frame-with-freq",
+    ),
+]
 
-    assert recorder.dumps(recorder.loads(raw)) == raw
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("data", MARKED_DATA)
+def test_rewriting_a_series_or_freq_snapshot_reproduces_its_bytes(
+    name: str, data: pd.DataFrame | pd.Series
+) -> None:
+    """Loading a Series or freq snapshot and dumping it again gives the same bytes."""
+    recorder = recorders.get(name)
+    raw = recorder.dumps(data)
+
+    actual = recorder.dumps(recorder.loads(raw))
+
+    assert actual == raw
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -211,8 +231,17 @@ def test_unsupported_series_name_raises_typeerror(
     series = _sample_series(name=series_name)
     recorder = recorders.get(name)
 
-    with pytest.raises(TypeError, match="can't record a Series named"):
+    with pytest.raises(TypeError, match=r"rename\(\) it"):
         recorder.dumps(series)
+
+
+def test_csv_rejects_a_series_with_a_multiindex() -> None:
+    """CSV reads back only one index level, so it refuses to record more."""
+    index = pd.MultiIndex.from_tuples([("a", 1), ("b", 2)], names=["k", "n"])
+    series = pd.Series([1.0, 2.0], name="x", index=index)
+
+    with pytest.raises(ValueError, match="MultiIndex"):
+        recorders.get("pandas.csv").dumps(series)
 
 
 def _index_type_kept(name: str) -> bool:
@@ -288,16 +317,6 @@ def test_datetime_index_without_a_freq_stays_without_one(name: str) -> None:
     assert b"ditto" not in raw
 
 
-@pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
-def test_rewriting_a_freq_snapshot_reproduces_its_bytes(name: str) -> None:
-    """Loading a snapshot with an index freq and dumping it again keeps its bytes."""
-    df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2))
-    recorder = recorders.get(name)
-    raw = recorder.dumps(df)
-
-    assert recorder.dumps(recorder.loads(raw)) == raw
-
-
 def test_json_rejects_a_freq_that_does_not_match_the_dates() -> None:
     """A snapshot whose stored freq doesn't fit its dates fails to load."""
     df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2))
@@ -346,16 +365,6 @@ def test_freq_its_string_cannot_rebuild_is_not_recorded(
         actual, df, check_freq=False, check_index_type=_index_type_kept(name)
     )
     assert actual.index.freq is None
-
-
-def test_parquet_dataframe_with_attrs_bytes_match_to_parquet() -> None:
-    """The recorder writes a DataFrame's attrs as pandas does, byte for byte."""
-    df = _sample_dataframe()
-    df.attrs = {"units": "kg"}
-    buffer = io.BytesIO()
-    df.to_parquet(buffer)
-
-    assert recorders.get("pandas.parquet").dumps(df) == buffer.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -415,23 +424,13 @@ def test_csv_header_that_starts_like_a_marker_is_read_as_data(index_name: str) -
     pd.testing.assert_frame_equal(actual, df)
 
 
-@pytest.mark.parametrize(
-    ("name", "old", "new"),
-    [
-        ("pandas.json", b'"version":1', b'"version":2'),
-        ("pandas.csv", b'"version":1', b'"version":2'),
-        ("pandas.json", b'"kind":"series"', b'"kind":"panel"'),
-        ("pandas.csv", b',"column":"values"', b""),
-    ],
-)
-def test_loading_a_marker_it_cannot_read_raises(
-    name: str, old: bytes, new: bytes
-) -> None:
-    """A marker with an unknown version or kind, or missing fields, fails to load."""
+@pytest.mark.parametrize("name", ["pandas.json", "pandas.csv"])
+def test_rejects_a_marker_with_an_unknown_version(name: str) -> None:
+    """A marker from a newer plugin fails to load rather than loading wrongly."""
     recorder = recorders.get(name)
-    raw = recorder.dumps(_sample_series()).replace(old, new)
+    raw = recorder.dumps(_sample_series()).replace(b'"version":1', b'"version":2')
 
-    with pytest.raises(ValueError, match="ditto marker"):
+    with pytest.raises(ValueError, match="ditto marker has version 2"):
         recorder.loads(raw)
 
 

@@ -1,7 +1,9 @@
 import io
 import json as _json
 from collections.abc import Hashable, Iterable
+from typing import NotRequired, TypedDict, cast
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from pandas.tseries.frequencies import to_offset
@@ -13,14 +15,27 @@ __all__ = ("parquet", "json", "csv")
 
 
 type Frame = pd.DataFrame | pd.Series
+type _Name = str | int | float | bool | None
 
-_MARKER_KEY = b"ditto"
+
+class _SeriesMarker(TypedDict):
+    name: _Name | list[_Name]
+
+
+class _Marker(TypedDict):
+    """What pandas doesn't store itself, written as JSON beside the data."""
+
+    version: int
+    series: NotRequired[_SeriesMarker]
+    index_freq: NotRequired[str]
+
+
+_MARKER_KEY = "ditto"
+_MARKER_VERSION = 1
 _SERIES_COLUMN = "values"
-_JSON_SEPARATORS = (",", ":")
 _CSV_MARKER_PREFIX = "# ditto: "
 _NAME_ATOMS = (str, int, float, bool)
 _FREQ_INDEXES = (pd.DatetimeIndex, pd.TimedeltaIndex)
-_MARKER_VERSION = 1
 
 
 def _series_column(index_names: Iterable[Hashable]) -> str:
@@ -34,25 +49,25 @@ def _series_column(index_names: Iterable[Hashable]) -> str:
     return column
 
 
-def _encode_name(name: object) -> object:
-    if name is None or isinstance(name, _NAME_ATOMS):
-        return name
-    if isinstance(name, tuple) and all(
-        item is None or isinstance(item, _NAME_ATOMS) for item in name
-    ):
-        return list(name)
+def _name_atom(item: object) -> _Name:
+    # df.iloc[i] and df.loc[label] name a Series with a numpy scalar label.
+    item = item.item() if isinstance(item, np.generic) else item
+    if item is None or isinstance(item, _NAME_ATOMS):
+        return item
     raise TypeError(
-        f"can't record a Series named {name!r}: its name must be None, "
-        "a str, int, float or bool, or a tuple of those"
+        f"can't record a Series named {item!r}: its name must be None, a str, "
+        "int, float or bool, or a tuple of those; rename() it first"
     )
 
 
-def _decode_name(name: object) -> Hashable:
-    if isinstance(name, list):
-        return tuple(name)
-    if name is None or isinstance(name, _NAME_ATOMS):
-        return name
-    raise ValueError(f"the ditto marker has an invalid Series name: {name!r}")
+def _encode_name(name: Hashable) -> _Name | list[_Name]:
+    if isinstance(name, tuple):
+        return [_name_atom(item) for item in name]
+    return _name_atom(name)
+
+
+def _decode_name(name: _Name | list[_Name]) -> Hashable:
+    return tuple(name) if isinstance(name, list) else name
 
 
 def _freqstr(index: pd.Index) -> str | None:
@@ -64,70 +79,45 @@ def _freqstr(index: pd.Index) -> str | None:
     """
     if not isinstance(index, _FREQ_INDEXES) or index.freq is None:
         return None
-    freqstr = index.freqstr
     try:
-        rebuilt = to_offset(freqstr)
+        rebuilt = to_offset(index.freqstr)
     except ValueError:
         return None
-    return freqstr if rebuilt == index.freq else None
+    return index.freqstr if rebuilt == index.freq else None
 
 
-def _check_marker(marker: object) -> dict[str, object]:
-    """The marker, if it is one this version of the recorders can load."""
-    if not isinstance(marker, dict):
-        raise ValueError(f"the ditto marker isn't a JSON object: {marker!r}")
-    if marker.get("version") != _MARKER_VERSION:
-        raise ValueError(
-            f"the ditto marker has version {marker.get('version')!r}; this "
-            f"pytest-ditto-pandas reads version {_MARKER_VERSION}"
-        )
-    kind = marker.get("kind")
-    if kind not in ("frame", "series"):
-        raise ValueError(f"the ditto marker has an unknown kind: {kind!r}")
-    if kind == "series" and (
-        "name" not in marker or not isinstance(marker.get("column"), str)
-    ):
-        raise ValueError(f"the ditto marker for a Series is incomplete: {marker!r}")
-    freq = marker.get("index_freq")
-    if freq is not None and not isinstance(freq, str):
-        raise ValueError(f"the ditto marker has an invalid index freq: {freq!r}")
-    return marker
-
-
-def _split(
-    data: Frame, *, keep_freq: bool
-) -> tuple[pd.DataFrame, dict[str, object] | None]:
-    """The frame to write, and the marker to write with it.
+def _split(data: Frame, *, keep_freq: bool) -> tuple[pd.DataFrame, str | None]:
+    """The frame to write, and the marker JSON to write with it.
 
     The marker is None for a DataFrame with nothing to add, so its bytes are the
-    same as pandas writes. keep_freq records a DatetimeIndex or TimedeltaIndex
-    freq, which no format stores itself (#178); CSV leaves it out, since it
-    doesn't read a datetime index back as one.
+    same as pandas writes. keep_freq records the index freq, which no format
+    stores itself (#178); CSV leaves it out, since it doesn't read a datetime
+    index back as one.
     """
-    marker: dict[str, object] = {"version": _MARKER_VERSION}
-    if isinstance(data, pd.DataFrame):
-        frame = data
-        marker["kind"] = "frame"
+    marker: _Marker = {"version": _MARKER_VERSION}
+    if isinstance(data, pd.Series):
+        frame = data.to_frame(_series_column(data.index.names))
+        marker["series"] = {"name": _encode_name(data.name)}
     else:
-        column = _series_column(data.index.names)
-        frame = data.to_frame(column)
-        marker |= {"kind": "series", "name": _encode_name(data.name), "column": column}
-    freqstr = _freqstr(data.index) if keep_freq else None
-    if freqstr is not None:
-        marker["index_freq"] = freqstr
-    if marker == {"version": _MARKER_VERSION, "kind": "frame"}:
+        frame = data
+    if keep_freq and (freq := _freqstr(data.index)) is not None:
+        marker["index_freq"] = freq
+    if marker.keys() == {"version"}:
         return frame, None
-    return frame, marker
+    return frame, _json.dumps(marker, separators=(",", ":"))
 
 
-def _join(frame: pd.DataFrame, marker: object) -> Frame:
+def _join(frame: pd.DataFrame, marker: _Marker | None) -> Frame:
     if marker is None:
         return frame
-    marker = _check_marker(marker)
-    freq = marker.get("index_freq")
-    if freq is not None:
+    if marker["version"] != _MARKER_VERSION:
+        raise ValueError(
+            f"the ditto marker has version {marker['version']!r}; this "
+            f"pytest-ditto-pandas reads version {_MARKER_VERSION}"
+        )
+    if (freq := marker.get("index_freq")) is not None:
         index = frame.index
-        if not isinstance(freq, str) or not isinstance(index, _FREQ_INDEXES):
+        if not isinstance(index, _FREQ_INDEXES):
             raise ValueError(
                 f"the snapshot records index freq {freq!r}, but its index loaded "
                 f"as a {type(index).__name__}"
@@ -135,15 +125,9 @@ def _join(frame: pd.DataFrame, marker: object) -> Frame:
         # Rebuilding the index with freq= checks the freq against the values, so
         # a snapshot whose dates don't match its freq raises rather than loading.
         frame.index = type(index)(index, freq=freq, name=index.name)
-    if marker.get("kind") != "series":
+    if (series := marker.get("series")) is None:
         return frame
-    values = frame[str(marker["column"])]
-    assert isinstance(values, pd.Series)
-    return values.rename(_decode_name(marker["name"]))
-
-
-def _marker_json(marker: dict[str, object]) -> str:
-    return _json.dumps(marker, separators=_JSON_SEPARATORS)
+    return frame.iloc[:, 0].rename(_decode_name(series["name"]))
 
 
 def _parquet_dumps(data: Frame) -> bytes:
@@ -156,8 +140,7 @@ def _parquet_dumps(data: Frame) -> bytes:
     if marker is None:
         return buffer.getvalue()
     table = pq.read_table(io.BytesIO(buffer.getvalue()))
-    meta = dict(table.schema.metadata or {})
-    meta[_MARKER_KEY] = _marker_json(marker).encode("utf-8")
+    meta = (table.schema.metadata or {}) | {_MARKER_KEY.encode(): marker.encode()}
     buffer = io.BytesIO()
     pq.write_table(table.replace_schema_metadata(meta), buffer)
     return buffer.getvalue()
@@ -165,13 +148,12 @@ def _parquet_dumps(data: Frame) -> bytes:
 
 def _parquet_loads(raw: bytes) -> Frame:
     meta = pq.read_schema(io.BytesIO(raw)).metadata or {}
-    marker = _json.loads(meta[_MARKER_KEY]) if _MARKER_KEY in meta else None
-    return _join(pd.read_parquet(io.BytesIO(raw)), marker)
+    marker = meta.get(_MARKER_KEY.encode())
+    frame = pd.read_parquet(io.BytesIO(raw))
+    return _join(frame, None if marker is None else _json.loads(marker))
 
 
-parquet: Recorder[pd.DataFrame | pd.Series] = Recorder(
-    dumps=_parquet_dumps, loads=_parquet_loads
-)
+parquet: Recorder[Frame] = Recorder(dumps=_parquet_dumps, loads=_parquet_loads)
 
 
 def _json_dumps(data: Frame) -> bytes:
@@ -179,39 +161,38 @@ def _json_dumps(data: Frame) -> bytes:
     buffer = io.StringIO()
     frame.to_json(buffer, orient="table")
     text = buffer.getvalue()
-    if marker is None:
-        return text.encode("utf-8")
-    payload = _json.loads(text)
-    payload["ditto"] = marker
-    # Compact separators: json.dumps(json.loads(text), separators=(",", ":"))
-    # matches pandas to_json(orient="table"), so dumps(loads(raw)) == raw.
-    return _json.dumps(payload, separators=_JSON_SEPARATORS).encode("utf-8")
+    if marker is not None:
+        # Add the marker as a last top-level key, leaving pandas' own text as it
+        # is. read_json(orient="table") ignores keys it doesn't know.
+        text = f'{text.removesuffix("}")},"{_MARKER_KEY}":{marker}}}'
+    return text.encode("utf-8")
 
 
 def _json_loads(raw: bytes) -> Frame:
-    payload = _json.loads(raw.decode("utf-8"))
-    marker = payload.pop("ditto", None)
-    text = _json.dumps(payload, separators=_JSON_SEPARATORS)
+    text = raw.decode("utf-8")
     frame = pd.read_json(io.StringIO(text), orient="table")
-    return _join(frame, marker)
+    return _join(frame, _json.loads(text).get(_MARKER_KEY))
 
 
-json: Recorder[pd.DataFrame | pd.Series] = Recorder(
-    dumps=_json_dumps, loads=_json_loads
-)
+json: Recorder[Frame] = Recorder(dumps=_json_dumps, loads=_json_loads)
 
 
 def _csv_dumps(data: Frame) -> bytes:
+    if isinstance(data, pd.Series) and data.index.nlevels > 1:
+        raise ValueError(
+            "pandas.csv can't record a Series with a MultiIndex, since it reads "
+            "back only the first index level; use pandas.parquet or pandas.json"
+        )
+    frame, marker = _split(data, keep_freq=False)
     # "\n" rather than the platform's line separator, so the bytes are the same
     # on every platform.
-    frame, marker = _split(data, keep_freq=False)
     body = frame.to_csv(lineterminator="\n")
-    if marker is None:
-        return body.encode("utf-8")
-    return f"{_CSV_MARKER_PREFIX}{_marker_json(marker)}\n{body}".encode("utf-8")
+    if marker is not None:
+        body = f"{_CSV_MARKER_PREFIX}{marker}\n{body}"
+    return body.encode("utf-8")
 
 
-def _csv_marker(line: bytes) -> object:
+def _csv_marker(line: bytes) -> _Marker | None:
     """The marker on a CSV file's first line, or None if the line is data.
 
     A header can start with the marker prefix too (an index named "# ditto: x"),
@@ -221,20 +202,21 @@ def _csv_marker(line: bytes) -> object:
     if not line.startswith(prefix):
         return None
     try:
-        marker = _json.loads(line.removeprefix(prefix).decode("utf-8"))
+        marker = _json.loads(line.removeprefix(prefix))
     except ValueError:
         return None
-    return marker if isinstance(marker, dict) and "version" in marker else None
+    if not isinstance(marker, dict) or "version" not in marker:
+        return None
+    return cast("_Marker", marker)
 
 
 def _csv_loads(raw: bytes) -> Frame:
-    # to_csv writes the index as the first column; read it back as the index,
-    # not as an "Unnamed: 0" data column (#40).
     line, _, body = raw.partition(b"\n")
     marker = _csv_marker(line)
-    if marker is not None:
-        raw = body
-    return _join(pd.read_csv(io.BytesIO(raw), index_col=0), marker)
+    # to_csv writes the index as the first column; read it back as the index,
+    # not as an "Unnamed: 0" data column (#40).
+    frame = pd.read_csv(io.BytesIO(raw if marker is None else body), index_col=0)
+    return _join(frame, marker)
 
 
-csv: Recorder[pd.DataFrame | pd.Series] = Recorder(dumps=_csv_dumps, loads=_csv_loads)
+csv: Recorder[Frame] = Recorder(dumps=_csv_dumps, loads=_csv_loads)
