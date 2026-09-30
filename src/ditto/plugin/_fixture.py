@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 import pytest
 
 from ditto.snapshot import Snapshot
@@ -10,7 +8,7 @@ from ditto._lockfile import portable_target_id, split_nodeid
 from ._options import run_options
 from ._selection import parse_mark_target_selection, resolve_recorder
 from ._session import session_state
-from ._targets import is_checkout_local, resolve_target
+from ._targets import resolve_target
 
 
 __all__ = ("snapshot",)
@@ -39,9 +37,7 @@ def snapshot(request: pytest.FixtureRequest) -> Snapshot:
     target_id = portable_target_id(abs_uri, rootdir)
     state = session_state(request.config)
     state.tracker.register_backend_module(id(backend), module)
-    state.tracker.register_target_backend(target_id, urlparse(abs_uri).scheme, backend)
-    if is_checkout_local(abs_uri, rootdir):
-        state.checkout_local_targets.add(target_id)
+    state.tracker.register_target_backend(target_id, abs_uri, backend)
 
     if options.introspect_path:
         state.introspect_backends.setdefault(abs_uri, backend)

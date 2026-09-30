@@ -70,10 +70,6 @@ class DittoSession:
         default_factory=dict
     )
     collection: CollectionRecord = field(default_factory=CollectionRecord)
-    # Target ids of the targets used this session that resolve to a directory
-    # inside the rootdir (see `is_checkout_local`). Prune treats every other
-    # target as shared.
-    checkout_local_targets: set[str] = field(default_factory=set)
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()

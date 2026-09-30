@@ -6,7 +6,7 @@ import string
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
 from .exceptions import (
@@ -107,6 +107,14 @@ class LockSeen:
     recorder: str
 
 
+class _RegisteredTarget(NamedTuple):
+    """A target the session used: where it is, and the backend built for it."""
+
+    canonical_uri: str
+    scheme: str
+    backend: MutableMapping[str, bytes]
+
+
 @dataclass
 class _BackendRecord:
     backend: MutableMapping[str, bytes]
@@ -139,11 +147,9 @@ class _SessionTracker:
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
     lock_created: set[LockSeen] = field(default_factory=set)
     lock_accessed: set[LockSeen] = field(default_factory=set)
-    # Maps portable target_id → (scheme, live backend); populated at fixture
-    # creation so verify (and prune) can enumerate every active target's backend.
-    target_backends: dict[str, tuple[str, MutableMapping[str, bytes]]] = field(
-        default_factory=dict
-    )
+    # Maps portable target_id → the target registered for it; populated at
+    # fixture creation so verify (and prune) can enumerate every active target.
+    target_backends: dict[str, _RegisteredTarget] = field(default_factory=dict)
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -165,10 +171,15 @@ class _SessionTracker:
         self._records[backend_id].accessed.add(key)
 
     def register_target_backend(
-        self, target_id: str, scheme: str, backend: MutableMapping[str, bytes]
+        self,
+        target_id: str,
+        canonical_uri: str,
+        backend: MutableMapping[str, bytes],
     ) -> None:
-        """Record the live backend (and scheme) resolved for `target_id`."""
-        self.target_backends[target_id] = (scheme, backend)
+        """Record the canonical URI and live backend resolved for `target_id`."""
+        self.target_backends[target_id] = _RegisteredTarget(
+            canonical_uri, urlparse(canonical_uri).scheme, backend
+        )
 
     def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
         """Record a lock entry accessed this session; also as created on first write."""

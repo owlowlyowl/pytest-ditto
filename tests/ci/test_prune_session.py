@@ -1,5 +1,4 @@
 import json
-import sys
 
 import pytest
 
@@ -200,7 +199,7 @@ def test_remote_gone(snapshot):
     assert any("test_remote_gone" in p.name for p in shared.iterdir())
 
 
-def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, target):
+def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, symlink, target):
     """Like `_branches_sharing_a_target`, but each checkout's `snaps` directory
     is a symlink to the shared one, and `target` names `snaps` from inside the
     checkout (`{root}` is filled in with the checkout's path)."""
@@ -208,7 +207,7 @@ def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, target):
     roots = {}
     for name, module in (("a", API_MODULE), ("b", API_MODULE_WITH_NEW_TEST)):
         root = pytester.mkdir(name)
-        (root / "snaps").symlink_to(shared, target_is_directory=True)
+        symlink(root / "snaps", shared)
         uri = target.format(root=root.as_posix())
         (root / "pytest.ini").write_text(f"[pytest]\nditto_target = {uri}\n")
         (root / "tests").mkdir()
@@ -219,22 +218,56 @@ def _branches_sharing_a_target_through_symlinks(pytester, monkeypatch, target):
     return roots["a"], shared
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="creating symlinks needs privileges on Windows"
-)
 @pytest.mark.parametrize(
     "target",
     ["file://{root}/snaps", "file://../snaps"],
     ids=["absolute", "relative"],
 )
 def test_prune_does_not_delete_through_a_symlink_to_a_shared_directory(
-    pytester, monkeypatch, target
+    pytester, monkeypatch, symlink, target
 ):
     """A target inside the checkout that is a symlink to a shared directory is
     shared, however the target names it."""
     a, shared = _branches_sharing_a_target_through_symlinks(
-        pytester, monkeypatch, target
+        pytester, monkeypatch, symlink, target
     )
+
+    result = _run_in(pytester, monkeypatch, a, "--ditto-prune")
+
+    assert result.ret != 0
+    result.stdout.fnmatch_lines(["*ditto prune: not deleting 1 snapshot(s) from*"])
+    assert any("test_new" in p.name for p in shared.iterdir())
+
+
+# Re-points `snaps` at the shared directory when the session's fixtures are
+# torn down, after every test has used it but before prune runs.
+RETARGET_CONFTEST = """
+import os
+from pathlib import Path
+
+import pytest
+
+@pytest.fixture(scope="session", autouse=True)
+def retarget_snaps():
+    yield
+    if os.environ.get("RETARGET"):
+        snaps = Path(__file__).parent / "snaps"
+        snaps.unlink()
+        snaps.symlink_to(Path(os.environ["RETARGET"]), target_is_directory=True)
+"""
+
+
+def test_prune_decides_locality_when_it_runs(pytester, monkeypatch, symlink):
+    """A target that is local while the tests run but points at a shared
+    directory by the time prune runs is treated as shared."""
+    a, shared = _branches_sharing_a_target_through_symlinks(
+        pytester, monkeypatch, symlink, "file://{root}/snaps"
+    )
+    (a / "snaps").unlink()
+    (a / "local").mkdir()
+    symlink(a / "snaps", a / "local")
+    (a / "conftest.py").write_text(RETARGET_CONFTEST)
+    monkeypatch.setenv("RETARGET", shared.as_posix())
 
     result = _run_in(pytester, monkeypatch, a, "--ditto-prune")
 

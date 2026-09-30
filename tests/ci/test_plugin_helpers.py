@@ -1,7 +1,6 @@
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
 from importlib.metadata import EntryPoint
-import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -660,10 +659,6 @@ def test_raises_when_profile_mapping_has_unknown_keys() -> None:
 
 # ── Whether a target is local to the checkout (#161) ─────────────────────────
 
-needs_symlinks = pytest.mark.skipif(
-    sys.platform == "win32", reason="creating symlinks needs privileges on Windows"
-)
-
 
 @pytest.mark.parametrize(
     ("uri", "local"),
@@ -686,35 +681,36 @@ def test_is_checkout_local(tmp_path: Path, uri: str, local: bool) -> None:
     assert is_checkout_local(uri.format(root=root.as_posix()), root) is local
 
 
-@needs_symlinks
-def test_is_checkout_local_follows_a_symlink_out_of_the_rootdir(tmp_path) -> None:
+def test_is_checkout_local_follows_a_symlink_out_of_the_rootdir(
+    tmp_path, symlink
+) -> None:
     """A directory inside the project that links to one outside it is shared."""
     root = tmp_path / "project"
     root.mkdir()
     (tmp_path / "shared").mkdir()
-    (root / ".ditto").symlink_to(tmp_path / "shared", target_is_directory=True)
+    symlink(root / ".ditto", tmp_path / "shared")
 
     assert not is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
 
 
-@needs_symlinks
-def test_is_checkout_local_keeps_a_symlink_within_the_rootdir(tmp_path) -> None:
+def test_is_checkout_local_keeps_a_symlink_within_the_rootdir(
+    tmp_path, symlink
+) -> None:
     """A link from one directory in the project to another stays local."""
     root = tmp_path / "project"
     (root / "snapshots").mkdir(parents=True)
-    (root / ".ditto").symlink_to(root / "snapshots", target_is_directory=True)
+    symlink(root / ".ditto", root / "snapshots")
 
     assert is_checkout_local(f"file://{(root / '.ditto').as_posix()}", root)
 
 
-@needs_symlinks
-def test_is_checkout_local_resolves_a_symlinked_rootdir(tmp_path) -> None:
+def test_is_checkout_local_resolves_a_symlinked_rootdir(tmp_path, symlink) -> None:
     """A rootdir reached through a symlink still contains its own directories,
     whichever of the two paths the target is written with."""
     real = tmp_path / "real"
     (real / ".ditto").mkdir(parents=True)
     linked = tmp_path / "linked"
-    linked.symlink_to(real, target_is_directory=True)
+    symlink(linked, real)
 
     assert is_checkout_local(f"file://{(real / '.ditto').as_posix()}", linked)
     assert is_checkout_local(f"file://{(linked / '.ditto').as_posix()}", real)

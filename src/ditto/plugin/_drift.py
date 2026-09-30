@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, MutableMapping, Sequence, Set
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
 
-from ditto.snapshot import _SessionTracker
+from ditto.snapshot import _RegisteredTarget, _SessionTracker
 from ditto._lockfile import (
     LockEntry,
     LockFile,
@@ -19,6 +20,7 @@ from ditto._reconcile import diff_backend, owned_prefixes
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
 from ._session import fail_session, session_state
+from ._targets import is_checkout_local
 
 
 __all__ = (
@@ -127,12 +129,12 @@ def run_verify(session: pytest.Session) -> None:
     all_missing: list[str] = []
     all_orphan: list[str] = []
     all_unsynced: list[str] = []
-    for target_id, (scheme, backend) in tracker.target_backends.items():
+    for target_id, target in tracker.target_backends.items():
         try:
             missing, orphan, unsynced = _classify_target(
                 target_id,
-                scheme,
-                backend,
+                target.scheme,
+                target.backend,
                 lock,
                 modules_by_target.get(target_id, set()),
                 created_by_target.get(target_id, set()),
@@ -189,12 +191,12 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
         )
 
     orphans: list[Orphan] = []
-    for target_id, (scheme, backend) in tracker.target_backends.items():
+    for target_id, target in tracker.target_backends.items():
         try:
             missing, orphan, unsynced = _classify_target(
                 target_id,
-                scheme,
-                backend,
+                target.scheme,
+                target.backend,
                 lock,
                 modules_by_target.get(target_id, set()),
                 created_by_target.get(target_id, set()),
@@ -220,22 +222,51 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
                 category=DittoWarning,
                 stacklevel=1,
             )
-        orphans.extend(Orphan(target_id, backend, key) for key in orphan)
+        orphans.extend(Orphan(target_id, target.backend, key) for key in orphan)
     return orphans
 
 
+def _is_local_now(target_id: str, canonical_uri: str, rootdir: Path) -> bool:
+    """Whether the target is inside `rootdir` as its path resolves right now.
+
+    Decided when prune runs, not when the target was first used, because a
+    `file://` backend follows its path again on every operation. A path that
+    can't be resolved (a symlink loop, say) is warned about and counts as
+    shared, so it isn't pruned.
+    """
+    try:
+        return is_checkout_local(canonical_uri, rootdir)
+    except (OSError, RuntimeError) as exc:
+        warnings.warn(
+            f"ditto prune: could not resolve {target_id!r} ({exc}); treating it "
+            "as shared.",
+            category=DittoWarning,
+            stacklevel=1,
+        )
+        return False
+
+
 def split_shared(
-    orphans: Sequence[Orphan], checkout_local_targets: Set[str]
+    orphans: Sequence[Orphan],
+    targets: Mapping[str, _RegisteredTarget],
+    rootdir: Path,
 ) -> tuple[list[Orphan], list[Orphan]]:
     """Split `orphans` into those in checkout-local targets and those in shared ones.
 
     Prune decides what this suite owns from its test-module paths, which other
     branches of the project, or other projects with the same paths, share. On
     a target they also write to, their snapshots look like this checkout's
-    orphans. A target missing from `checkout_local_targets` counts as shared.
+    orphans. Each target is classified once, from its canonical URI in
+    `targets`; one missing from `targets` counts as shared.
     """
-    local = [o for o in orphans if o.target_id in checkout_local_targets]
-    shared = [o for o in orphans if o.target_id not in checkout_local_targets]
+    local_ids = {
+        target_id
+        for target_id in {o.target_id for o in orphans}
+        if target_id in targets
+        and _is_local_now(target_id, targets[target_id].canonical_uri, rootdir)
+    }
+    local = [o for o in orphans if o.target_id in local_ids]
+    shared = [o for o in orphans if o.target_id not in local_ids]
     return local, shared
 
 

@@ -1,6 +1,7 @@
 import importlib.metadata
 import shutil
 from importlib.metadata import EntryPoint
+from pathlib import Path
 
 import pytest
 
@@ -48,5 +49,22 @@ def make_distribution(tmp_path):
             if d.metadata["Name"] == name
         ]
         return list(dist.entry_points)
+
+    return make
+
+
+@pytest.fixture
+def symlink():
+    """Return a function that makes `link` a symlink to the directory `target`.
+
+    Skips the test where symlinks can't be created, such as Windows without
+    Developer Mode or administrator rights; CI's Windows runners can.
+    """
+
+    def make(link: Path, target: Path) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"can't create symlinks here ({exc})")
 
     return make
