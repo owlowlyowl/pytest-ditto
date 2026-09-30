@@ -3,12 +3,14 @@
 import io
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
 import ditto
 from ditto import recorders
+from ditto.exceptions import DittoUnsupportedDataError
 
 NAMES = ["pandas.parquet", "pandas.json", "pandas.csv"]
 
@@ -215,23 +217,22 @@ def test_unsupported_series_name_raises_typeerror(
         recorder.dumps(series)
 
 
-def _index_type_kept(name: str) -> bool:
-    """Whether a recorder keeps a DatetimeIndex's unit.
-
-    JSON reads datetimes back as nanoseconds, so on pandas 3 a microsecond index
-    changes dtype; see the README's format notes.
-    """
-    return name != "pandas.json"
-
-
+# The datetimes are built in nanoseconds: pandas.json refuses any other unit,
+# which it can't read back.
 FREQ_INDEXES = [
-    pytest.param(pd.date_range("2020-01-01", periods=3, name="d"), id="daily"),
-    pytest.param(pd.date_range("2020-01-31", periods=3, freq="ME"), id="month-end"),
     pytest.param(
-        pd.date_range("2020-01-01", periods=3, freq="2h", tz="Australia/Sydney"),
+        pd.date_range("2020-01-01", periods=3, name="d", unit="ns"), id="daily"
+    ),
+    pytest.param(
+        pd.date_range("2020-01-31", periods=3, freq="ME", unit="ns"), id="month-end"
+    ),
+    pytest.param(
+        pd.date_range(
+            "2020-01-01", periods=3, freq="2h", tz="Australia/Sydney", unit="ns"
+        ),
         id="tz-aware",
     ),
-    pytest.param(pd.bdate_range("2020-01-03", periods=3), id="business-day"),
+    pytest.param(pd.bdate_range("2020-01-03", periods=3, unit="ns"), id="business-day"),
 ]
 
 
@@ -244,7 +245,7 @@ def test_round_trips_a_dataframe_index_freq(name: str, index: pd.DatetimeIndex) 
 
     actual = recorder.loads(recorder.dumps(df))
 
-    pd.testing.assert_frame_equal(actual, df, check_index_type=_index_type_kept(name))
+    pd.testing.assert_frame_equal(actual, df)
     assert actual.index.freq == df.index.freq
 
 
@@ -257,9 +258,7 @@ def test_round_trips_a_series_index_freq(name: str, index: pd.DatetimeIndex) -> 
 
     actual = recorder.loads(recorder.dumps(series))
 
-    pd.testing.assert_series_equal(
-        actual, series, check_index_type=_index_type_kept(name)
-    )
+    pd.testing.assert_series_equal(actual, series)
     assert actual.index.freq == series.index.freq
 
 
@@ -276,14 +275,14 @@ def test_parquet_round_trips_a_timedelta_index_freq() -> None:
 @pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
 def test_datetime_index_without_a_freq_stays_without_one(name: str) -> None:
     """An index with no freq isn't given one on load, and writes no marker."""
-    index = pd.DatetimeIndex(["2020-01-01", "2020-01-02", "2020-01-05"])
+    index = pd.DatetimeIndex(["2020-01-01", "2020-01-02", "2020-01-05"]).as_unit("ns")
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0]}, index=index)
     recorder = recorders.get(name)
     raw = recorder.dumps(df)
 
     actual = recorder.loads(raw)
 
-    pd.testing.assert_frame_equal(actual, df, check_index_type=_index_type_kept(name))
+    pd.testing.assert_frame_equal(actual, df)
     assert actual.index.freq is None
     assert b"ditto" not in raw
 
@@ -291,7 +290,9 @@ def test_datetime_index_without_a_freq_stays_without_one(name: str) -> None:
 @pytest.mark.parametrize("name", ["pandas.parquet", "pandas.json"])
 def test_rewriting_a_freq_snapshot_reproduces_its_bytes(name: str) -> None:
     """Loading a snapshot with an index freq and dumping it again keeps its bytes."""
-    df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2))
+    df = pd.DataFrame(
+        {"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2, unit="ns")
+    )
     recorder = recorders.get(name)
     raw = recorder.dumps(df)
 
@@ -300,7 +301,9 @@ def test_rewriting_a_freq_snapshot_reproduces_its_bytes(name: str) -> None:
 
 def test_json_rejects_a_freq_that_does_not_match_the_dates() -> None:
     """A snapshot whose stored freq doesn't fit its dates fails to load."""
-    df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2))
+    df = pd.DataFrame(
+        {"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2, unit="ns")
+    )
     recorder = recorders.get("pandas.json")
     raw = recorder.dumps(df).replace(b'"index_freq":"D"', b'"index_freq":"h"')
 
@@ -310,7 +313,9 @@ def test_json_rejects_a_freq_that_does_not_match_the_dates() -> None:
 
 def test_csv_does_not_record_an_index_freq() -> None:
     """CSV reads dates back as strings, so it doesn't store a freq to restore."""
-    df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2))
+    df = pd.DataFrame(
+        {"a": [1.0, 2.0]}, index=pd.date_range("2020-01-01", periods=2, unit="ns")
+    )
 
     actual = recorders.get("pandas.csv").dumps(df)
 
@@ -336,15 +341,13 @@ def test_freq_its_string_cannot_rebuild_is_not_recorded(
     Restoring "C" would give a CustomBusinessDay with the default weekmask, and
     "<DateOffset: days=2>" doesn't parse, so neither is stored.
     """
-    index = pd.date_range("2020-01-06", periods=4, freq=offset)
+    index = pd.date_range("2020-01-06", periods=4, freq=offset, unit="ns")
     df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0]}, index=index)
     recorder = recorders.get(name)
 
     actual = recorder.loads(recorder.dumps(df))
 
-    pd.testing.assert_frame_equal(
-        actual, df, check_freq=False, check_index_type=_index_type_kept(name)
-    )
+    pd.testing.assert_frame_equal(actual, df, check_freq=False)
     assert actual.index.freq is None
 
 
@@ -363,7 +366,9 @@ def test_parquet_dataframe_with_attrs_bytes_match_to_parquet() -> None:
     [
         pytest.param(_sample_dataframe(), id="frame"),
         pytest.param(
-            pd.DataFrame({"a": [1.0]}, index=pd.date_range("2020-01-01", periods=1)),
+            pd.DataFrame(
+                {"a": [1.0]}, index=pd.date_range("2020-01-01", periods=1, unit="ns")
+            ),
             id="frame-with-marker",
         ),
     ],
@@ -446,6 +451,178 @@ def test_parquet_rejects_a_marker_with_an_unknown_version() -> None:
 
     with pytest.raises(ValueError, match="ditto marker has version 2"):
         recorders.get("pandas.parquet").loads(buffer.getvalue())
+
+
+def _us(values: list[str]) -> pd.DatetimeIndex:
+    return pd.DatetimeIndex(values).as_unit("us")
+
+
+UNSUPPORTED_BY_JSON = [
+    pytest.param(
+        pd.DataFrame({"c": np.array([1, 2], dtype="int8")}),
+        r"column 'c' \(int8\)",
+        id="int8",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": np.array([1, 2], dtype="int32")}),
+        r"column 'c' \(int32\)",
+        id="int32",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": np.array([1, 2], dtype="uint64")}),
+        r"column 'c' \(uint64\)",
+        id="uint64",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": np.array([1.5], dtype="float32")}),
+        r"column 'c' \(float32\)",
+        id="float32",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": _us(["2020-01-01"])}),
+        r"column 'c' \(datetime64\[us\]\)",
+        id="datetime-us",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": pd.DatetimeIndex(["2020-01-01"]).as_unit("ms")}),
+        r"column 'c' \(datetime64\[ms\]\)",
+        id="datetime-ms",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": pd.DatetimeIndex(["2020-01-01"], tz="UTC").as_unit("us")}),
+        r"column 'c' \(datetime64\[us, UTC\]\)",
+        id="datetime-us-tz",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": pd.to_timedelta([1], unit="s")}),
+        "column 'c'.*timedelta",
+        id="timedelta",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": pd.interval_range(0, 1)}),
+        "column 'c'.*interval",
+        id="interval",
+    ),
+    pytest.param(pd.DataFrame({"c": [1 + 2j]}), "column 'c'.*complex", id="complex"),
+    pytest.param(
+        pd.DataFrame({"c": pd.period_range("2020-01", periods=1, freq="M")}),
+        "column 'c'.*period column",
+        id="period-column",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": [1.0]}, index=_us(["2020-01-01"])),
+        r"the index \(datetime64\[us\]\)",
+        id="index-us",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": [1.0]}, index=pd.to_timedelta([1], unit="s")),
+        "the index.*timedelta",
+        id="index-timedelta",
+    ),
+    pytest.param(
+        pd.DataFrame(
+            {"c": [1.0]},
+            index=pd.MultiIndex.from_arrays(
+                [_us(["2020-01-01"]), ["a"]], names=["d", "k"]
+            ),
+        ),
+        r"index level 'd' \(datetime64\[us\]\)",
+        id="multiindex-level-us",
+    ),
+    pytest.param(
+        pd.DataFrame({"c": [1.0]}, index=pd.Index([1], name="index")),
+        "the index is named 'index'",
+        id="index-named-index",
+    ),
+    pytest.param(
+        pd.Series(np.array([1, 2], dtype="int32"), name="x"),
+        r"the Series \(int32\)",
+        id="series-int32",
+    ),
+    pytest.param(
+        pd.Series([1.0], index=_us(["2020-01-01"])),
+        r"the index \(datetime64\[us\]\)",
+        id="series-index-us",
+    ),
+]
+
+
+@pytest.mark.parametrize(("data", "problem"), UNSUPPORTED_BY_JSON)
+def test_json_refuses_data_it_cannot_load_back(
+    data: pd.DataFrame | pd.Series, problem: str
+) -> None:
+    """pandas.json raises before writing data it would load back different (#194)."""
+    recorder = recorders.get("pandas.json")
+
+    with pytest.raises(DittoUnsupportedDataError, match=problem) as excinfo:
+        recorder.dumps(data)
+
+    assert excinfo.value.recorder == "pandas.json"
+    assert "@ditto.pandas.parquet" in str(excinfo.value)
+
+
+def test_json_lists_every_unsupported_part_in_one_error() -> None:
+    """Each unsupported column and index level is named, not only the first."""
+    df = pd.DataFrame(
+        {
+            "a": np.array([1], dtype="int8"),
+            "b": [1.0],
+            "c": np.array([1.5], dtype="float32"),
+        },
+        index=pd.Index([1], name="index"),
+    )
+
+    with pytest.raises(DittoUnsupportedDataError) as excinfo:
+        recorders.get("pandas.json").dumps(df)
+
+    assert len(excinfo.value.problems) == 3
+
+
+SUPPORTED_BY_JSON = [
+    pytest.param(pd.DataFrame({"c": [1, 2]}), id="int64"),
+    pytest.param(pd.DataFrame({"c": [True, False]}), id="bool"),
+    pytest.param(
+        pd.DataFrame({"c": pd.array([1, None], dtype="Int32")}), id="nullable-int"
+    ),
+    pytest.param(
+        pd.DataFrame({"c": pd.array(["a", None], dtype="string")}), id="string"
+    ),
+    pytest.param(pd.DataFrame({"c": pd.Categorical(["a", "b"])}), id="category"),
+    pytest.param(
+        pd.DataFrame({"c": pd.DatetimeIndex(["2020-01-01"], tz="UTC").as_unit("ns")}),
+        id="datetime-ns-tz",
+    ),
+    pytest.param(
+        pd.DataFrame(
+            {"c": [1.0]}, index=pd.period_range("2020-01", periods=1, freq="M")
+        ),
+        id="period-index",
+    ),
+    pytest.param(
+        pd.DataFrame({
+            "c": pd.DatetimeIndex(["2020-01-01 00:00:00.123456789"]).as_unit("ns")
+        }),
+        id="sub-millisecond",
+    ),
+]
+
+
+@pytest.mark.parametrize("df", SUPPORTED_BY_JSON)
+def test_json_round_trips_supported_data_exactly(df: pd.DataFrame) -> None:
+    """Supported dtypes and sub-millisecond datetimes load back exactly."""
+    recorder = recorders.get("pandas.json")
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    pd.testing.assert_frame_equal(actual, df, check_exact=True)
+
+
+@pytest.mark.parametrize("name", ["pandas.parquet", "pandas.csv"])
+def test_other_recorders_accept_data_json_refuses(name: str) -> None:
+    """Only pandas.json checks its data; parquet keeps it, CSV is documented lossy."""
+    df = pd.DataFrame({"c": np.array([1, 2], dtype="int8")})
+
+    recorders.get(name).dumps(df)
 
 
 # ── Committed snapshots ───────────────────────────────────────────────────────

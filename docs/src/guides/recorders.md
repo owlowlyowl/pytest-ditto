@@ -111,6 +111,19 @@ exactly what pandas writes. See the
 [plugin README](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas)
 for what each format keeps.
 
+`pandas.json` raises `DittoUnsupportedDataError` before writing data it can't
+load back as it was, such as an `int32` column or, on pandas 3, any datetime not
+converted to nanoseconds with `.as_unit("ns")`. Use `pandas.parquet` for that
+data.
+
+!!! warning "`pandas.json` rounds floats"
+    pandas writes floats to 10 decimal places, so most floats lose precision,
+    and values between about `1e-15` and `1e-10` are written as `0.0`.
+    `pd.testing.assert_frame_equal` still passes, because the difference is
+    inside its default tolerance, so the snapshot doesn't hold the exact values.
+    `inf` and `-inf` load back as `NaN`. Use `pandas.parquet` when exact float
+    values matter.
+
 ### PyArrow (`pytest-ditto-pyarrow`)
 
 ```bash

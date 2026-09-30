@@ -2,10 +2,12 @@ import io
 import json as _json
 from collections.abc import Hashable, Iterable
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from pandas.tseries.frequencies import to_offset
 
+from ditto.exceptions import DittoUnsupportedDataError
 from ditto.recorders import Recorder
 
 
@@ -174,10 +176,68 @@ parquet: Recorder[pd.DataFrame | pd.Series] = Recorder(
 )
 
 
+def _json_dtype_problem(dtype: object, *, in_index: bool) -> str | None:
+    """Why JSON can't keep values of this dtype, or None if it can."""
+    if isinstance(dtype, np.dtype):
+        if dtype.kind in "iu" and dtype != np.int64:
+            return "JSON reads it back as int64"
+        if dtype.kind == "f" and dtype != np.float64:
+            return "JSON reads it back as float64"
+        if dtype.kind == "M" and np.datetime_data(dtype)[0] != "ns":
+            return "JSON reads it back as datetime64[ns]"
+        if dtype.kind == "m":
+            return "pandas can't read timedelta data back from JSON"
+        if dtype.kind == "c":
+            return "JSON can't store complex numbers"
+    elif isinstance(dtype, pd.DatetimeTZDtype) and dtype.unit != "ns":
+        return f"JSON reads it back as datetime64[ns, {dtype.tz}]"
+    elif isinstance(dtype, pd.IntervalDtype):
+        return "pandas can't read interval data back from JSON"
+    elif isinstance(dtype, pd.PeriodDtype) and not in_index:
+        return "pandas can't write a period column to JSON"
+    return None
+
+
+def _json_problems(data: Frame) -> list[str]:
+    """What in the data JSON can't load back as it was.
+
+    Checked by dtype and index name before writing, so the recorder raises
+    rather than record a snapshot that loads back different. pandas writes
+    floats to 10 decimal places, which loses precision and turns tiny values
+    into zero; that depends on the values, so it isn't checked here.
+    """
+    problems = []
+    if isinstance(data, pd.DataFrame):
+        columns = [(f"column {name!r}", dtype) for name, dtype in data.dtypes.items()]
+    else:
+        columns = [("the Series", data.dtype)]
+    for label, dtype in columns:
+        if (reason := _json_dtype_problem(dtype, in_index=False)) is not None:
+            problems.append(f"{label} ({dtype}): {reason}")
+    index = data.index
+    dtypes = list(index.dtypes) if isinstance(index, pd.MultiIndex) else [index.dtype]
+    for name, dtype in zip(index.names, dtypes, strict=True):
+        label = "the index" if index.nlevels == 1 else f"index level {name!r}"
+        if (reason := _json_dtype_problem(dtype, in_index=True)) is not None:
+            problems.append(f"{label} ({dtype}): {reason}")
+        if name == "index":
+            problems.append(f"{label} is named 'index': JSON reads it back unnamed")
+    return problems
+
+
 def _json_dumps(data: Frame) -> bytes:
+    if problems := _json_problems(data):
+        raise DittoUnsupportedDataError(
+            "pandas.json",
+            problems,
+            "Use @ditto.pandas.parquet, which keeps these, or convert the data "
+            'first, for example with .astype() or .as_unit("ns").',
+        )
     frame, marker = _split(data, keep_freq=True)
     buffer = io.StringIO()
-    frame.to_json(buffer, orient="table")
+    # date_unit="ns" rather than the default, milliseconds, which truncates
+    # finer datetimes.
+    frame.to_json(buffer, orient="table", date_unit="ns")
     text = buffer.getvalue()
     if marker is None:
         return text.encode("utf-8")

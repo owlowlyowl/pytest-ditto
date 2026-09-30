@@ -83,6 +83,16 @@ endings on every platform, as JSON already was. On Windows, snapshots those
 recorders wrote before used `"\r\n"`. They still load; the next
 `--ditto-update` rewrites them with `"\n"`, a one-time line-ending diff.
 
+`pytest-ditto-pandas`'s `pandas.json` recorder now raises
+`DittoUnsupportedDataError` for data it would load back different, rather than
+recording it: integer columns other than `int64`, `float32`, datetimes not in
+nanoseconds, timedelta, interval, complex and period columns, and an index named
+`index`. On pandas 3, datetimes default to microseconds, so any JSON snapshot
+with a datetime raises until the test converts it with `.as_unit("ns")` or
+switches to `@ditto.pandas.parquet`. Datetimes are also now written to the
+nanosecond rather than the millisecond, so JSON snapshots with datetimes change
+once on the next `--ditto-update`. Existing snapshots still load.
+
 Git on Windows often converts line endings on checkout (`core.autocrlf`), which
 gives a working copy with `"\r\n"` while ditto writes `"\n"`. Snapshots still
 load, but to keep them byte-for-byte what ditto wrote, add this to your

@@ -93,25 +93,44 @@ non-nested tuple of those. Anything else raises `TypeError` at write time.
 
 ### Format notes
 
-Only parquet round-trips a DataFrame or Series exactly. JSON and CSV change some
-values or types on the way through, and a snapshot comparison then fails even
-though the code under test didn't change. A Series follows the same index and
-dtype rules as a DataFrame in each format.
+Only parquet round-trips a DataFrame or Series exactly. JSON refuses data it
+can't load back as it was, except that it rounds floats. CSV changes some values
+or types on the way through, and a snapshot comparison then fails even though
+the code under test didn't change. A Series follows the same index and dtype
+rules as a DataFrame in each format.
 
 | Format | Index | Values and dtypes |
 |--------|-------|-------------------|
 | parquet | preserved | preserved |
-| json | preserved, except an index named `index` | preserved, except numeric widths |
+| json | preserved, or refused | preserved or refused, except floats are rounded |
 | csv | single-level only; values re-parsed | re-parsed from text |
 
-**JSON** (`to_json(orient="table")`):
+**JSON** (`to_json(orient="table")`) raises `ditto.exceptions.DittoUnsupportedDataError`
+before writing a DataFrame or Series that has any of these, naming each column
+or index level it can't keep:
 
-- An index named `index` is read back unnamed, and pandas warns that the name is
-  not round-trippable.
-- Numeric columns are widened to 64 bits, so `int8`, `int32` and `uint16` come
-  back as `int64`, and `float32` as `float64`.
-- Datetimes come back in nanoseconds. On pandas 3, where they default to
-  microseconds, the dtype of a datetime column or index changes.
+- An integer column or index other than `int64`, such as `int8`, `int32` or
+  `uint16`, or a `float32` one. JSON reads them back as `int64` and `float64`.
+- A datetime column or index in any unit but nanoseconds, with or without a
+  timezone. JSON reads it back as nanoseconds. **pandas 3 creates datetimes in
+  microseconds by default**, so convert them first with `.as_unit("ns")`.
+- A timedelta, interval or complex column or index, or a period column. pandas
+  can't read these back from JSON, or write a period column to it. A
+  `PeriodIndex` is fine.
+- An index or index level named `index`. JSON reads it back unnamed.
+
+Nullable integers (`Int64`, `Int32`, ...), `bool`, strings, categoricals and
+nanosecond datetimes, including those finer than a millisecond, load back
+exactly.
+
+> **Warning: JSON rounds floats.** pandas writes floats to 10 decimal places,
+> so most floats lose precision, small ones most of all (`1.234567e-8` comes
+> back as `1.23e-8`), and values between about `1e-15` and `1e-10`, such as
+> `1.23e-12`, are written as `0.0`. `pd.testing.assert_frame_equal` passes
+> anyway, since the difference is inside its default tolerance, so the
+> snapshot doesn't hold the exact values and a later change that small isn't
+> caught. `inf` and `-inf` are written as `null` and load back as `NaN`. Use
+> `@ditto.pandas.parquet` when exact float values matter.
 
 **CSV** keeps no type information, so every column and the index are parsed
 from text on load:
@@ -127,4 +146,5 @@ from text on load:
   version. Pass `check_index_type=False` to `pd.testing.assert_frame_equal` to
   allow for that. It does not help with any of the changed values above.
 
-Use `@ditto.pandas.parquet` for DataFrames or Series that hit any of these cases.
+Use `@ditto.pandas.parquet` for DataFrames or Series that JSON refuses or rounds,
+or that hit any of the CSV cases.

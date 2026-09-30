@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+
+
 __all__ = (
     "DittoException",
     "DittoWarning",
@@ -10,6 +13,7 @@ __all__ = (
     "DittoBackendConflictError",
     "DittoBackendChangedError",
     "DittoJSONSerializationError",
+    "DittoUnsupportedDataError",
     "DuplicateSnapshotKeyError",
     "DittoSnapshotNameCollisionError",
     "DittoSnapshotNameTooLongError",
@@ -126,6 +130,22 @@ class DittoJSONSerializationError(DittoException):
             f"Strict JSON rejected the value at {path}: {detail}. "
             "Use only exact built-in None, bool, int, finite float, str, list, "
             "and dict values with exact string keys, or select another recorder."
+        )
+
+
+class DittoUnsupportedDataError(DittoException):
+    """Raised when a recorder is given data its format can't store as it is.
+
+    The recorder raises it before writing, rather than recording a snapshot
+    that would load back different from the data the test passed in.
+    """
+
+    def __init__(self, recorder: str, problems: Sequence[str], hint: str) -> None:
+        self.recorder = recorder
+        self.problems = tuple(problems)
+        details = "".join(f"\n  - {problem}" for problem in self.problems)
+        super().__init__(
+            f"{recorder} can't record this data as it is:{details}\n{hint}"
         )
 
 
