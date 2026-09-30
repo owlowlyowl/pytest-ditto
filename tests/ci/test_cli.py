@@ -1,4 +1,4 @@
-"""Unit tests for pure CLI helper functions in ditto.cli."""
+"""Unit tests for pure CLI helper functions in the ditto.cli package."""
 
 from __future__ import annotations
 
@@ -7,20 +7,17 @@ import importlib.metadata
 import pytest
 from click.testing import CliRunner
 
-from ditto import cli as cli_mod
+from ditto._cli_introspect import IntrospectError
 from ditto._inventory import InventoryError
 from ditto._manifest import BackendManifest, ManifestEntry
-from ditto.cli import (
-    _RECORDER_PALETTE,
-    RecorderInfo,
+from ditto.cli import _inventory as cli_inventory
+from ditto.cli import cli
+from ditto.cli._data import RecorderInfo, _ext_map, _human_size, _parse_snapshot_name
+from ditto.cli._display import _RECORDER_PALETTE, _build_colour_map
+from ditto.cli._summary import (
     RecorderStats,
     SizeSummary,
-    _build_colour_map,
-    _ext_map,
     _format_size_summary,
-    _human_size,
-    _parse_snapshot_name,
-    cli,
     gather_stats,
 )
 
@@ -385,7 +382,7 @@ def test_list_reports_failure_and_exits_one_when_introspection_errors(
     """A failed introspection pass surfaces an error and a non-zero exit."""
 
     def _boom(path):
-        raise cli_mod.IntrospectError("pytest blew up")
+        raise IntrospectError("pytest blew up")
 
     monkeypatch.setattr("ditto._inventory.run_introspect", _boom)
 
@@ -403,7 +400,7 @@ def test_list_reports_failure_and_exits_one_when_inventory_is_unreadable(
     def fail_inventory(path, *, live):
         raise InventoryError("permission denied")
 
-    monkeypatch.setattr(cli_mod, "build_inventory", fail_inventory)
+    monkeypatch.setattr(cli_inventory, "build_inventory", fail_inventory)
 
     result = CliRunner().invoke(cli, ["list", str(tmp_path)])
 
