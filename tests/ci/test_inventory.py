@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import nullcontext
 
 from ditto._inventory import (
     InventoryError,
@@ -24,6 +25,70 @@ import pytest
 def _write_snapshot(ditto_dir, name, data=b"xx"):
     ditto_dir.mkdir(parents=True, exist_ok=True)
     (ditto_dir / name).write_bytes(data)
+
+
+@pytest.mark.parametrize("lock_state", ["absent", "corrupt", "valid"])
+def test_discovered_symlink_keeps_tracked_and_untracked_files(
+    tmp_path, symlink, lock_state
+):
+    project = tmp_path / "project"
+    scope = project / "a"
+    scope.mkdir(parents=True)
+    target = tmp_path / "outside"
+    entry = LockEntry("b/test_x.py::test_x", "k", "json")
+    tracked = storage_key(entry, "file")
+    orphan = "orphan@k~0123456789abcdef.json"
+    _write_snapshot(target, tracked)
+    _write_snapshot(target, orphan)
+    symlink(scope / ".ditto", target)
+    if lock_state == "valid":
+        write_lockfile(
+            project / "ditto.lock",
+            LockFile(
+                version=LOCKFILE_VERSION,
+                targets={str(target): LockTarget("file", (entry,))},
+            ),
+        )
+    elif lock_state == "corrupt":
+        (project / "ditto.lock").write_text("not json")
+
+    expected_warning = (
+        pytest.warns(DittoWarning, match="unreadable")
+        if lock_state == "corrupt"
+        else nullcontext()
+    )
+    with expected_warning:
+        manifest = build_inventory(scope, live=False)
+
+    assert len(manifest) == 1
+    assert {e.storage_key for e in manifest[0].entries} == {tracked, orphan}
+
+
+def test_scoped_keys_are_combined_for_aliases_of_one_target(tmp_path):
+    scope = tmp_path / "a"
+    scope.mkdir()
+    target = tmp_path / ".shared"
+    entries = [LockEntry("a/test_x.py::test_x", key, "json") for key in ("a", "b")]
+    for entry in entries:
+        _write_snapshot(target, storage_key(entry, "file"))
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json")
+    write_lockfile(
+        tmp_path / "ditto.lock",
+        LockFile(
+            version=LOCKFILE_VERSION,
+            targets={
+                ".shared": LockTarget("file", (entries[0],)),
+                target.as_uri(): LockTarget("file", (entries[1],)),
+            },
+        ),
+    )
+
+    manifest = build_inventory(scope, live=False)
+
+    assert len(manifest) == 1
+    assert {e.storage_key for e in manifest[0].entries} == {
+        storage_key(e, "file") for e in entries
+    }
 
 
 def test_walk_local_reads_real_sizes_including_orphans(tmp_path):
