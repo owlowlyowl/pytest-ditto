@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from .._manifest import LocatedEntry
 from ._data import RecorderInfo, _human_size, _parse_snapshot_name, _recorder_name
@@ -22,7 +21,8 @@ class RecorderStats:
     size: SizeSummary
 
 
-class ExtremeSnapshot(NamedTuple):
+@dataclass(frozen=True)
+class ExtremeSnapshot:
     """The snapshot with the oldest or newest timestamp, and where it lives.
 
     `location` is needed to name it: the same storage key can sit under two

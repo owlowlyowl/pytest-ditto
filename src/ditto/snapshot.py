@@ -6,7 +6,7 @@ import string
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any
 from urllib.parse import urlparse
 
 from .exceptions import (
@@ -107,7 +107,8 @@ class LockSeen:
     recorder: str
 
 
-class WrittenSnapshot(NamedTuple):
+@dataclass(frozen=True)
+class WrittenSnapshot:
     """One snapshot this session wrote, and the target it was written to.
 
     The session report groups these by `target_id` and names each by the test,
@@ -119,7 +120,8 @@ class WrittenSnapshot(NamedTuple):
     recorder: str
 
 
-class _RegisteredTarget(NamedTuple):
+@dataclass(frozen=True)
+class _RegisteredTarget:
     """A target the session used: where it is, and the backend built for it."""
 
     canonical_uri: str

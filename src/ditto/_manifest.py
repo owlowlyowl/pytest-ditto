@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from typing import NamedTuple
 
 
 @dataclass(frozen=True)
@@ -44,7 +43,8 @@ class BackendManifest:
 Manifest = list[BackendManifest]
 
 
-class LocatedEntry(NamedTuple):
+@dataclass(frozen=True)
+class LocatedEntry:
     """One entry, with the target it was read from.
 
     The same storage key can sit under two targets, so a key on its own doesn't

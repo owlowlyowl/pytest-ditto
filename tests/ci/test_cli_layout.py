@@ -75,7 +75,10 @@ def test_list_never_exceeds_the_width(width: int, flat: bool) -> None:
             "tests.test_a.test_numbers[1]@value~e51845259fe080be.json",
             "tests/integration/test_api.py::TestAPI::test_response[param::a/b.json]",
         ),
-        ("tests.test_a.test_frame@df~c092c1ce8977e48f.pandas.parquet", "tests/integration/test_api.py::test_frame"),
+        (
+            "tests.test_a.test_frame@df~c092c1ce8977e48f.pandas.parquet",
+            "tests/integration/test_api.py::test_frame",
+        ),
     )
     output = render(
         _render_snapshots,
@@ -110,7 +113,19 @@ def test_stats_never_exceeds_the_width(width: int) -> None:
 
     output = render(
         _render_stats_table,
-        [(location, gather_stats([LocatedEntry(location, ManifestEntry("a@b~0" * 16 + ".json", 13, None))], {}))],
+        [
+            (
+                location,
+                gather_stats(
+                    [
+                        LocatedEntry(
+                            location, ManifestEntry("a@b~0" * 16 + ".json", 13, None)
+                        )
+                    ],
+                    {},
+                ),
+            )
+        ],
         width=width,
     )
 
@@ -221,7 +236,8 @@ def test_list_names_a_local_target_relative_to_the_current_directory(
     """A local target is shown as a path to type, not an absolute one."""
     stored = "test_a@k~0123456789abcdef.json"
     monkeypatch.chdir(tmp_path)
-    manifest = BackendManifest(str(tmp_path / "tests" / ".ditto"), [ManifestEntry(stored, 1, None)])
+    target = str(tmp_path / "tests" / ".ditto")
+    manifest = BackendManifest(target, [ManifestEntry(stored, 1, None)])
 
     output = render(
         _render_snapshots, [manifest], None, INFOS, width=120
@@ -284,7 +300,9 @@ def test_report_names_a_created_snapshot_by_node_id_key_and_recorder() -> None:
 
     render_session_report(
         created=[
-            ReportedSnapshot("tests/.ditto", "tests/test_a.py::test_x[1]", "value", "json"),
+            ReportedSnapshot(
+                "tests/.ditto", "tests/test_a.py::test_x[1]", "value", "json"
+            ),
         ],
         updated=[],
         pruned=[],
@@ -323,12 +341,16 @@ def test_report_groups_snapshots_under_the_target_they_went_to() -> None:
 def test_report_keeps_each_snapshot_on_its_own_line(width: int) -> None:
     """A long name wraps without knocking the next snapshot out of alignment."""
     stream = StringIO()
-    long_nodeid = "tests/" + "deeply/" * 6 + "nested/test_module.py::test_something[param]"
+    long_nodeid = (
+        "tests/" + "deeply/" * 6 + "nested/test_module.py::test_something[param]"
+    )
 
     render_session_report(
         created=[
             ReportedSnapshot("tests/.ditto", long_nodeid, "value", "pandas.parquet"),
-            ReportedSnapshot("tests/.ditto", "tests/test_a.py::test_short", "v", "json"),
+            ReportedSnapshot(
+                "tests/.ditto", "tests/test_a.py::test_short", "v", "json"
+            ),
         ],
         updated=[],
         pruned=[],

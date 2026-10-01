@@ -7,7 +7,7 @@ import pytest
 
 from ditto.exceptions import DittoWarning
 from ditto.plugin._lock import warn_if_lockfile_ignored
-from ditto.snapshot import _SessionTracker
+from ditto.snapshot import _RegisteredTarget, _SessionTracker
 
 pytest_plugins = ["pytester"]
 
@@ -35,7 +35,9 @@ def test_records_a_targets_uri_scheme_and_backend_by_target_id():
     tracker.register_target_backend("tests/.ditto", "file:///p/tests/.ditto", backend)
 
     actual = tracker.target_backends["tests/.ditto"]
-    expected = ("file:///p/tests/.ditto", "file", backend)
+    expected = _RegisteredTarget(
+        canonical_uri="file:///p/tests/.ditto", scheme="file", backend=backend
+    )
     assert actual == expected
 
 
