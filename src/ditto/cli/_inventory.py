@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.text import Text
 
 from .._cli_introspect import IntrospectError
 from .._inventory import (
@@ -44,10 +45,12 @@ def _inventory_or_exit(path: Path, *, live: bool, console: Console) -> Manifest:
     try:
         return build_inventory(path, live=live)
     except IntrospectError as exc:
-        console.print(f"[bold {PRUNED}]Introspection failed:[/bold {PRUNED}] {exc}")
+        console.print(
+            Text.assemble(("Introspection failed: ", f"bold {PRUNED}"), str(exc))
+        )
         sys.exit(1)
     except InventoryError as exc:
-        console.print(f"[bold {PRUNED}]Inventory failed:[/bold {PRUNED}] {exc}")
+        console.print(Text.assemble(("Inventory failed: ", f"bold {PRUNED}"), str(exc)))
         sys.exit(1)
 
 
