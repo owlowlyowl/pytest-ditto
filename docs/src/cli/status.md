@@ -20,17 +20,13 @@ ditto status
 ditto status tests/ci/
 ```
 
-## Screenshot
-
-![ditto status](../img/ditto-status.png)
-
 ## Output
 
 A panel, laid out to fit the terminal:
 
 - Total snapshot count and total size
 - Breakdown by recorder type (count and size)
-- The oldest and newest snapshot, each with its date and its name
+- The oldest and newest snapshot, each with its date, target and full identity
 
 The oldest and newest are named by the test, key and recorder `ditto.lock`
 records, falling back to the storage name for a snapshot the lock doesn't

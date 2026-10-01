@@ -98,7 +98,7 @@ def _exit_if_incomplete(manifest: Manifest, console: Console) -> None:
     "--flat",
     is_flag=True,
     default=False,
-    help="One row per snapshot with its whole node id, for grep and scripts.",
+    help="JSON Lines: one complete snapshot record per line, for grep and scripts.",
 )
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
@@ -110,8 +110,8 @@ def cmd_list(console: Console, path: Path, live: bool, flat: bool):
     By default reads local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
 
-    Snapshots are grouped by target and test file; --flat prints one row per
-    snapshot with the whole node id instead.
+    Snapshots are grouped by target and test file; --flat writes one JSON object
+    per snapshot, with its target and whole node id. Diagnostics go to stderr.
 
     \b
     Examples:
@@ -119,18 +119,19 @@ def cmd_list(console: Console, path: Path, live: bool, flat: bool):
       ditto list tests/ci/
       ditto list --flat
     """
-    manifest = _inventory_or_exit(path, live=live, console=console)
+    diagnostics = Console(stderr=True) if flat else console
+    manifest = _inventory_or_exit(path, live=live, console=diagnostics)
     entries = _entries(manifest)
     if not entries:
-        _exit_if_incomplete(manifest, console)
-        console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
-        _print_inventory_notes(path, entries, live=live, console=console)
+        _exit_if_incomplete(manifest, diagnostics)
+        diagnostics.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_inventory_notes(path, entries, live=live, console=diagnostics)
         sys.exit(1)
 
     infos = _load_recorder_infos()
     _render_snapshots(manifest, lock_identities(path), infos, console, flat=flat)
-    _print_inventory_notes(path, entries, live=live, console=console)
-    _exit_if_incomplete(manifest, console)
+    _print_inventory_notes(path, entries, live=live, console=diagnostics)
+    _exit_if_incomplete(manifest, diagnostics)
 
 
 @click.command(name="status")

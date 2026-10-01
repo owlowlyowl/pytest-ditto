@@ -5,10 +5,12 @@ wrapping in the middle instead of truncating, and every view built as a Rich
 table that fits the width it is given.
 """
 
+import json
 import re
 from io import StringIO
 
 import pytest
+from click.testing import CliRunner
 from rich.console import Console
 
 from ditto._inventory import location_key
@@ -16,6 +18,7 @@ from ditto._lockfile import LockEntry
 from ditto._manifest import BackendManifest, LocatedEntry, ManifestEntry
 from ditto._report import PrunedSnapshot, ReportedSnapshot, render_session_report
 from ditto.cli._data import RecorderInfo
+from ditto.cli import cli
 from ditto.cli._display import (
     _render_recorders,
     _render_snapshots,
@@ -58,17 +61,11 @@ def identities_of(*entries: tuple[str, str], location: str = "tests/.ditto"):
     }
 
 
-def rows_of(output: str) -> list[str]:
-    """The lines inside the table's frame, with the frame characters removed."""
-    return [line.strip("│ ").rstrip() for line in output.splitlines() if "│" in line]
-
-
 # ── every view fits the width, and nothing is truncated ──────────────────────
 
 
-@pytest.mark.parametrize("width", WIDTHS)
-@pytest.mark.parametrize("flat", [False, True])
-def test_list_never_exceeds_the_width(width: int, flat: bool) -> None:
+@pytest.mark.parametrize("width", [40, 59, 60, 79, 80, 120])
+def test_list_never_exceeds_the_width(width: int) -> None:
     """No line is wider than the console, at any width the CLI supports."""
     entries = (
         (
@@ -86,7 +83,6 @@ def test_list_never_exceeds_the_width(width: int, flat: bool) -> None:
         identities_of(*entries),
         INFOS,
         width=width,
-        flat=flat,
     )
 
     assert all(len(line) <= width for line in output.splitlines())
@@ -136,7 +132,7 @@ def test_stats_never_exceeds_the_width(width: int) -> None:
 # ── one way to name a snapshot (#182, #190) ───────────────────────────────────
 
 
-@pytest.mark.parametrize("width", WIDTHS)
+@pytest.mark.parametrize("width", [40, 59, 60, 79, 80, 120])
 def test_list_keeps_the_parametrize_id_and_key_intact(width: int) -> None:
     """A node id that would be truncated from the end is shown whole."""
     nodeid = "tests/integration/test_api.py::test_response[param::a/b.json]"
@@ -149,9 +145,13 @@ def test_list_keeps_the_parametrize_id_and_key_intact(width: int) -> None:
         INFOS,
         width=width,
     )
-    first_column = re.sub(r"\s+", "", "".join(
-        line.split("│")[1] for line in output.splitlines() if line.startswith("│")
-    ))
+    first_column = re.sub(
+        r"\s+",
+        "",
+        "".join(
+            line.split("│")[1] for line in output.splitlines() if line.startswith("│")
+        ),
+    )
 
     assert "test_response[param::a/b.json]" in first_column
     assert "tests/integration/test_api.py" in first_column
@@ -195,23 +195,129 @@ def test_list_separates_the_same_key_under_two_targets() -> None:
     assert "2 snapshots · 2 targets" in output
 
 
-def test_flat_keeps_the_whole_node_id_on_one_row() -> None:
-    """`--flat` gives one row per snapshot with nothing grouped away."""
-    nodeid = "tests/test_a.py::test_x[::]"
+@pytest.mark.parametrize("width", [40, 59, 80, 120])
+def test_flat_keeps_the_whole_node_id_and_target_on_one_line(width) -> None:
+    nodeid = "tests/integration/test_api.py::test_response[param::a/b.json]"
     stored = "test_a@k~0123456789abcdef.json"
+    targets = ["memory://one", "memory://two"]
+    manifest = [manifest_of((stored, nodeid), location=t)[0] for t in targets]
+    identities = {
+        identity: entry
+        for target in targets
+        for identity, entry in identities_of((stored, nodeid), location=target).items()
+    }
 
+    output = render(
+        _render_snapshots,
+        manifest,
+        identities,
+        INFOS,
+        width=width,
+        flat=True,
+    )
+
+    lines = output.splitlines()
+    assert len(lines) == 2
+    assert all(nodeid in line for line in lines)
+    records = [json.loads(line) for line in lines]
+    assert [r["target"] for r in records] == targets
+    assert all(r["nodeid"] == nodeid and r["key"] == "value" for r in records)
+    assert all(r["recorder"] == "json" and r["in_lock"] is True for r in records)
+
+
+@pytest.mark.parametrize("width", [40, 59])
+def test_narrow_list_places_identity_and_metadata_in_two_columns(width):
+    stored = "test_a@k~0123456789abcdef.json"
+    nodeid = "test_a.py::test_a"
     output = render(
         _render_snapshots,
         manifest_of((stored, nodeid)),
         identities_of((stored, nodeid)),
         INFOS,
-        width=120,
+        width=width,
+    )
+    rows = [line.split("│")[1:-1] for line in output.splitlines() if "│" in line]
+    assert all(len(row) == 2 for row in rows), output
+    identity_column = "".join(row[0].strip() for row in rows)
+    details_column = "".join(row[1].strip() for row in rows)
+    assert "test_a" in identity_column
+    assert "Key: value" in identity_column
+    assert "json" in identity_column
+    assert "13 B" in details_column and "2025-09-28" in details_column
+
+
+def test_flat_escapes_control_characters_and_preserves_literal_markup():
+    stored = "test_a@k~0123456789abcdef.json"
+    nodeid = 'test_a.py::test_a[red]\n["quoted"]'
+    identities = identities_of((stored, nodeid))
+    identities[(location_key("tests/.ditto"), stored)] = LockEntry(
+        nodeid, "key\twith\nlines\\and[red]", "json"
+    )
+    output = render(
+        _render_snapshots,
+        manifest_of((stored, nodeid)),
+        identities,
+        INFOS,
+        width=40,
         flat=True,
     )
+    assert len(output.splitlines()) == 1
+    record = json.loads(output)
+    assert record["nodeid"] == nodeid
+    assert record["key"] == "key\twith\nlines\\and[red]"
 
-    assert nodeid in output
-    assert not any("├─ " in row for row in rows_of(output))
-    assert not any("└─ " in row for row in rows_of(output))
+
+@pytest.mark.parametrize("identities, in_lock", [(None, None), ({}, False)])
+def test_flat_does_not_guess_unknown_identities(identities, in_lock):
+    stored = "lossy.test_label@key_label~0123456789abcdef.json"
+    output = render(
+        _render_snapshots,
+        manifest_of((stored, "unused")),
+        identities,
+        INFOS,
+        flat=True,
+    )
+    record = json.loads(output)
+    assert record["nodeid"] is None and record["key"] is None
+    assert record["storage_key"] == stored
+    assert record["recorder"] == "json"
+    assert record["in_lock"] is in_lock
+
+
+def test_flat_redirected_stdout_contains_only_json(tmp_path):
+    directory = tmp_path / ".ditto"
+    directory.mkdir()
+    (directory / "test_a@k~0123456789abcdef.json").write_text("1")
+    result = CliRunner().invoke(cli, ["list", "--flat", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    records = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(records) == 1
+    assert records[0]["target"] == str(directory)
+    assert "no ditto.lock" in result.stderr
+
+
+def test_flat_empty_inventory_keeps_diagnostics_off_stdout(tmp_path):
+    result = CliRunner().invoke(cli, ["list", "--flat", str(tmp_path)])
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "No snapshot files" in result.stderr
+
+
+def test_flat_incomplete_inventory_keeps_diagnostics_off_stdout(tmp_path, monkeypatch):
+    from ditto.cli import _inventory
+
+    monkeypatch.setattr(
+        _inventory,
+        "build_inventory",
+        lambda *args, **kwargs: [
+            BackendManifest("memory://good", [ManifestEntry("a.json", None, None)]),
+            BackendManifest("memory://bad", [], error="denied"),
+        ],
+    )
+    result = CliRunner().invoke(cli, ["list", "--flat", "--live", str(tmp_path)])
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["target"] == "memory://good"
+    assert "Inventory incomplete" in result.stderr
 
 
 def test_list_marks_a_name_the_lock_does_not_record() -> None:
@@ -239,9 +345,7 @@ def test_list_names_a_local_target_relative_to_the_current_directory(
     target = str(tmp_path / "tests" / ".ditto")
     manifest = BackendManifest(target, [ManifestEntry(stored, 1, None)])
 
-    output = render(
-        _render_snapshots, [manifest], None, INFOS, width=120
-    )
+    output = render(_render_snapshots, [manifest], None, INFOS, width=120)
 
     assert "tests/.ditto" in output
     assert str(tmp_path) not in output
@@ -262,6 +366,36 @@ def test_status_names_the_oldest_snapshot_by_its_node_id() -> None:
 
     assert f"{nodeid}  value" in output
     assert stored not in output
+
+
+def test_status_extremes_distinguish_recorders_and_targets():
+    nodeid = "test_a.py::test_a"
+    entries = [
+        LocatedEntry("memory://one", ManifestEntry("a.json", 1, 1700000000)),
+        LocatedEntry("memory://two", ManifestEntry("a.yaml", 2, 1759000000)),
+    ]
+    identities = {
+        (entry.location, entry.entry.storage_key): LockEntry(nodeid, "k", recorder)
+        for entry, recorder in zip(entries, ["json", "yaml"])
+    }
+    output = render(render_stats, gather_stats(entries, {}), identities)
+    oldest, newest = output.split("Oldest", 1)[1].split("Newest", 1)
+    assert "memory://one" in oldest and f"{nodeid}  k  json" in oldest
+    assert "memory://two" in newest and f"{nodeid}  k  yaml" in newest
+
+
+def test_local_target_outside_cwd_is_relative(monkeypatch, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    output = render(
+        _render_snapshots,
+        [BackendManifest(str(tmp_path / ".ditto"), [ManifestEntry("a.json", 1, None)])],
+        None,
+        INFOS,
+    )
+    assert "../.ditto" in output.replace("\\", "/")
+    assert str(tmp_path) not in output
 
 
 # ── the recorders table fits (#180) ───────────────────────────────────────────

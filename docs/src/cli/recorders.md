@@ -11,10 +11,6 @@ contract, it says how many and points to `ditto doctor`.
 ditto recorders
 ```
 
-## Screenshot
-
-![ditto recorders](../img/ditto-recorders.png)
-
 ## Output
 
 A table laid out to fit the terminal:

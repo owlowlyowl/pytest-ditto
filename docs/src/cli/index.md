@@ -51,10 +51,11 @@ A snapshot the lock doesn't record (an orphan, or one recorded since the
 last `ditto lock`) has no identity to show, so it is named by the label in
 its stored name and marked `not in lock`.
 
-A local target is shown as a path relative to the current directory, never
-an absolute one; a remote URI is shown whole. Every view is a table or panel
+A local target in human-readable output is shown relative to the current
+directory (absolute when it is on another drive); a remote URI is shown whole.
+The human-readable views are tables or panels
 built to fit the terminal width — below 60 columns a snapshot's key and
 recorder move under its name, below 80 the size and date share a cell — and
 a long name wraps in the middle rather than being truncated, so the part that
-tells two rows apart stays visible. `ditto list --flat` gives one row per
-snapshot with the whole node ID, for `grep` and scripts.
+tells two rows apart stays visible. `ditto list --flat` instead writes JSON
+Lines, with a complete target and identity on each line for `grep` and scripts.

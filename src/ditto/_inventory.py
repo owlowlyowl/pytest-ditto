@@ -121,7 +121,7 @@ def _file_target_path(target_id: str, rootdir: Path) -> Path:
 
 def _local_ditto_dirs(
     path: Path, lock: LockFile | None, rootdir: Path | None
-) -> list[Path]:
+) -> dict[Path, set[str] | None]:
     """Locate every `.ditto` directory to inventory under `path`.
 
     Walks `path` for `.ditto` directories (including `path` itself when it is
@@ -141,11 +141,13 @@ def _local_ditto_dirs(
 
     Returns
     -------
-    list[Path]
-        Distinct `.ditto` directories to read, in insertion order.
+    dict[Path, set[str] | None]
+        Resolved directories in discovery order, mapped to the storage keys
+        in scope. `None` means the whole directory was selected, including
+        untracked files. A discovered symlink selects its whole destination.
     """
     base = path.resolve()
-    dirs: dict[Path, None] = dict.fromkeys(
+    dirs: dict[Path, set[str] | None] = dict.fromkeys(
         d.resolve()
         for d in (base, *base.rglob(".ditto"))
         if d.name == ".ditto" and d.is_dir()
@@ -155,12 +157,22 @@ def _local_ditto_dirs(
             if target.scheme != "file":
                 continue
             resolved = _file_target_path(target_id, rootdir)
-            tests_in_scope = any(
-                _nodeid_under(entry.nodeid, rootdir, base) for entry in target.entries
-            )
-            if resolved.is_dir() and (_is_within(resolved, base) or tests_in_scope):
-                dirs.setdefault(resolved)
-    return list(dirs)
+            if not resolved.is_dir():
+                continue
+            if _is_within(resolved, base):
+                dirs[resolved] = None
+            if resolved in dirs and dirs[resolved] is None:
+                continue
+            keys = {
+                storage_key(entry, target.scheme)
+                for entry in target.entries
+                if _nodeid_under(entry.nodeid, rootdir, base)
+            }
+            if keys:
+                selected = dirs.setdefault(resolved, set())
+                if selected is not None:
+                    selected.update(keys)
+    return dirs
 
 
 def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
@@ -196,46 +208,20 @@ def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
     return entries
 
 
-def _locked_keys_under(
-    directory: Path,
-    lock: LockFile,
-    rootdir: Path,
-    base: Path,
-) -> set[str]:
-    """Storage keys the lock records in `directory` for tests under `base`."""
-    keys: set[str] = set()
-    for target_id, target in lock.targets.items():
-        if target.scheme != "file":
-            continue
-        if _file_target_path(target_id, rootdir) != directory:
-            continue
-        for entry in target.entries:
-            if _nodeid_under(entry.nodeid, rootdir, base):
-                keys.add(storage_key(entry, target.scheme))
-    return keys
-
-
 def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Manifest:
     """Inventory local `file` snapshots from disk under `path`.
 
     One `BackendManifest` per non-empty `.ditto/` directory located by
     `_local_ditto_dirs`; each file is stat'd for real size and mtime.
 
-    When the directory itself is under `path`, on-disk orphans absent from the
-    lock still appear. When it was selected only because some owning test is
-    under `path`, only lock entries whose tests are under `path` are kept —
-    the same per-entry rule `_lock_remote` uses.
+    Directly selected directories include untracked files, even when discovered
+    through a symlink. Targets selected only by owning test keep only those
+    tests' lock entries, using the same per-entry rule as `_lock_remote`.
     """
-    base = path.resolve()
     backends: Manifest = []
-    for directory in _local_ditto_dirs(path, lock, rootdir):
+    for directory, in_scope in _local_ditto_dirs(path, lock, rootdir).items():
         entries = _read_ditto_dir(directory)
-        if not _is_within(directory, base):
-            in_scope = (
-                _locked_keys_under(directory, lock, rootdir, base)
-                if lock is not None and rootdir is not None
-                else set()
-            )
+        if in_scope is not None:
             entries = [entry for entry in entries if entry.storage_key in in_scope]
         if entries:
             backends.append(BackendManifest(location=str(directory), entries=entries))
