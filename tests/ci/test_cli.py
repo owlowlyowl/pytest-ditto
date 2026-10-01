@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from ditto._cli_introspect import IntrospectError
 from ditto._inventory import InventoryError
-from ditto._manifest import BackendManifest, ManifestEntry
+from ditto._manifest import BackendManifest, LocatedEntry, ManifestEntry
 from ditto.cli import _inventory as cli_inventory
 from ditto.cli import cli
 from ditto.cli._data import RecorderInfo, _ext_map, _human_size, _parse_snapshot_name
@@ -152,7 +152,7 @@ def test_human_size_renders_none_as_dash():
 def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
     """An unknown byte size does not remove a snapshot from the total count."""
     entries = [
-        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=None, modified=None),
+        LocatedEntry(".ditto", ManifestEntry("m.test_a@k.json", None, None)),
     ]
 
     stats = gather_stats(entries, {})
@@ -163,8 +163,8 @@ def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
 def test_gather_stats_preserves_known_and_unknown_size_components() -> None:
     """Known bytes and unknown snapshot counts remain distinct when aggregated."""
     entries = [
-        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=100, modified=None),
-        ManifestEntry(storage_key="m.test_b@k.json", size_bytes=None, modified=None),
+        LocatedEntry(".ditto", ManifestEntry("m.test_a@k.json", 100, None)),
+        LocatedEntry(".ditto", ManifestEntry("m.test_b@k.json", None, None)),
     ]
 
     stats = gather_stats(entries, {})
@@ -257,8 +257,11 @@ def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     """An entry with a mapped extension is attributed to its recorder."""
     em = {".json": RecorderInfo("json", ".json", "pytest-ditto")}
     entries = [
-        ManifestEntry(
-            "test_foo@snap~0000000000000000.json", size_bytes=100, modified=1000.0
+        LocatedEntry(
+            ".ditto",
+            ManifestEntry(
+                "test_foo@snap~0000000000000000.json", size_bytes=100, modified=1000.0
+            ),
         )
     ]
 
@@ -275,8 +278,11 @@ def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
 def test_attributes_unknown_extension_to_its_raw_name() -> None:
     """An unmapped extension uses the extension (minus leading dot) as recorder name."""
     entries = [
-        ManifestEntry(
-            "test_foo@snap~0000000000000000.custom", size_bytes=50, modified=None
+        LocatedEntry(
+            ".ditto",
+            ManifestEntry(
+                "test_foo@snap~0000000000000000.custom", size_bytes=50, modified=None
+            ),
         )
     ]
 
@@ -287,7 +293,7 @@ def test_attributes_unknown_extension_to_its_raw_name() -> None:
 
 def test_buckets_entry_with_no_extension_under_empty_string() -> None:
     """An entry parsed with no extension falls into the '' recorder bucket."""
-    entries = [ManifestEntry("invalid_name", size_bytes=10, modified=None)]
+    entries = [LocatedEntry(".ditto", ManifestEntry("invalid_name", 10, None))]
 
     stats = gather_stats(entries, ext_map={})
 
@@ -297,20 +303,26 @@ def test_buckets_entry_with_no_extension_under_empty_string() -> None:
 def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
     """oldest and newest are the entries with the min/max modified timestamp."""
     entries = [
-        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=100.0),
-        ManifestEntry("test_b@y~0000000000000000.yaml", size_bytes=20, modified=999.0),
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_a@x~0000000000000000.yaml", 10, 100.0)
+        ),
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_b@y~0000000000000000.yaml", 20, 999.0)
+        ),
     ]
 
     stats = gather_stats(entries, ext_map={})
 
-    assert stats.oldest[0] == 100.0
-    assert stats.newest[0] == 999.0
+    assert stats.oldest.modified == 100.0
+    assert stats.newest.modified == 999.0
 
 
 def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
     """Remote entries (modified=None) leave oldest/newest as None."""
     entries = [
-        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=None)
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_a@x~0000000000000000.yaml", 10, None)
+        )
     ]
 
     stats = gather_stats(entries, ext_map={})
@@ -323,9 +335,15 @@ def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     """Multiple entries of the same recorder type are summed correctly."""
     em = {".yaml": RecorderInfo("yaml", ".yaml", "pytest-ditto")}
     entries = [
-        ManifestEntry("test_a@s~0000000000000000.yaml", size_bytes=100, modified=1.0),
-        ManifestEntry("test_b@s~0000000000000000.yaml", size_bytes=200, modified=2.0),
-        ManifestEntry("test_c@s~0000000000000000.yaml", size_bytes=300, modified=3.0),
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_a@s~0000000000000000.yaml", 100, 1.0)
+        ),
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_b@s~0000000000000000.yaml", 200, 2.0)
+        ),
+        LocatedEntry(
+            ".ditto", ManifestEntry("test_c@s~0000000000000000.yaml", 300, 3.0)
+        ),
     ]
 
     stats = gather_stats(entries, em)

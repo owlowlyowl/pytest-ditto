@@ -22,10 +22,6 @@ ditto update tests/ci/
 ditto update tests/ci/ -k test_foo
 ```
 
-## Screenshot
-
-![ditto update](../img/ditto-update.png)
-
 ## Behaviour
 
 - Runs pytest with `--ditto-update` flag

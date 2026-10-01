@@ -7,7 +7,20 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .._inventory import location_key
+from .._lockfile import LockEntry
 from ..recorders._contract import NAME_PATTERN
+
+
+def _snapshot_identity(
+    location: str,
+    storage_key: str,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+) -> LockEntry | None:
+    """Resolve the exact node ID, key and recorder together, scoped by target."""
+    if identities is None:
+        return None
+    return identities.get((location_key(location), storage_key))
 
 
 # A stored snapshot name: `<module>.<group label>@<key label>~<hash>.<recorder>`
