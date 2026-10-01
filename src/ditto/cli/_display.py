@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +41,7 @@ from ._data import (
     _mark_for,
     _parse_snapshot_name,
     _recorder_name,
+    _snapshot_identity,
 )
 from ._diagnostics import CheckResult, LintIssue
 from ._summary import SnapshotStats, _format_size_summary, _sum_sizes
@@ -98,7 +101,7 @@ def _heading_row(label: Text, column_count: int) -> tuple[RenderableType, ...]:
 
 
 def _location_label(location: str) -> Text:
-    """A target's location relative to the current directory, never absolute.
+    """A target relative to cwd, unless it is on another drive or is remote.
 
     A local directory is shown as the path someone would type; a remote URI is
     shown whole, because there is nothing to shorten it relative to.
@@ -106,10 +109,10 @@ def _location_label(location: str) -> Text:
     if "://" in location and not location.startswith("file://"):
         return Text(location, style=PATH, overflow="fold")
     try:
-        relative = Path(location_key(location)).relative_to(Path.cwd())
+        relative = os.path.relpath(location_key(location), Path.cwd())
     except ValueError:
-        return Text(location, style=PATH, overflow="fold")
-    return Text(str(relative) or ".", style=PATH, overflow="fold")
+        relative = location_key(location)
+    return Text(relative, style=PATH, overflow="fold")
 
 
 def _test_and_key(
@@ -128,7 +131,7 @@ def _test_and_key(
     label, key, _ = _parse_snapshot_name(storage_key)
     if identities is None:
         return Text(label, overflow="fold"), Text(key), None
-    entry = identities.get((location_key(location), storage_key))
+    entry = _snapshot_identity(location, storage_key, identities)
     if entry is not None:
         return Text(entry.nodeid, overflow="fold"), Text(entry.key), entry
     return Text.assemble((label, TEXT), ("  not in lock", MUTED)), Text(key), None
@@ -141,9 +144,7 @@ def _modified(modified: float | None) -> str:
     return datetime.fromtimestamp(modified).strftime("%Y-%m-%d")
 
 
-def _metadata_cells(
-    entry: ManifestEntry, compact: bool
-) -> list[RenderableType]:
+def _metadata_cells(entry: ManifestEntry, compact: bool) -> list[RenderableType]:
     """A snapshot's size and date, as one cell or two depending on the width."""
     size = Text(_human_size(entry.size_bytes), style=MUTED, no_wrap=True)
     date = Text(_modified(entry.modified), style=MUTED, no_wrap=True)
@@ -167,16 +168,13 @@ def _by_test_file(
     entries: Sequence[ManifestEntry],
     location: str,
     identities: Mapping[tuple[str, str], LockEntry] | None,
-    *,
-    flat: bool,
 ) -> list[tuple[str, list[tuple[Text, Text, ManifestEntry]]]]:
     """Group one target's snapshots by the test file the lock records them in.
 
     Only the first `::` of a node id is split off: a parametrize ID can contain
     `::`, slashes, brackets and dots of its own. A snapshot the lock doesn't
     record has no file to group it under, so it keeps an empty parent and is
-    listed after the files. `flat` skips the split, so every row carries the
-    whole node id.
+    listed after the files.
     """
     groups: dict[str, list[tuple[Text, Text, ManifestEntry]]] = {}
     for entry in sorted(entries, key=lambda e: e.storage_key):
@@ -184,10 +182,39 @@ def _by_test_file(
         parent, separator, leaf = (
             locked.nodeid.partition("::") if locked else ("", "", "")
         )
-        if locked and not flat:
+        if locked:
             test = Text(leaf, overflow="fold")
         groups.setdefault(parent, []).append((test, key, entry))
     return sorted(groups.items(), key=lambda item: (item[0] == "", item[0]))
+
+
+def _render_flat_snapshots(
+    manifest: Manifest,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    console: Console,
+) -> None:
+    """Write one JSON object per physical line, independent of terminal width.
+
+    Unknown identities stay null rather than guessing from lossy storage labels.
+    Every row carries its target and storage key so it is useful on its own.
+    """
+    for backend in sorted(manifest, key=lambda b: b.location):
+        for entry in sorted(backend.entries, key=lambda e: e.storage_key):
+            identity = _snapshot_identity(
+                backend.location, entry.storage_key, identities
+            )
+            _, _, ext = _parse_snapshot_name(entry.storage_key)
+            record = {
+                "target": location_key(backend.location),
+                "nodeid": identity.nodeid if identity else None,
+                "key": identity.key if identity else None,
+                "recorder": identity.recorder if identity else ext.lstrip(".") or None,
+                "storage_key": entry.storage_key,
+                "size_bytes": entry.size_bytes,
+                "modified": entry.modified,
+                "in_lock": identity is not None if identities is not None else None,
+            }
+            console.out(json.dumps(record), highlight=False)
 
 
 def _render_snapshots(
@@ -201,9 +228,12 @@ def _render_snapshots(
     """Print every snapshot in the manifest, grouped by target and test file.
 
     The grouped layout drops the repeated target and file path so the part that
-    tells two rows apart — the test and its key — keeps the width. `flat` prints
-    one row per snapshot with the whole node id, for grepping.
+    tells two rows apart — the test and its key — keeps the width. `flat` writes
+    JSON Lines with complete identities and targets for scripts.
     """
+    if flat:
+        _render_flat_snapshots(manifest, identities, console)
+        return
     ext_map = _ext_map(infos)
     colours = _build_colour_map(
         _recorder_name(_parse_snapshot_name(e.storage_key)[2], ext_map)
@@ -231,9 +261,9 @@ def _render_snapshots(
         target.stylize("bold")
         table.add_row(*_heading_row(target, len(table.columns)))
         for parent, rows in _by_test_file(
-            backend.entries, backend.location, identities, flat=flat
+            backend.entries, backend.location, identities
         ):
-            if parent and not flat:
+            if parent:
                 table.add_row(
                     *_heading_row(
                         Text(parent, style=PATH, overflow="fold"),
@@ -241,7 +271,7 @@ def _render_snapshots(
                     )
                 )
             for index, (test, key, entry) in enumerate(rows):
-                label = test if flat else _branch(test, index == len(rows) - 1)
+                label: RenderableType = _branch(test, index == len(rows) - 1)
                 _, _, ext = _parse_snapshot_name(entry.storage_key)
                 recorder = _recorder_name(ext, ext_map)
                 recorder_text = Text(
@@ -251,7 +281,10 @@ def _render_snapshots(
                 )
                 cells: list[RenderableType]
                 if narrow:
-                    cells = [Group(Text.assemble(("Key: ", MUTED), key), recorder_text)]
+                    label = Group(
+                        label, Text.assemble(("Key: ", MUTED), key), recorder_text
+                    )
+                    cells = []
                 else:
                     cells = [key, recorder_text]
                 table.add_row(label, *cells, *_metadata_cells(entry, compact))
@@ -311,6 +344,7 @@ def render_stats(
                 (datetime.fromtimestamp(extreme.modified).strftime("%Y-%m-%d"), MUTED),
             )
         )
+        content.append(_location_label(extreme.location))
         content.append(
             Text(
                 _identity_label(extreme.location, extreme.storage_key, identities),
@@ -335,13 +369,11 @@ def _identity_label(
     storage_key: str,
     identities: Mapping[tuple[str, str], LockEntry] | None,
 ) -> str:
-    """The node id the lock records a snapshot under, else its storage name."""
-    if identities is None:
-        return storage_key
-    entry = identities.get((location_key(location), storage_key))
+    """The exact test, key and recorder, else the complete storage name."""
+    entry = _snapshot_identity(location, storage_key, identities)
     if entry is None:
         return storage_key
-    return f"{entry.nodeid}  {entry.key}"
+    return f"{entry.nodeid}  {entry.key}  {entry.recorder}"
 
 
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:

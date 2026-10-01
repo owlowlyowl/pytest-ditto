@@ -13,7 +13,7 @@ ditto list [OPTIONS] [PATH]
 | Option | Description |
 |--------|-------------|
 | `--live` | Read the live backends instead of the lock (see [Data source](#data-source)) |
-| `--flat` | One row per snapshot with its whole node id, nothing grouped — for `grep` and scripts |
+| `--flat` | JSON Lines: one complete snapshot record per line, for `grep` and scripts |
 
 ## Examples
 
@@ -24,13 +24,9 @@ ditto list
 # List snapshots owned by tests under a directory
 ditto list tests/ci/
 
-# One row per snapshot, with the full node id
+# One JSON object per snapshot, with the target and full node id
 ditto list --flat
 ```
-
-## Screenshot
-
-![ditto list](../img/ditto-list.png)
 
 ## Output
 
@@ -57,21 +53,34 @@ two rows apart stays visible.
 
 A footnote gives the totals, for example `4 snapshots · 2 targets`.
 
-Use `--flat` when a script needs one line per snapshot with the whole node id
-on it:
+## Script output
 
+`ditto list --flat` writes JSON Lines to stdout, without headings, totals,
+colour or wrapping. Each line is one self-contained snapshot record, regardless
+of terminal width. Notes and errors go to stderr. An incomplete inventory exits
+non-zero, even if some snapshot records were printed.
+
+```bash
+ditto list --flat > snapshots.jsonl
+ditto list --flat | grep -F 'tests/test_a.py::test_numbers[1]'
 ```
-$ ditto list --flat
-ditto snapshots
-╭──────────────────────────────────┬────────┬──────────┬──────┬────────────╮
-│ Target / test                    │ Key    │ Recorder │ Size │ Modified   │
-├──────────────────────────────────┼────────┼──────────┼──────┼────────────┤
-│ tests/.ditto                     │        │          │      │            │
-│ tests/test_a.py::test_numbers[1] │ value  │ json     │ 13 B │ 2025-09-28 │
-│ tests/test_a.py::test_frame      │ df     │ json     │  2 B │ 2025-09-28 │
-╰──────────────────────────────────┴────────┴──────────┴──────┴────────────╯
-2 snapshots · 1 target
-```
+
+Each record contains:
+
+| Field | Value |
+|-------|-------|
+| `target` | Absolute resolved local path, or complete remote URI |
+| `nodeid`, `key` | Exact lock identity, or `null` when unknown |
+| `recorder` | Locked recorder name, falling back to the storage suffix, or `null` |
+| `storage_key` | Complete backend key, including its hash |
+| `size_bytes` | Size in bytes, or `null` when unknown |
+| `modified` | POSIX timestamp, or `null` when unknown |
+| `in_lock` | `true` if recorded, `false` if absent from a readable lock, or `null` if no readable lock is available |
+
+JSON escaping preserves tabs, newlines, quotes and other special characters
+without splitting a record across lines. For unknown identities, use `target`
+and `storage_key`; the shortened labels in a storage name cannot recover the
+original node ID or key.
 
 ## Data source
 
