@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from dataclasses import dataclass
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -13,7 +16,29 @@ from ._theme import (
 from .snapshot import SnapshotKey
 
 
-__all__ = ("render_session_report",)
+__all__ = ("PrunedSnapshot", "render_session_report")
+
+
+@dataclass(frozen=True)
+class PrunedSnapshot:
+    """One snapshot a prune deleted, and the target it was deleted from.
+
+    Two targets can hold the same storage key, so a bare key doesn't say which
+    backend it came from.
+    """
+
+    target_id: str
+    key: str
+
+
+def _pruned_by_target(
+    items: Iterable[PrunedSnapshot],
+) -> list[tuple[str, list[str]]]:
+    """Group pruned storage keys by target id, targets in first-seen order."""
+    keys: dict[str, list[str]] = {}
+    for item in items:
+        keys.setdefault(item.target_id, []).append(item.key)
+    return [(target_id, sorted(target_keys)) for target_id, target_keys in keys.items()]
 
 
 def _label_block(
@@ -37,11 +62,30 @@ def _label_block(
     return text
 
 
+def _pruned_block(
+    items: list[PrunedSnapshot],
+    colour: str,
+    label: str,
+    suffix: str = "",
+) -> Text:
+    """One labelled row naming each pruned snapshot's target above its keys."""
+    text = Text()
+    text.append(f"  {label:<10}", style=f"bold {colour}")
+    text.append(f"{len(items):<5}", style=colour)
+    for target_id, keys in _pruned_by_target(items):
+        text.append(f"\n  {'':<15}{target_id}", style=f"bold {colour}")
+        if suffix:
+            text.append(f"  {suffix}", style=MUTED)
+        for key in keys:
+            text.append(f"\n  {'':<19}{key}", style=colour)
+    return text
+
+
 def render_session_report(
     created: list[SnapshotKey],
     updated: list[SnapshotKey],
-    pruned: list[str],
-    would_prune: list[str],
+    pruned: list[PrunedSnapshot],
+    would_prune: list[PrunedSnapshot],
     console: Console | None = None,
 ) -> None:
     """Render the end-of-session ditto snapshot report via Rich.
@@ -54,11 +98,11 @@ def render_session_report(
         Snapshots written for the first time this session.
     updated : list[SnapshotKey]
         Existing snapshots overwritten via `--ditto-update`.
-    pruned : list[str]
-        Raw backend keys deleted via `--ditto-prune`.
-    would_prune : list[str]
-        Backend keys a `--ditto-prune` run would delete (shown under
-        `--ditto-prune-dry-run`).
+    pruned : list[PrunedSnapshot]
+        Snapshots deleted via `--ditto-prune`, with the target each was in.
+    would_prune : list[PrunedSnapshot]
+        Snapshots a `--ditto-prune` run would delete (shown under
+        `--ditto-prune-dry-run`), with the target each is in.
     console : Console, optional
         Rich Console to write to. Defaults to stderr.
     """
@@ -78,11 +122,13 @@ def render_session_report(
     if updated:
         lines.append(_label_block(updated, UPDATED, "updated"))
     if pruned:
-        lines.append(_label_block(pruned, PRUNED, "pruned"))
+        lines.append(_pruned_block(pruned, PRUNED, "pruned"))
     if would_prune:
         lines.append(
-            _label_block(
-                would_prune, WOULD_PRUNE, "would prune",
+            _pruned_block(
+                would_prune,
+                WOULD_PRUNE,
+                "would prune",
                 suffix="(use --ditto-prune to delete)",
             )
         )
