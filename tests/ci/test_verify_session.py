@@ -75,6 +75,53 @@ def test_verify_fails_when_a_snapshot_is_missing(pytester):
     assert result.ret != 0
 
 
+def test_verify_names_the_target_a_missing_snapshot_belongs_to(pytester):
+    """A missing key is reported under the target it is absent from."""
+    _seed_lock(pytester)
+    snap_dir = pytester.path / ".ditto"
+    next(p for p in snap_dir.iterdir() if "test_alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*ditto verify: lock drift detected",
+        "*.ditto:",
+        "*missing (recorded in lock, absent from backend):",
+        "*test_alpha*a*test_mod.test_alpha@a~*",
+    ])
+
+
+def test_verify_names_the_test_the_lock_records_a_missing_key_for(pytester):
+    """A missing key the lock knows is named by node id and key, not just its
+    storage name."""
+    _seed_lock(pytester)
+    snap_dir = pytester.path / ".ditto"
+    next(p for p in snap_dir.iterdir() if "test_alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*test_mod.py::test_alpha  a  test_mod.test_alpha@a~*"
+    ])
+
+
+def test_verify_names_the_target_an_orphan_belongs_to(pytester):
+    """An orphan is reported under the target holding it."""
+    lock_path = _seed_lock(pytester)
+    data = json.loads(lock_path.read_text())
+    target = next(iter(data["targets"].values()))
+    target["entries"] = [e for e in target["entries"] if "test_beta" not in e["nodeid"]]
+    lock_path.write_text(json.dumps(data))  # beta now an orphan on the backend
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*.ditto:",
+        "*orphan (in backend, not in lock):",
+        "*test_mod.test_beta@b~*",
+    ])
+
+
 def test_verify_fails_on_orphan_backend_snapshot(pytester):
     """A backend snapshot with no lock entry fails verify."""
     lock_path = _seed_lock(pytester)
