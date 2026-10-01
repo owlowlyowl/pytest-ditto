@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import nullcontext
 
 from ditto._inventory import (
     InventoryError,
@@ -24,6 +25,70 @@ import pytest
 def _write_snapshot(ditto_dir, name, data=b"xx"):
     ditto_dir.mkdir(parents=True, exist_ok=True)
     (ditto_dir / name).write_bytes(data)
+
+
+@pytest.mark.parametrize("lock_state", ["absent", "corrupt", "valid"])
+def test_discovered_symlink_keeps_tracked_and_untracked_files(
+    tmp_path, symlink, lock_state
+):
+    project = tmp_path / "project"
+    scope = project / "a"
+    scope.mkdir(parents=True)
+    target = tmp_path / "outside"
+    entry = LockEntry("b/test_x.py::test_x", "k", "json")
+    tracked = storage_key(entry, "file")
+    orphan = "orphan@k~0123456789abcdef.json"
+    _write_snapshot(target, tracked)
+    _write_snapshot(target, orphan)
+    symlink(scope / ".ditto", target)
+    if lock_state == "valid":
+        write_lockfile(
+            project / "ditto.lock",
+            LockFile(
+                version=LOCKFILE_VERSION,
+                targets={str(target): LockTarget("file", (entry,))},
+            ),
+        )
+    elif lock_state == "corrupt":
+        (project / "ditto.lock").write_text("not json")
+
+    expected_warning = (
+        pytest.warns(DittoWarning, match="unreadable")
+        if lock_state == "corrupt"
+        else nullcontext()
+    )
+    with expected_warning:
+        manifest = build_inventory(scope, live=False)
+
+    assert len(manifest) == 1
+    assert {e.storage_key for e in manifest[0].entries} == {tracked, orphan}
+
+
+def test_scoped_keys_are_combined_for_aliases_of_one_target(tmp_path):
+    scope = tmp_path / "a"
+    scope.mkdir()
+    target = tmp_path / ".shared"
+    entries = [LockEntry("a/test_x.py::test_x", key, "json") for key in ("a", "b")]
+    for entry in entries:
+        _write_snapshot(target, storage_key(entry, "file"))
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json")
+    write_lockfile(
+        tmp_path / "ditto.lock",
+        LockFile(
+            version=LOCKFILE_VERSION,
+            targets={
+                ".shared": LockTarget("file", (entries[0],)),
+                target.as_uri(): LockTarget("file", (entries[1],)),
+            },
+        ),
+    )
+
+    manifest = build_inventory(scope, live=False)
+
+    assert len(manifest) == 1
+    assert {e.storage_key for e in manifest[0].entries} == {
+        storage_key(e, "file") for e in entries
+    }
 
 
 def test_walk_local_reads_real_sizes_including_orphans(tmp_path):
@@ -135,6 +200,60 @@ def test_build_inventory_reads_file_target_outside_requested_test_path(
     assert [item.storage_key for backend in manifest for item in backend.entries] == [
         storage_key(entry, "file")
     ]
+
+
+def test_build_inventory_scopes_shared_local_target_to_owning_tests(tmp_path) -> None:
+    """A shared local target includes only lock entries whose tests are under PATH."""
+    project = tmp_path / "project"
+    (project / "a").mkdir(parents=True)
+    (project / "b").mkdir(parents=True)
+    target = project / ".shared"
+    in_scope = LockEntry(nodeid="a/test_x.py::test_x", key="k", recorder="json")
+    out_of_scope = LockEntry(nodeid="b/test_x.py::test_x", key="k", recorder="json")
+    _write_snapshot(target, storage_key(in_scope, "file"), b"in")
+    _write_snapshot(target, storage_key(out_of_scope, "file"), b"out")
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json", b"orphan")
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={
+            ".shared": LockTarget(scheme="file", entries=(in_scope, out_of_scope)),
+        },
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    keys = [
+        item.storage_key
+        for backend in build_inventory(project / "a", live=False)
+        for item in backend.entries
+    ]
+
+    assert keys == [storage_key(in_scope, "file")]
+
+
+def test_build_inventory_keeps_orphans_when_the_target_directory_is_in_path(
+    tmp_path,
+) -> None:
+    """Untracked local files stay in the inventory when PATH contains the target."""
+    project = tmp_path / "project"
+    project.mkdir()
+    target = project / ".shared"
+    entry = LockEntry(nodeid="a/test_x.py::test_x", key="k", recorder="json")
+    _write_snapshot(target, storage_key(entry, "file"), b"in")
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json", b"orphan")
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={".shared": LockTarget(scheme="file", entries=(entry,))},
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    keys = {
+        item.storage_key
+        for backend in build_inventory(project, live=False)
+        for item in backend.entries
+    }
+
+    assert storage_key(entry, "file") in keys
+    assert "orphan@k~0123456789abcdef.json" in keys
 
 
 def test_lock_remote_yields_unknown_size_entries(tmp_path):
