@@ -18,8 +18,29 @@ from ._diagnostics import _doctor_checks
 from ._display import _render_doctor, _render_recorders, pass_console
 
 
-def _find_ditto_dirs(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob(".ditto") if p.is_dir())
+def _find_ditto_dirs(root: Path) -> tuple[list[Path], list[Path]]:
+    """Return (directories to delete, symlink `.ditto` entries skipped).
+
+    PATH itself is included when it is a `.ditto` directory. Nested `.ditto`
+    directories are dropped because deleting the parent removes them. Symlinks
+    are never followed or scheduled for `rmtree`.
+    """
+    root = root.absolute()
+    skipped: list[Path] = []
+    candidates: list[Path] = []
+    for path in (root, *root.rglob(".ditto")):
+        if path.name != ".ditto":
+            continue
+        if path.is_symlink():
+            skipped.append(path)
+            continue
+        if path.is_dir():
+            candidates.append(path)
+    selected: list[Path] = []
+    for candidate in sorted(candidates):
+        if not any(parent in candidate.parents for parent in selected):
+            selected.append(candidate)
+    return selected, skipped
 
 
 @click.command(name="clean")
@@ -40,7 +61,24 @@ def cmd_clean(console: Console, path: Path, yes: bool):
       ditto clean --yes
       ditto clean tests/ci/ --yes
     """
-    dirs = _find_ditto_dirs(path)
+    if path.is_symlink():
+        raise click.ClickException("Clean PATH must not be a directory symlink.")
+    try:
+        dirs, skipped = _find_ditto_dirs(path)
+    except OSError as exc:
+        raise click.ClickException(
+            f"Could not find snapshot directories: {exc}"
+        ) from exc
+
+    for link in skipped:
+        console.print(
+            Text.assemble(
+                ("  skipped  ", f"bold {MUTED}"),
+                (str(link), PATH),
+                " (symlink)",
+            )
+        )
+
     if not dirs:
         console.print(f"[{MUTED}]No .ditto/ directories found.[/{MUTED}]")
         sys.exit(1)
@@ -55,18 +93,40 @@ def cmd_clean(console: Console, path: Path, yes: bool):
     if not yes:
         click.confirm(click.style("\nProceed?", fg="bright_white"), abort=True)
 
+    removed: list[Path] = []
+    failed: list[tuple[Path, OSError]] = []
     for d in dirs:
-        shutil.rmtree(d)
-        t = Text()
-        t.append("  deleted  ", style=f"bold {PRUNED}")
-        t.append(str(d), style=PATH)
-        console.print(t)
+        try:
+            shutil.rmtree(d)
+        except OSError as exc:
+            failed.append((d, exc))
+            t = Text()
+            t.append("  failed   ", style=f"bold {PRUNED}")
+            t.append(str(d), style=PATH)
+            t.append(f": {exc}", style=MUTED)
+            console.print(t)
+        else:
+            removed.append(d)
+            t = Text()
+            t.append("  deleted  ", style=f"bold {PRUNED}")
+            t.append(str(d), style=PATH)
+            console.print(t)
 
-    n = len(dirs)
+    n = len(removed)
     console.print(
         f"\n[bold {CREATED}]Removed {n} "
         f".ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
     )
+    if failed:
+        names = ", ".join(str(path) for path, _ in failed)
+        console.print(
+            Text(
+                f"Could not remove {len(failed)} "
+                f".ditto/ director{'y' if len(failed) == 1 else 'ies'}: {names}",
+                style=PRUNED,
+            )
+        )
+        sys.exit(1)
 
 
 @click.command(name="recorders")
