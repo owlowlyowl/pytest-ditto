@@ -137,6 +137,60 @@ def test_build_inventory_reads_file_target_outside_requested_test_path(
     ]
 
 
+def test_build_inventory_scopes_shared_local_target_to_owning_tests(tmp_path) -> None:
+    """A shared local target includes only lock entries whose tests are under PATH."""
+    project = tmp_path / "project"
+    (project / "a").mkdir(parents=True)
+    (project / "b").mkdir(parents=True)
+    target = project / ".shared"
+    in_scope = LockEntry(nodeid="a/test_x.py::test_x", key="k", recorder="json")
+    out_of_scope = LockEntry(nodeid="b/test_x.py::test_x", key="k", recorder="json")
+    _write_snapshot(target, storage_key(in_scope, "file"), b"in")
+    _write_snapshot(target, storage_key(out_of_scope, "file"), b"out")
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json", b"orphan")
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={
+            ".shared": LockTarget(scheme="file", entries=(in_scope, out_of_scope)),
+        },
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    keys = [
+        item.storage_key
+        for backend in build_inventory(project / "a", live=False)
+        for item in backend.entries
+    ]
+
+    assert keys == [storage_key(in_scope, "file")]
+
+
+def test_build_inventory_keeps_orphans_when_the_target_directory_is_in_path(
+    tmp_path,
+) -> None:
+    """Untracked local files stay in the inventory when PATH contains the target."""
+    project = tmp_path / "project"
+    project.mkdir()
+    target = project / ".shared"
+    entry = LockEntry(nodeid="a/test_x.py::test_x", key="k", recorder="json")
+    _write_snapshot(target, storage_key(entry, "file"), b"in")
+    _write_snapshot(target, "orphan@k~0123456789abcdef.json", b"orphan")
+    lock = LockFile(
+        version=LOCKFILE_VERSION,
+        targets={".shared": LockTarget(scheme="file", entries=(entry,))},
+    )
+    write_lockfile(project / "ditto.lock", lock)
+
+    keys = {
+        item.storage_key
+        for backend in build_inventory(project, live=False)
+        for item in backend.entries
+    }
+
+    assert storage_key(entry, "file") in keys
+    assert "orphan@k~0123456789abcdef.json" in keys
+
+
 def test_lock_remote_yields_unknown_size_entries(tmp_path):
     """Remote lock targets become entries with size/mtime None."""
     lock = LockFile(
