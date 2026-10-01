@@ -33,7 +33,11 @@ ditto prune --shared
   `ditto.lock`.
 - Deletes each snapshot the lock doesn't record, under the test modules the
   suite owns. A snapshot created during the same run is never deleted; run
-  `ditto lock` to record it.
+  `ditto lock` to record it. Snapshots this run created but the lock doesn't
+  record, and keys the lock records but the backend lacks, are each reported
+  against the target that holds them.
+- The session report groups each deleted snapshot under the target it was
+  deleted from, so a suite with several backends can tell them apart.
 - Needs a `ditto.lock`; without one it deletes nothing and fails.
 - Fails the run if it can't finish: a target it can't read (with `--check`
   too), or a snapshot it couldn't delete. It still processes the other

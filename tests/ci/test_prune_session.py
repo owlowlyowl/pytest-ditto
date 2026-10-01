@@ -60,6 +60,62 @@ def test_gamma(snapshot):
     assert any("test_gamma" in f for f in _backend_files(pytester))
 
 
+def test_prune_names_the_target_an_unsynced_snapshot_is_in(pytester):
+    """The unsynced warning says which target holds the key, so a multi-target
+    run can tell them apart."""
+    _seed_lock(pytester)
+    pytester.makepyfile(
+        test_mod=PRUNE_MODULE
+        + """
+def test_gamma(snapshot):
+    assert snapshot(3, key="c") == 3
+"""
+    )
+
+    result = pytester.runpytest_subprocess("--ditto-prune")
+
+    result.stdout.fnmatch_lines([
+        "*ditto prune: '.ditto': test_mod.test_gamma@c~* was produced this run "
+        "but is not in the lock; run `ditto lock`."
+    ])
+
+
+def _add_lock_entry(lock_path, nodeid, key, recorder):
+    """Add a lock entry for a test the suite no longer runs."""
+    data = json.loads(lock_path.read_text())
+    target = next(iter(data["targets"].values()))
+    target["entries"].append({"nodeid": nodeid, "key": key, "recorder": recorder})
+    target["entries"].sort(key=lambda e: (e["nodeid"], e["key"], e["recorder"]))
+    lock_path.write_text(json.dumps(data))
+
+
+def test_prune_names_the_target_a_missing_snapshot_belongs_to(pytester):
+    """The missing warning says which target lacks the key the lock records."""
+    _add_lock_entry(_seed_lock(pytester), "test_gone.py::test_gone", "k", "json")
+
+    result = pytester.runpytest_subprocess("--ditto-prune")
+
+    result.stdout.fnmatch_lines([
+        "*ditto prune: '.ditto': test_gone.test_gone@k~* is recorded in the lock "
+        "but absent from the backend."
+    ])
+
+
+def test_prune_report_names_the_target_each_pruned_key_came_from(pytester):
+    """The session report groups a pruned key under the target it was deleted
+    from."""
+    _drop_beta_from_lock(_seed_lock(pytester))
+
+    result = pytester.runpytest_subprocess("--ditto-prune")
+
+    result.stderr.fnmatch_lines([
+        "*ditto snapshot report*",
+        "*pruned*1*",
+        "*.ditto*",
+        "*test_mod.test_beta@b~*",
+    ])
+
+
 def test_prune_refuses_when_no_lockfile_exists(pytester):
     """Prune requires a committed lock; with none it refuses (non-zero)."""
     pytester.makepyfile(test_mod=PRUNE_MODULE)

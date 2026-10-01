@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence, Set
+from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
 
 import pytest
 
@@ -25,6 +25,7 @@ from ._targets import is_checkout_local
 
 __all__ = (
     "Orphan",
+    "TargetDrift",
     "FailedDeletion",
     "PruneResult",
     "run_verify",
@@ -37,7 +38,8 @@ __all__ = (
 )
 
 
-class Orphan(NamedTuple):
+@dataclass(frozen=True)
+class Orphan:
     """A backend key under the suite's modules that `ditto.lock` doesn't record."""
 
     target_id: str
@@ -45,14 +47,32 @@ class Orphan(NamedTuple):
     key: str
 
 
-class FailedDeletion(NamedTuple):
+@dataclass(frozen=True)
+class TargetDrift:
+    """One target's lock drift, kept per target so the report can name it.
+
+    Two targets can hold the same storage key, so a flat list of keys is
+    ambiguous: only the target says which backend needs attention. `scheme`
+    identifies how the target stores its keys.
+    """
+
+    target_id: str
+    scheme: str
+    missing: list[str]
+    orphan: list[str]
+    unsynced: list[str]
+
+
+@dataclass(frozen=True)
+class FailedDeletion:
     """An orphan whose deletion raised, and the error it raised."""
 
     orphan: Orphan
     reason: str
 
 
-class PruneResult(NamedTuple):
+@dataclass(frozen=True)
+class PruneResult:
     """The orphans a prune deleted and those it failed to delete."""
 
     deleted: list[Orphan]
@@ -66,8 +86,8 @@ def _classify_target(
     lock: LockFile | None,
     session_modules: set[str],
     created_keys: set[str],
-) -> tuple[list[str], list[str], list[str]]:
-    """Classify one target's drift as (missing, orphan, unsynced) storage keys.
+) -> TargetDrift:
+    """Classify one target's drift as its missing, orphan and unsynced storage keys.
 
     Shared by verify (reports + fails) and prune (deletes orphans, warns on the
     rest). `orphan` is safe to delete; `unsynced` (created this run, not in lock)
@@ -79,7 +99,13 @@ def _classify_target(
     lock_modules = {split_nodeid(e.nodeid)[0] for e in entries}
     owned = owned_prefixes(session_modules | lock_modules, scheme)
     result = diff_backend(lock_keys, set(backend), owned, created_keys)
-    return list(result.missing), list(result.orphan), list(result.unsynced)
+    return TargetDrift(
+        target_id,
+        scheme,
+        list(result.missing),
+        list(result.orphan),
+        list(result.unsynced),
+    )
 
 
 def _session_target_maps(
@@ -103,16 +129,58 @@ def _verify_report_error(message: str) -> None:
     print(f"ditto verify: {message}")
 
 
-def _verify_report_drift(
-    missing: list[str], orphan: list[str], unsynced: list[str]
-) -> None:
+_DRIFT_LABELS = (
+    ("missing", "missing (recorded in lock, absent from backend)"),
+    ("orphan", "orphan (in backend, not in lock)"),
+    ("unsynced", "unsynced (produced this run, not in lock; run `ditto lock`)"),
+)
+
+
+def _target_identities(
+    lock: LockFile, target_id: str, scheme: str
+) -> dict[str, LockEntry]:
+    """The storage keys `lock` records in one target, mapped to their entry.
+
+    A stored name shortens and replaces characters of the test name and key, so
+    the lock is where their exact values are.
+    """
+    target = lock.targets.get(target_id)
+    if target is None:
+        return {}
+    return {storage_key(entry, scheme): entry for entry in target.entries}
+
+
+def _drift_key_label(key: str, identities: Mapping[str, LockEntry]) -> str:
+    """Name a drifted key by the test the lock records, else by its storage name.
+
+    The lock holds no entry for an orphan or an unsynced key — that is what
+    makes them drift — so those are named by storage name alone.
+    """
+    entry = identities.get(key)
+    if entry is None:
+        return key
+    return f"{entry.nodeid}  {entry.key}  {key}"
+
+
+def _drift_lines(drift: TargetDrift, identities: Mapping[str, LockEntry]) -> list[str]:
+    """The report lines for one target's drift, indented under the target's id."""
+    lines = [f"  {drift.target_id}:"]
+    for field, label in _DRIFT_LABELS:
+        keys = sorted(getattr(drift, field))
+        if keys:
+            lines.append(f"    {label}:")
+            lines.extend(f"      {_drift_key_label(k, identities)}" for k in keys)
+    return lines
+
+
+def _verify_report_drift(drift: list[TargetDrift], lock: LockFile) -> None:
+    """Print each target's drift, grouped by the target that holds it."""
     print("ditto verify: lock drift detected")
-    for k in sorted(missing):
-        print(f"  missing (recorded in lock, absent from backend): {k}")
-    for k in sorted(orphan):
-        print(f"  orphan (in backend, not in lock): {k}")
-    for k in sorted(unsynced):
-        print(f"  unsynced (produced this run, not in lock; run `ditto lock`): {k}")
+    for target_drift in drift:
+        identities = _target_identities(
+            lock, target_drift.target_id, target_drift.scheme
+        )
+        print("\n".join(_drift_lines(target_drift, identities)))
 
 
 def run_verify(session: pytest.Session) -> None:
@@ -144,12 +212,10 @@ def run_verify(session: pytest.Session) -> None:
             stacklevel=1,
         )
 
-    all_missing: list[str] = []
-    all_orphan: list[str] = []
-    all_unsynced: list[str] = []
+    drift: list[TargetDrift] = []
     for target_id, target in tracker.target_backends.items():
         try:
-            missing, orphan, unsynced = _classify_target(
+            target_drift = _classify_target(
                 target_id,
                 target.scheme,
                 target.backend,
@@ -161,12 +227,11 @@ def run_verify(session: pytest.Session) -> None:
             _verify_report_error(f"could not verify {target_id!r}: {exc}")
             fail_session(session)
             continue
-        all_missing.extend(missing)
-        all_orphan.extend(orphan)
-        all_unsynced.extend(unsynced)
+        drift.append(target_drift)
 
-    if all_missing or all_orphan or all_unsynced:
-        _verify_report_drift(all_missing, all_orphan, all_unsynced)
+    drifted = [d for d in drift if d.missing or d.orphan or d.unsynced]
+    if drifted:
+        _verify_report_drift(drifted, lock)
         fail_session(session)
 
 
@@ -212,7 +277,7 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
     orphans: list[Orphan] = []
     for target_id, target in tracker.target_backends.items():
         try:
-            missing, orphan, unsynced = _classify_target(
+            drift = _classify_target(
                 target_id,
                 target.scheme,
                 target.backend,
@@ -224,21 +289,21 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
             _prune_report_error(f"could not read {target_id!r}: {exc}")
             fail_session(session)
             continue
-        for key in unsynced:
+        for key in sorted(drift.unsynced):
             warnings.warn(
-                f"ditto prune: {key} was produced this run but is not in the lock; "
-                "run `ditto lock`.",
+                f"ditto prune: {target_id!r}: {key} was produced this run but is "
+                "not in the lock; run `ditto lock`.",
                 category=DittoWarning,
                 stacklevel=1,
             )
-        for key in missing:
+        for key in sorted(drift.missing):
             warnings.warn(
-                f"ditto prune: {key} is recorded in the lock but absent from the "
-                "backend.",
+                f"ditto prune: {target_id!r}: {key} is recorded in the lock but "
+                "absent from the backend.",
                 category=DittoWarning,
                 stacklevel=1,
             )
-        orphans.extend(Orphan(target_id, target.backend, key) for key in orphan)
+        orphans.extend(Orphan(target_id, target.backend, key) for key in drift.orphan)
     return orphans
 
 

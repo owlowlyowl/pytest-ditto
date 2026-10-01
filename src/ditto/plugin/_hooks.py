@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from ditto._lockfile import LOCKFILE_NAME
-from ditto._report import render_session_report
+from ditto._report import PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
 from ditto.snapshot import SnapshotMode
@@ -137,8 +137,8 @@ def pytest_runtest_makereport(
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     options = run_options(config)
-    pruned: list[str] = []
-    would_prune: list[str] = []
+    pruned: list[PrunedSnapshot] = []
+    would_prune: list[PrunedSnapshot] = []
 
     if not is_xdist_worker(config) and not options.introspect_path:
         if xdist_is_distributing(config):
@@ -174,9 +174,15 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                         refuse_shared_prune(session, shared)
                 result = delete_orphans(orphans)
                 report_failed_deletions(session, result)
-                pruned = [orphan.key for orphan in result.deleted]
+                pruned = [
+                    PrunedSnapshot(orphan.target_id, orphan.key)
+                    for orphan in result.deleted
+                ]
             case PruneMode.DRY_RUN:
-                would_prune = [orphan.key for orphan in find_orphans(session)]
+                would_prune = [
+                    PrunedSnapshot(orphan.target_id, orphan.key)
+                    for orphan in find_orphans(session)
+                ]
             case PruneMode.OFF:
                 pass
 
