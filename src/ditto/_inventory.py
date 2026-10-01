@@ -193,16 +193,47 @@ def _read_ditto_dir(directory: Path) -> list[ManifestEntry]:
     return entries
 
 
+def _locked_keys_under(
+    directory: Path,
+    lock: LockFile,
+    rootdir: Path,
+    base: Path,
+) -> set[str]:
+    """Storage keys the lock records in `directory` for tests under `base`."""
+    keys: set[str] = set()
+    for target_id, target in lock.targets.items():
+        if target.scheme != "file":
+            continue
+        if _file_target_path(target_id, rootdir) != directory:
+            continue
+        for entry in target.entries:
+            if _nodeid_under(entry.nodeid, rootdir, base):
+                keys.add(storage_key(entry, target.scheme))
+    return keys
+
+
 def _walk_local(path: Path, lock: LockFile | None, rootdir: Path | None) -> Manifest:
     """Inventory local `file` snapshots from disk under `path`.
 
     One `BackendManifest` per non-empty `.ditto/` directory located by
-    `_local_ditto_dirs`; each file is stat'd for real size and mtime, so
-    on-disk orphans absent from the lock still appear.
+    `_local_ditto_dirs`; each file is stat'd for real size and mtime.
+
+    When the directory itself is under `path`, on-disk orphans absent from the
+    lock still appear. When it was selected only because some owning test is
+    under `path`, only lock entries whose tests are under `path` are kept —
+    the same per-entry rule `_lock_remote` uses.
     """
+    base = path.resolve()
     backends: Manifest = []
     for directory in _local_ditto_dirs(path, lock, rootdir):
         entries = _read_ditto_dir(directory)
+        if not _is_within(directory, base):
+            in_scope = (
+                _locked_keys_under(directory, lock, rootdir, base)
+                if lock is not None and rootdir is not None
+                else set()
+            )
+            entries = [entry for entry in entries if entry.storage_key in in_scope]
         if entries:
             backends.append(BackendManifest(location=str(directory), entries=entries))
     return backends
