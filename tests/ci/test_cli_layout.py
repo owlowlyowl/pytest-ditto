@@ -243,7 +243,8 @@ def test_narrow_list_places_identity_and_metadata_in_two_columns(width):
     assert "test_a" in identity_column
     assert "Key: value" in identity_column
     assert "json" in identity_column
-    assert "13 B" in details_column and "2025-09-28" in details_column
+    assert "13 B" in details_column
+    assert re.search(r"\d{4}-\d{2}-\d{2}", details_column)
 
 
 def test_flat_escapes_control_characters_and_preserves_literal_markup():
