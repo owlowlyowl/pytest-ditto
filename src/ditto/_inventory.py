@@ -124,9 +124,10 @@ def _local_ditto_dirs(
 ) -> dict[Path, set[str] | None]:
     """Locate every `.ditto` directory to inventory under `path`.
 
-    Walks `path` for `.ditto` directories and adds any `file`-scheme target
-    directory recorded in `lock` whose directory or owning tests fall under
-    `path` (deduplicated by resolved path, insertion-ordered for stable output).
+    Walks `path` for `.ditto` directories (including `path` itself when it is
+    one) and adds any `file`-scheme target directory recorded in `lock` whose
+    directory or owning tests fall under `path` (deduplicated by resolved path,
+    insertion-ordered for stable output).
 
     Parameters
     ----------
@@ -147,7 +148,9 @@ def _local_ditto_dirs(
     """
     base = path.resolve()
     dirs: dict[Path, set[str] | None] = dict.fromkeys(
-        d.resolve() for d in base.rglob(".ditto") if d.is_dir()
+        d.resolve()
+        for d in (base, *base.rglob(".ditto"))
+        if d.name == ".ditto" and d.is_dir()
     )
     if lock is not None and rootdir is not None:
         for target_id, target in lock.targets.items():
