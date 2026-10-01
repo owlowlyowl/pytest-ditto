@@ -7,7 +7,8 @@ import re
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ditto.cli import _build_colour_map, _human_size, _parse_snapshot_name
+from ditto.cli._data import _human_size, _parse_snapshot_name
+from ditto.cli._display import _build_colour_map
 from ditto.recorders._contract import NAME_PATTERN
 from ditto.snapshot import SnapshotKey, _flat_key
 
