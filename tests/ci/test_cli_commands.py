@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -345,6 +346,29 @@ def test_clean_exits_one_when_no_ditto_dirs_exist(tmp_path) -> None:
     assert result.exit_code == 1
 
 
+def test_inventory_command_prints_to_the_console_given_as_the_context_object(
+    tmp_path,
+) -> None:
+    """An inventory command writes to the Console passed as Click's context object."""
+    buffer = StringIO()
+
+    CliRunner().invoke(cmd_status, [str(tmp_path)], obj=Console(file=buffer))
+
+    assert "No snapshot files found." in buffer.getvalue()
+
+
+def test_maintenance_command_prints_to_the_console_given_as_the_context_object(
+    tmp_path,
+) -> None:
+    """A maintenance command writes to the Console passed as Click's context
+    object."""
+    buffer = StringIO()
+
+    CliRunner().invoke(cmd_clean, [str(tmp_path)], obj=Console(file=buffer))
+
+    assert "No .ditto/ directories found." in buffer.getvalue()
+
+
 def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
     """ditto recorders exits 1 when no recorder entry points are registered."""
     with patch("ditto.cli._data.importlib.metadata.entry_points", return_value=[]):
@@ -412,7 +436,7 @@ def test_list_default_does_not_run_introspect(tmp_path) -> None:
 
 
 def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
-    pytester, monkeypatch
+    pytester,
 ) -> None:
     """A name's label replaces `:`; `ditto list` shows the exact node id and key
     from the lock instead, and marks a file the lock doesn't record."""
@@ -428,9 +452,8 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
     pytester.runpytest_subprocess().assert_outcomes(passed=1)
     orphan_name = "test_mod.test_old@v~0123abcd0123abcd.json"
     (pytester.path / ".ditto" / orphan_name).write_text("1")
-    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
-    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)], obj=Console(width=200))
 
     assert result.exit_code == 0, result.output
     locked = next(line for line in result.output.splitlines() if "test_get" in line)
@@ -441,7 +464,7 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
     assert "not in lock" in orphan
 
 
-def test_list_shows_a_bracketed_key_literally(pytester, monkeypatch) -> None:
+def test_list_shows_a_bracketed_key_literally(pytester) -> None:
     """A key that looks like Rich markup is shown as written, not parsed."""
     pytester.makepyfile(
         test_mod="""
@@ -451,16 +474,15 @@ def test_list_shows_a_bracketed_key_literally(pytester, monkeypatch) -> None:
         """
     )
     pytester.runpytest_subprocess().assert_outcomes(passed=1)
-    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
-    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)], obj=Console(width=200))
 
     assert result.exit_code == 0, result.output
     assert "[/]" in result.output
     assert "[bold]x" in result.output
 
 
-def test_list_checks_the_lock_per_target(pytester, monkeypatch) -> None:
+def test_list_checks_the_lock_per_target(pytester) -> None:
     """A file named like a locked snapshot, but under another target, is marked
     as not in the lock."""
     pytester.makepyfile(
@@ -474,9 +496,8 @@ def test_list_checks_the_lock_per_target(pytester, monkeypatch) -> None:
     other = pytester.mkdir("other") / ".ditto"
     other.mkdir()
     (other / locked.name).write_bytes(locked.read_bytes())
-    monkeypatch.setattr("ditto.cli._inventory.console", Console(width=200))
 
-    result = CliRunner().invoke(cmd_list, [str(pytester.path)])
+    result = CliRunner().invoke(cmd_list, [str(pytester.path)], obj=Console(width=200))
 
     assert result.exit_code == 0, result.output
     rows = [line for line in result.output.splitlines() if "test_t" in line]

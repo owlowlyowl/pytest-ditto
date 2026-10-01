@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
+import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -40,6 +41,11 @@ from ._data import (
 )
 from ._diagnostics import CheckResult, LintIssue
 from ._summary import SnapshotStats, _format_size_summary, _sum_sizes
+
+
+# Passes a command the Console given as Click's context object, creating one
+# that writes to stdout when the caller gave none.
+pass_console = click.make_pass_decorator(Console, ensure=True)
 
 
 _RECORDER_PALETTE = (
