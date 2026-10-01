@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import json
+import os
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
+from pathlib import Path
 
 import click
-from rich.console import Console
+from rich import box
+from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from .._inventory import location_key
 from .._lockfile import LockEntry
-from .._manifest import BackendManifest, Manifest
+from .._manifest import BackendManifest, Manifest, ManifestEntry
 from .._theme import (
     CREATED,
     UPDATED,
@@ -25,7 +29,6 @@ from .._theme import (
     ACCENT,
     PATH,
     TEXT,
-    SUBTEXT1,
     TEAL,
     SKY,
     MAUVE,
@@ -38,6 +41,7 @@ from ._data import (
     _mark_for,
     _parse_snapshot_name,
     _recorder_name,
+    _snapshot_identity,
 )
 from ._diagnostics import CheckResult, LintIssue
 from ._summary import SnapshotStats, _format_size_summary, _sum_sizes
@@ -47,6 +51,12 @@ from ._summary import SnapshotStats, _format_size_summary, _sum_sizes
 # that writes to stdout when the caller gave none.
 pass_console = click.make_pass_decorator(Console, ensure=True)
 
+
+# Below this width a snapshot's key and recorder no longer fit beside its
+# identity, so the metadata moves into a single cell underneath it.
+NARROW = 60
+# Below this width the size and the date share a cell instead of a column each.
+COMPACT = 80
 
 _RECORDER_PALETTE = (
     ACCENT,  # peach
@@ -68,11 +78,48 @@ def _build_colour_map(recorder_names: Iterable[str]) -> dict[str, str]:
     }
 
 
+def _table(title: str, **kwargs: object) -> Table:
+    """A table with this project's frame and a literal, left-aligned title.
+
+    Columns holding a name set `overflow="fold"`, so a long one wraps in the
+    middle rather than being truncated from the end: the part that tells two
+    rows apart stays visible.
+    """
+    return Table(
+        title=Text(title, style=f"bold {TITLE}"),
+        title_justify="left",
+        box=box.ROUNDED,
+        border_style=MUTED,
+        header_style=f"bold {HEADER}",
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def _heading_row(label: Text, column_count: int) -> tuple[RenderableType, ...]:
+    """A row holding a group heading in the first column and nothing elsewhere."""
+    return (label, *(Text("") for _ in range(column_count - 1)))
+
+
+def _location_label(location: str) -> Text:
+    """A target relative to cwd, unless it is on another drive or is remote.
+
+    A local directory is shown as the path someone would type; a remote URI is
+    shown whole, because there is nothing to shorten it relative to.
+    """
+    if "://" in location and not location.startswith("file://"):
+        return Text(location, style=PATH, overflow="fold")
+    try:
+        relative = os.path.relpath(location_key(location), Path.cwd())
+    except ValueError:
+        relative = location_key(location)
+    return Text(relative, style=PATH, overflow="fold")
+
+
 def _test_and_key(
     location: str,
     storage_key: str,
     identities: Mapping[tuple[str, str], LockEntry] | None,
-) -> tuple[Text, Text]:
+) -> tuple[Text, Text, LockEntry | None]:
     """The test's node id and key from the lock, else the name's labels.
 
     Looked up by the backend's location as well as the name: the same name
@@ -83,11 +130,91 @@ def _test_and_key(
     """
     label, key, _ = _parse_snapshot_name(storage_key)
     if identities is None:
-        return Text(label), Text(key)
-    entry = identities.get((location_key(location), storage_key))
+        return Text(label, overflow="fold"), Text(key), None
+    entry = _snapshot_identity(location, storage_key, identities)
     if entry is not None:
-        return Text(entry.nodeid), Text(entry.key)
-    return Text.assemble(label, ("  not in lock", MUTED)), Text(key)
+        return Text(entry.nodeid, overflow="fold"), Text(entry.key), entry
+    return Text.assemble((label, TEXT), ("  not in lock", MUTED)), Text(key), None
+
+
+def _modified(modified: float | None) -> str:
+    """A snapshot's last-modified date, or a dash when the backend reports none."""
+    if modified is None:
+        return "—"
+    return datetime.fromtimestamp(modified).strftime("%Y-%m-%d")
+
+
+def _metadata_cells(entry: ManifestEntry, compact: bool) -> list[RenderableType]:
+    """A snapshot's size and date, as one cell or two depending on the width."""
+    size = Text(_human_size(entry.size_bytes), style=MUTED, no_wrap=True)
+    date = Text(_modified(entry.modified), style=MUTED, no_wrap=True)
+    if not compact:
+        return [size, date]
+    if date.plain == "—":
+        return [size]
+    return [Text.assemble((size.plain, MUTED), "\n", (date.plain, MUTED))]
+
+
+def _branch(label: Text, last: bool) -> Table:
+    """A tree branch: a `├─` or `└─` marker beside one snapshot's name."""
+    grid = Table.grid(padding=0)
+    grid.add_column(width=3, no_wrap=True)
+    grid.add_column(overflow="fold")
+    grid.add_row(Text("└─ " if last else "├─ ", style=MUTED), label)
+    return grid
+
+
+def _by_test_file(
+    entries: Sequence[ManifestEntry],
+    location: str,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+) -> list[tuple[str, list[tuple[Text, Text, ManifestEntry]]]]:
+    """Group one target's snapshots by the test file the lock records them in.
+
+    Only the first `::` of a node id is split off: a parametrize ID can contain
+    `::`, slashes, brackets and dots of its own. A snapshot the lock doesn't
+    record has no file to group it under, so it keeps an empty parent and is
+    listed after the files.
+    """
+    groups: dict[str, list[tuple[Text, Text, ManifestEntry]]] = {}
+    for entry in sorted(entries, key=lambda e: e.storage_key):
+        test, key, locked = _test_and_key(location, entry.storage_key, identities)
+        parent, separator, leaf = (
+            locked.nodeid.partition("::") if locked else ("", "", "")
+        )
+        if locked:
+            test = Text(leaf, overflow="fold")
+        groups.setdefault(parent, []).append((test, key, entry))
+    return sorted(groups.items(), key=lambda item: (item[0] == "", item[0]))
+
+
+def _render_flat_snapshots(
+    manifest: Manifest,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    console: Console,
+) -> None:
+    """Write one JSON object per physical line, independent of terminal width.
+
+    Unknown identities stay null rather than guessing from lossy storage labels.
+    Every row carries its target and storage key so it is useful on its own.
+    """
+    for backend in sorted(manifest, key=lambda b: b.location):
+        for entry in sorted(backend.entries, key=lambda e: e.storage_key):
+            identity = _snapshot_identity(
+                backend.location, entry.storage_key, identities
+            )
+            _, _, ext = _parse_snapshot_name(entry.storage_key)
+            record = {
+                "target": location_key(backend.location),
+                "nodeid": identity.nodeid if identity else None,
+                "key": identity.key if identity else None,
+                "recorder": identity.recorder if identity else ext.lstrip(".") or None,
+                "storage_key": entry.storage_key,
+                "size_bytes": entry.size_bytes,
+                "modified": entry.modified,
+                "in_lock": identity is not None if identities is not None else None,
+            }
+            console.out(json.dumps(record), highlight=False)
 
 
 def _render_snapshots(
@@ -95,131 +222,195 @@ def _render_snapshots(
     identities: Mapping[tuple[str, str], LockEntry] | None,
     infos: list[RecorderInfo],
     console: Console,
+    *,
+    flat: bool = False,
 ) -> None:
-    """Print a table of every snapshot in the manifest."""
-    em = _ext_map(infos)
-    colour_map = _build_colour_map(info.name for info in infos)
+    """Print every snapshot in the manifest, grouped by target and test file.
 
-    table = Table(
-        title=f"[bold {TITLE}]ditto snapshots[/bold {TITLE}]",
-        border_style=MUTED,
-        header_style=f"bold {HEADER}",
-        show_header=True,
+    The grouped layout drops the repeated target and file path so the part that
+    tells two rows apart — the test and its key — keeps the width. `flat` writes
+    JSON Lines with complete identities and targets for scripts.
+    """
+    if flat:
+        _render_flat_snapshots(manifest, identities, console)
+        return
+    ext_map = _ext_map(infos)
+    colours = _build_colour_map(
+        _recorder_name(_parse_snapshot_name(e.storage_key)[2], ext_map)
+        for backend in manifest
+        for e in backend.entries
     )
-    table.add_column("Test", style=TEXT)
-    table.add_column("Key", style=SUBTEXT1)
-    table.add_column("Recorder")
-    table.add_column("Size", justify="right", style=MUTED)
-    table.add_column("Modified", style=MUTED)
 
-    rows = [(b.location, e) for b in manifest for e in b.entries]
-    for location, entry in rows:
-        _, _, ext = _parse_snapshot_name(entry.storage_key)
-        recorder_name = _recorder_name(ext, em)
-        modified = (
-            datetime.fromtimestamp(entry.modified).strftime("%Y-%m-%d")
-            if entry.modified is not None
-            else "—"
+    narrow = console.width < NARROW
+    compact = console.width < COMPACT
+    table = _table("ditto snapshots")
+    table.add_column("Target / test", style=TEXT, overflow="fold", ratio=3)
+    if not narrow:
+        table.add_column("Key", overflow="fold", ratio=1)
+        table.add_column("Recorder", overflow="fold")
+    if compact:
+        table.add_column("Details", style=MUTED, overflow="fold")
+    else:
+        table.add_column("Size", justify="right", style=MUTED, no_wrap=True)
+        table.add_column("Modified", style=MUTED, no_wrap=True)
+
+    for backend in sorted(manifest, key=lambda b: b.location):
+        if not backend.entries:
+            continue
+        target = _location_label(backend.location)
+        target.stylize("bold")
+        table.add_row(*_heading_row(target, len(table.columns)))
+        for parent, rows in _by_test_file(
+            backend.entries, backend.location, identities
+        ):
+            if parent:
+                table.add_row(
+                    *_heading_row(
+                        Text(parent, style=PATH, overflow="fold"),
+                        len(table.columns),
+                    )
+                )
+            for index, (test, key, entry) in enumerate(rows):
+                label: RenderableType = _branch(test, index == len(rows) - 1)
+                _, _, ext = _parse_snapshot_name(entry.storage_key)
+                recorder = _recorder_name(ext, ext_map)
+                recorder_text = Text(
+                    recorder or "unknown",
+                    style=colours.get(recorder, MUTED),
+                    overflow="fold",
+                )
+                cells: list[RenderableType]
+                if narrow:
+                    label = Group(
+                        label, Text.assemble(("Key: ", MUTED), key), recorder_text
+                    )
+                    cells = []
+                else:
+                    cells = [key, recorder_text]
+                table.add_row(label, *cells, *_metadata_cells(entry, compact))
+        table.add_section()
+
+    count = sum(len(b.entries) for b in manifest)
+    targets = sum(1 for b in manifest if b.entries)
+    table.caption = Text(
+        f"{count} snapshot{'' if count == 1 else 's'} · "
+        f"{targets} target{'' if targets == 1 else 's'}",
+        style=MUTED,
+    )
+    table.caption_justify = "left"
+    console.print(table)
+
+
+def render_stats(
+    stats: SnapshotStats,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    console: Console,
+) -> None:
+    """Render a SnapshotStats value as the inventory's one summary.
+
+    Totals, the per-recorder breakdown, and the oldest and newest snapshots
+    named the way `ditto list` names them, so a figure isn't spread over two
+    commands.
+    """
+    colour_map = _build_colour_map(stats.by_recorder.keys())
+
+    breakdown = Table(box=None, padding=(0, 1), show_header=False)
+    breakdown.add_column("Recorder", overflow="fold")
+    breakdown.add_column("Snapshots", justify="right")
+    breakdown.add_column("Size", justify="right", style=MUTED, no_wrap=True)
+    for name, recorder in sorted(stats.by_recorder.items()):
+        breakdown.add_row(
+            Text(name or "unknown", style=colour_map.get(name, MUTED)),
+            str(recorder.count),
+            _format_size_summary(recorder.size),
         )
-        test, key = _test_and_key(location, entry.storage_key, identities)
-        table.add_row(
-            test,
-            key,
-            Text(recorder_name, style=colour_map.get(recorder_name, MUTED)),
-            _human_size(entry.size_bytes),
-            modified,
+
+    content: list[RenderableType] = [
+        Text.assemble(
+            (str(stats.total_count), f"bold {TEXT}"),
+            (" snapshots  ·  ", MUTED),
+            (_format_size_summary(stats.total_size), f"bold {TEXT}"),
+        ),
+        Text(),
+        breakdown,
+    ]
+    for label, extreme in (("Oldest", stats.oldest), ("Newest", stats.newest)):
+        if extreme is None:
+            continue
+        content.append(Text())
+        content.append(
+            Text.assemble(
+                (f"{label}  ", f"bold {MUTED}"),
+                (datetime.fromtimestamp(extreme.modified).strftime("%Y-%m-%d"), MUTED),
+            )
         )
+        content.append(_location_label(extreme.location))
+        content.append(
+            Text(
+                _identity_label(extreme.location, extreme.storage_key, identities),
+                style=PATH,
+                overflow="fold",
+            )
+        )
+
+    console.print(
+        Panel(
+            Group(*content),
+            title=Text("ditto status", style=f"bold {TITLE}"),
+            title_align="left",
+            border_style=MUTED,
+            expand=False,
+        )
+    )
+
+
+def _identity_label(
+    location: str,
+    storage_key: str,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+) -> str:
+    """The exact test, key and recorder, else the complete storage name."""
+    entry = _snapshot_identity(location, storage_key, identities)
+    if entry is None:
+        return storage_key
+    return f"{entry.nodeid}  {entry.key}  {entry.recorder}"
+
+
+def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
+    """Print the registered recorders, with the identifier only when it differs.
+
+    The identifier is `.` + the name for every recorder the plugin contract
+    allows, so a column of it would only cost width. One that doesn't follow
+    that form still shows it.
+    """
+    colour_map = _build_colour_map(info.name for info in infos)
+    show_identifier = any(i.identifier != f".{i.name}" for i in infos)
+
+    table = _table("registered recorders")
+    table.add_column("Name", style=TEXT, overflow="fold")
+    table.add_column("Mark", overflow="fold")
+    if show_identifier:
+        table.add_column("Identifier", overflow="fold")
+    table.add_column("Source", style=MUTED, overflow="fold")
+
+    for info in sorted(infos, key=lambda i: i.name):
+        row: list[RenderableType] = [
+            Text(info.name, style=colour_map.get(info.name, MUTED)),
+            Text(_mark_for(info.name)),
+        ]
+        if show_identifier:
+            row.append(Text(info.identifier))
+        row.append(Text(info.package))
+        table.add_row(*row)
 
     console.print(table)
 
 
-def render_stats(stats: SnapshotStats, console: Console) -> None:
-    """Render a SnapshotStats value as a Rich panel."""
-    colour_map = _build_colour_map(stats.by_recorder.keys())
-
-    lines = Text()
-    lines.append("  Total snapshots  ", style=MUTED)
-    lines.append(f"{stats.total_count}\n", style=f"bold {TEXT}")
-    lines.append("  Total size       ", style=MUTED)
-    lines.append(f"{_format_size_summary(stats.total_size)}\n", style=f"bold {TEXT}")
-    lines.append("\n")
-    lines.append("  By recorder:\n", style=f"bold {HEADER}")
-    name_w = max(len(name) for name in stats.by_recorder.keys())
-    count_w = max(len(str(recorder.count)) for recorder in stats.by_recorder.values())
-    size_w = max(
-        len(_format_size_summary(recorder.size))
-        for recorder in stats.by_recorder.values()
-    )
-    for name, recorder in sorted(stats.by_recorder.items()):
-        lines.append(f"    {name:<{name_w}}", style=colour_map.get(name, MUTED))
-        lines.append(f"  {recorder.count:>{count_w}}  ", style=TEXT)
-        lines.append(
-            f"{_format_size_summary(recorder.size):>{size_w}}\n",
-            style=MUTED,
-        )
-
-    if stats.oldest and stats.newest:
-        lines.append("\n")
-        oldest_date = datetime.fromtimestamp(stats.oldest[0]).strftime("%Y-%m-%d")
-        newest_date = datetime.fromtimestamp(stats.newest[0]).strftime("%Y-%m-%d")
-        lines.append("  Oldest  ", style=MUTED)
-        lines.append(f"{stats.oldest[1]}  ", style=PATH)
-        lines.append(f"{oldest_date}\n", style=MUTED)
-        lines.append("  Newest  ", style=MUTED)
-        lines.append(f"{stats.newest[1]}  ", style=PATH)
-        lines.append(f"{newest_date}", style=MUTED)
-
-    console.print(
-        Panel(
-            lines,
-            title=f"[bold {TITLE}]ditto status[/bold {TITLE}]",
-            border_style=TITLE,
-            expand=False,
-        )
-    )
-
-
-def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
-    """Build and print the registered recorders panel."""
-    colour_map = _build_colour_map(info.name for info in infos)
-    name_w = max(len("Name"), max(len(i.name) for i in infos))
-    mark_w = max(len("Mark"), max(len(_mark_for(i.name)) for i in infos))
-    ext_w = max(len("Identifier"), max(len(i.identifier) for i in infos))
-
-    lines = Text()
-    lines.append("\n")
-    lines.append(
-        f"  {'Name':<{name_w}}  {'Mark':<{mark_w}}  {'Identifier':<{ext_w}}  Source\n",
-        style=f"bold {HEADER}",
-    )
-    for info in sorted(infos, key=lambda i: i.name):
-        lines.append(
-            f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED)
-        )
-        lines.append(f"{_mark_for(info.name):<{mark_w}}  ", style=TEXT)
-        lines.append(f"{info.identifier:<{ext_w}}  ", style=TEXT)
-        lines.append(f"{info.package}\n", style=MUTED)
-
-    console.print(
-        Panel(
-            lines,
-            title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
-            border_style=TITLE,
-            expand=False,
-        )
-    )
-
-
 def _render_doctor(checks: list[CheckResult], console: Console) -> None:
-    table = Table(
-        title=f"[bold {TITLE}]ditto doctor[/bold {TITLE}]",
-        border_style=MUTED,
-        header_style=f"bold {HEADER}",
-        show_header=True,
-    )
-    table.add_column("Check", style=TEXT)
+    table = _table("ditto doctor")
+    table.add_column("Check", style=TEXT, overflow="fold")
     table.add_column("Status", justify="center")
-    table.add_column("Detail", style=MUTED)
+    table.add_column("Detail", style=MUTED, overflow="fold")
 
     for check in checks:
         status = (
@@ -233,16 +424,11 @@ def _render_doctor(checks: list[CheckResult], console: Console) -> None:
 
 
 def _render_lint_issues(issues: list[LintIssue], console: Console) -> None:
-    table = Table(
-        title=f"[bold {TITLE}]ditto lint[/bold {TITLE}]",
-        border_style=MUTED,
-        header_style=f"bold {HEADER}",
-        show_header=True,
-    )
-    table.add_column("File", style=PATH)
-    table.add_column("Issue", style=f"bold {PRUNED}")
+    table = _table("ditto lint")
+    table.add_column("File", style=PATH, overflow="fold")
+    table.add_column("Issue", style=f"bold {PRUNED}", overflow="fold")
 
-    for issue in issues:
+    for issue in sorted(issues, key=lambda i: i.filename):
         table.add_row(Text(issue.filename), Text(issue.issue))
 
     console.print(table)
@@ -273,45 +459,39 @@ def _render_unreadable_backends(
 def _render_stats_table(
     dir_stats: list[tuple[str, SnapshotStats]], console: Console
 ) -> None:
-    all_names = {name for _, s in dir_stats for name in s.by_recorder}
-    colour_map = _build_colour_map(all_names)
+    """Print where the snapshots are: a row per target, with its count and size.
 
-    table = Table(
-        title=f"[bold {TITLE}]ditto stats[/bold {TITLE}]",
-        border_style=MUTED,
-        header_style=f"bold {HEADER}",
-        show_header=True,
-        show_footer=True,
-    )
+    Per-recorder counts are `ditto status`'s; they are not repeated here.
+    """
+    table = _table("ditto stats", show_footer=True)
     table.add_column(
-        "Directory", style=PATH, footer_style=f"bold {HEADER}", footer="TOTAL"
+        "Directory",
+        style=PATH,
+        overflow="fold",
+        footer_style=f"bold {HEADER}",
+        footer="TOTAL",
     )
     table.add_column(
         "Snapshots", justify="right", style=TEXT, footer_style=f"bold {TEXT}"
     )
-    table.add_column("Size", justify="right", style=MUTED, footer_style=f"bold {MUTED}")
-    table.add_column("Recorders", footer_style=MUTED)
+    table.add_column(
+        "Size",
+        justify="right",
+        style=MUTED,
+        no_wrap=True,
+        footer_style=f"bold {MUTED}",
+    )
 
-    total_count = sum(s.total_count for _, s in dir_stats)
-    total_size = _sum_sizes(s.total_size for _, s in dir_stats)
-
-    for d, s in dir_stats:
-        recorder_text = Text()
-        for i, (name, recorder) in enumerate(sorted(s.by_recorder.items())):
-            if i:
-                recorder_text.append("  ")
-            recorder_text.append(
-                f"{name}×{recorder.count}",
-                style=colour_map.get(name, MUTED),
-            )
+    for directory, stats in dir_stats:
         table.add_row(
-            Text(d),
-            str(s.total_count),
-            _format_size_summary(s.total_size),
-            recorder_text,
+            _location_label(directory),
+            str(stats.total_count),
+            _format_size_summary(stats.total_size),
         )
 
-    table.columns[1].footer = str(total_count)
-    table.columns[2].footer = _format_size_summary(total_size)
+    table.columns[1].footer = str(sum(s.total_count for _, s in dir_stats))
+    table.columns[2].footer = _format_size_summary(
+        _sum_sizes(s.total_size for _, s in dir_stats)
+    )
 
     console.print(table)

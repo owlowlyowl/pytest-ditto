@@ -1,8 +1,8 @@
 # ditto stats
 
-Shows a per-directory snapshot usage breakdown (file count and total size per
-`.ditto/` directory). Complements `ditto status`, which shows session-level
-aggregates.
+Shows where the snapshots live: a row per target — each `.ditto/` directory or
+remote URI — with the snapshot count and total size for it, and a total row.
+Per-recorder counts are [`ditto status`](status.md)'s.
 
 ## Usage
 
@@ -13,22 +13,22 @@ ditto stats [PATH]
 ## Examples
 
 ```bash
-# Show stats for all directories
+# Show stats for all targets
 ditto stats
 
-# Show stats for a specific path
+# Show stats for the targets under a path
 ditto stats tests/ci/
 ```
 
 ## Output
 
-Displays a table with columns:
+A table with a total footer:
 
 | Column | Description |
 |--------|-------------|
-| Directory | Path to the `.ditto/` directory |
-| Files | Number of snapshot files |
-| Size | Total size of snapshots in that directory |
+| Directory | The target: a path relative to the current directory, or a remote URI whole |
+| Snapshots | Number of snapshots in that target |
+| Size | Total size of snapshots in that target |
 
 ## Data source
 

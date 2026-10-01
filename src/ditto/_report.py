@@ -1,8 +1,10 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
-from rich.console import Console
+from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from ._theme import (
@@ -11,96 +13,126 @@ from ._theme import (
     WOULD_PRUNE,
     PRUNED,
     TITLE,
+    HEADER,
     MUTED,
+    TEXT,
 )
-from .snapshot import SnapshotKey
 
 
-__all__ = ("PrunedSnapshot", "render_session_report")
+__all__ = ("ReportedSnapshot", "PrunedSnapshot", "render_session_report")
+
+
+@dataclass(frozen=True)
+class ReportedSnapshot:
+    """One snapshot the session wrote, and the target it was written to.
+
+    `nodeid`, `key` and `recorder` are the three facts `ditto list` shows, so a
+    snapshot is named the same way wherever it appears.
+    """
+
+    target_id: str
+    nodeid: str
+    key: str
+    recorder: str
 
 
 @dataclass(frozen=True)
 class PrunedSnapshot:
     """One snapshot a prune deleted, and the target it was deleted from.
 
-    Two targets can hold the same storage key, so a bare key doesn't say which
-    backend it came from.
+    Carries the storage name rather than a test and key: a snapshot prune
+    deletes is one `ditto.lock` does not record, so the lock holds no identity
+    for it. The storage name is what finds the file, and the same key can sit
+    under two targets, so the target id is part of the record.
     """
 
     target_id: str
-    key: str
+    storage_key: str
 
 
-def _pruned_by_target(
-    items: Iterable[PrunedSnapshot],
-) -> list[tuple[str, list[str]]]:
-    """Group pruned storage keys by target id, targets in first-seen order."""
-    keys: dict[str, list[str]] = {}
+_Record = TypeVar("_Record", ReportedSnapshot, PrunedSnapshot)
+
+
+def _by_target(items: Iterable[_Record]) -> list[tuple[str, list[_Record]]]:
+    """Group records by target id, in the order the targets were first used."""
+    grouped: dict[str, list[_Record]] = {}
     for item in items:
-        keys.setdefault(item.target_id, []).append(item.key)
-    return [(target_id, sorted(target_keys)) for target_id, target_keys in keys.items()]
+        grouped.setdefault(item.target_id, []).append(item)
+    return list(grouped.items())
 
 
-def _label_block(
-    items: list[SnapshotKey] | list[str],
-    colour: str,
+def _written_rows(items: Sequence[ReportedSnapshot]) -> Table:
+    """One row per written snapshot: the test, its key, and its recorder."""
+    rows = Table.grid(padding=(0, 2))
+    for _ in range(3):
+        rows.add_column(overflow="fold")
+    for item in items:
+        rows.add_row(
+            Text(item.nodeid, overflow="fold"),
+            Text(item.key, overflow="fold"),
+            Text(item.recorder, overflow="fold"),
+        )
+    return rows
+
+
+def _pruned_rows(items: Sequence[PrunedSnapshot]) -> Table:
+    """One row per deleted snapshot, named by the storage name it had."""
+    rows = Table.grid(padding=(0, 2))
+    rows.add_column(overflow="fold")
+    for item in items:
+        rows.add_row(Text(item.storage_key, overflow="fold"))
+    return rows
+
+
+def _block(
     label: str,
-    suffix: str = "",
-) -> Text:
-    """One labelled row (wrapping to additional lines) for the report panel."""
-    text = Text()
-    text.append(f"  {label:<10}", style=f"bold {colour}")
-    text.append(f"{len(items):<5}", style=colour)
-    if items:
-        first = items[0].display_name if isinstance(items[0], SnapshotKey) else items[0]
-        text.append(first, style=colour)
-        if suffix:
-            text.append(f"  {suffix}", style=MUTED)
-        for item in items[1:]:
-            name = item.display_name if isinstance(item, SnapshotKey) else item
-            text.append(f"\n  {'':<15}{name}", style=colour)
-    return text
-
-
-def _pruned_block(
-    items: list[PrunedSnapshot],
     colour: str,
-    label: str,
-    suffix: str = "",
-) -> Text:
-    """One labelled row naming each pruned snapshot's target above its keys."""
-    text = Text()
-    text.append(f"  {label:<10}", style=f"bold {colour}")
-    text.append(f"{len(items):<5}", style=colour)
-    for target_id, keys in _pruned_by_target(items):
-        text.append(f"\n  {'':<15}{target_id}", style=f"bold {colour}")
-        if suffix:
-            text.append(f"  {suffix}", style=MUTED)
-        for key in keys:
-            text.append(f"\n  {'':<19}{key}", style=colour)
-    return text
+    items: Sequence[_Record],
+    render: Callable[[Sequence[_Record]], RenderableType],
+    note: str = "",
+) -> list[RenderableType]:
+    """A labelled section: the label and its count, then each target's snapshots.
+
+    Every snapshot gets a line of its own under its target, instead of trailing
+    the first one across the same line, so a long name wraps without knocking
+    the rest out of alignment.
+    """
+    parts: list[RenderableType] = [
+        Text.assemble(
+            (f"  {label}  ", f"bold {colour}"),
+            (str(len(items)), f"bold {TEXT}"),
+        )
+    ]
+    for target_id, target_items in _by_target(items):
+        parts.append(Text(f"    {target_id}", style=f"bold {HEADER}"))
+        parts.append(render(target_items))
+        if note:
+            parts.append(Text(f"    {note}", style=MUTED))
+    return parts
 
 
 def render_session_report(
-    created: list[SnapshotKey],
-    updated: list[SnapshotKey],
-    pruned: list[PrunedSnapshot],
-    would_prune: list[PrunedSnapshot],
+    created: Sequence[ReportedSnapshot],
+    updated: Sequence[ReportedSnapshot],
+    pruned: Sequence[PrunedSnapshot],
+    would_prune: Sequence[PrunedSnapshot],
     console: Console | None = None,
 ) -> None:
     """Render the end-of-session ditto snapshot report via Rich.
 
-    Silent when there is nothing to report.
+    Snapshots are grouped under the target they belong to, and each is named by
+    the test, key and recorder `ditto list` shows. Silent when there is nothing
+    to report.
 
     Parameters
     ----------
-    created : list[SnapshotKey]
+    created : Sequence[ReportedSnapshot]
         Snapshots written for the first time this session.
-    updated : list[SnapshotKey]
+    updated : Sequence[ReportedSnapshot]
         Existing snapshots overwritten via `--ditto-update`.
-    pruned : list[PrunedSnapshot]
+    pruned : Sequence[PrunedSnapshot]
         Snapshots deleted via `--ditto-prune`, with the target each was in.
-    would_prune : list[PrunedSnapshot]
+    would_prune : Sequence[PrunedSnapshot]
         Snapshots a `--ditto-prune` run would delete (shown under
         `--ditto-prune-dry-run`), with the target each is in.
     console : Console, optional
@@ -112,32 +144,29 @@ def render_session_report(
     if console is None:
         console = Console(stderr=True)
 
-    console.print()
-    console.print()
-
-    lines: list[Text] = []
-
+    parts: list[RenderableType] = []
     if created:
-        lines.append(_label_block(created, CREATED, "created"))
+        parts += _block("created", CREATED, created, _written_rows)
     if updated:
-        lines.append(_label_block(updated, UPDATED, "updated"))
+        parts += _block("updated", UPDATED, updated, _written_rows)
     if pruned:
-        lines.append(_pruned_block(pruned, PRUNED, "pruned"))
+        parts += _block("pruned", PRUNED, pruned, _pruned_rows)
     if would_prune:
-        lines.append(
-            _pruned_block(
-                would_prune,
-                WOULD_PRUNE,
-                "would prune",
-                suffix="(use --ditto-prune to delete)",
-            )
+        parts += _block(
+            "would prune",
+            WOULD_PRUNE,
+            would_prune,
+            _pruned_rows,
+            note="(use --ditto-prune to delete)",
         )
 
-    body = Text("\n").join(lines)
-    panel = Panel(
-        body,
-        title=f"[bold {TITLE}]ditto snapshot report[/bold {TITLE}]",
-        border_style=TITLE,
-        expand=False,
+    console.print()
+    console.print(
+        Panel(
+            Group(*parts),
+            title=Text("ditto snapshot report", style=f"bold {TITLE}"),
+            title_align="left",
+            border_style=TITLE,
+            expand=False,
+        )
     )
-    console.print(panel)

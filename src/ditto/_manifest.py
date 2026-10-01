@@ -43,6 +43,28 @@ class BackendManifest:
 Manifest = list[BackendManifest]
 
 
+@dataclass(frozen=True)
+class LocatedEntry:
+    """One entry, with the target it was read from.
+
+    The same storage key can sit under two targets, so a key on its own doesn't
+    say which snapshot it names.
+    """
+
+    location: str
+    entry: ManifestEntry
+
+
+def located(manifest: Manifest) -> list[LocatedEntry]:
+    """Flatten a manifest into its entries, each tagged with its target."""
+    return [LocatedEntry(b.location, e) for b in manifest for e in b.entries]
+
+
+def located_in(backend: BackendManifest) -> list[LocatedEntry]:
+    """One backend's entries, each tagged with that backend as their target."""
+    return [LocatedEntry(backend.location, e) for e in backend.entries]
+
+
 def to_json(backends: Manifest) -> str:
     """Serialize a manifest to a JSON string."""
     return json.dumps([asdict(b) for b in backends])
