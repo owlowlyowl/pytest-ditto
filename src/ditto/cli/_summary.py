@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import NamedTuple
 
-from .._manifest import ManifestEntry
+from .._manifest import LocatedEntry
 from ._data import RecorderInfo, _human_size, _parse_snapshot_name, _recorder_name
 
 
@@ -21,13 +22,25 @@ class RecorderStats:
     size: SizeSummary
 
 
+class ExtremeSnapshot(NamedTuple):
+    """The snapshot with the oldest or newest timestamp, and where it lives.
+
+    `location` is needed to name it: the same storage key can sit under two
+    targets, and the lock records a different test for each.
+    """
+
+    modified: float
+    storage_key: str
+    location: str
+
+
 @dataclass(frozen=True)
 class SnapshotStats:
     total_count: int
     total_size: SizeSummary
     by_recorder: Mapping[str, RecorderStats]
-    oldest: tuple[float, str] | None
-    newest: tuple[float, str] | None
+    oldest: ExtremeSnapshot | None
+    newest: ExtremeSnapshot | None
 
 
 def _add_size(summary: SizeSummary, size_bytes: int | None) -> SizeSummary:
@@ -57,15 +70,16 @@ def _format_size_summary(summary: SizeSummary) -> str:
 
 
 def gather_stats(
-    entries: list[ManifestEntry], ext_map: Mapping[str, RecorderInfo]
+    entries: Sequence[LocatedEntry], ext_map: Mapping[str, RecorderInfo]
 ) -> SnapshotStats:
-    """Aggregate snapshot statistics from a list of ManifestEntry items."""
+    """Aggregate snapshot statistics from inventory entries, each with its target."""
     total_size = SizeSummary()
     by_recorder: dict[str, RecorderStats] = {}
-    oldest: tuple[float, str] | None = None
-    newest: tuple[float, str] | None = None
+    oldest: ExtremeSnapshot | None = None
+    newest: ExtremeSnapshot | None = None
 
-    for entry in entries:
+    for located in entries:
+        entry = located.entry
         total_size = _add_size(total_size, entry.size_bytes)
         _, _, ext = _parse_snapshot_name(entry.storage_key)
         recorder_name = _recorder_name(ext, ext_map)
@@ -79,10 +93,13 @@ def gather_stats(
         )
 
         if entry.modified is not None:
-            if oldest is None or entry.modified < oldest[0]:
-                oldest = (entry.modified, entry.storage_key)
-            if newest is None or entry.modified > newest[0]:
-                newest = (entry.modified, entry.storage_key)
+            extreme = ExtremeSnapshot(
+                entry.modified, entry.storage_key, located.location
+            )
+            if oldest is None or entry.modified < oldest.modified:
+                oldest = extreme
+            if newest is None or entry.modified > newest.modified:
+                newest = extreme
 
     return SnapshotStats(
         total_count=len(entries),

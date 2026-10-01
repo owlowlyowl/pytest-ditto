@@ -10,13 +10,13 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto update`](update.md) | Regenerate all snapshots |
 | [`ditto prune`](prune.md) | Remove stale snapshots |
 | [`ditto verify`](verify.md) | Fail if the backend drifted from `ditto.lock` |
-| [`ditto list`](list.md) | List all snapshot files |
-| [`ditto status`](status.md) | Show aggregate statistics |
+| [`ditto list`](list.md) | List every snapshot, grouped by target and test file |
+| [`ditto status`](status.md) | The inventory's one summary |
 | [`ditto clean`](clean.md) | Delete all `.ditto/` directories |
 | [`ditto recorders`](recorders.md) | List registered recorder plugins |
 | [`ditto doctor`](doctor.md) | Run health checks |
 | [`ditto lint`](lint.md) | Check snapshots for issues |
-| [`ditto stats`](stats.md) | Per-directory usage breakdown |
+| [`ditto stats`](stats.md) | Where the snapshots live: a row per target |
 
 Run `ditto --version` to print the installed pytest-ditto version (include it
 in bug reports).
@@ -41,3 +41,19 @@ Remote snapshots read from the lock have no physical size or modified date (show
 as `—`); use `--live` for those. See [The Lock File](../guides/lock-file.md).
 
 `ditto clean` remains local-only and never touches remote snapshots.
+
+## How ditto names a snapshot
+
+Every command names a snapshot the same way: the node ID of the test that
+owns it, its key, and its recorder — the three facts `ditto.lock` records.
+A snapshot the lock doesn't record (an orphan, or one recorded since the
+last `ditto lock`) has no identity to show, so it is named by the label in
+its stored name and marked `not in lock`.
+
+A local target is shown as a path relative to the current directory, never
+an absolute one; a remote URI is shown whole. Every view is a table or panel
+built to fit the terminal width — below 60 columns a snapshot's key and
+recorder move under its name, below 80 the size and date share a cell — and
+a long name wraps in the middle rather than being truncated, so the part that
+tells two rows apart stays visible. `ditto list --flat` gives one row per
+snapshot with the whole node ID, for `grep` and scripts.

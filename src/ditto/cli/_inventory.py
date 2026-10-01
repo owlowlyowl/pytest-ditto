@@ -16,7 +16,7 @@ from .._inventory import (
     lock_identities,
     lock_present,
 )
-from .._manifest import BackendManifest, Manifest, ManifestEntry
+from .._manifest import BackendManifest, Manifest, ManifestEntry, located, located_in
 from .._theme import MUTED, PRUNED
 from ._data import _ext_map, _load_recorder_infos
 from ._diagnostics import _find_lint_issues
@@ -94,20 +94,30 @@ def _exit_if_incomplete(manifest: Manifest, console: Console) -> None:
 
 @click.command(name="list")
 @_live_option
+@click.option(
+    "--flat",
+    is_flag=True,
+    default=False,
+    help="One row per snapshot with its whole node id, for grep and scripts.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
 @pass_console
-def cmd_list(console: Console, path: Path, live: bool):
+def cmd_list(console: Console, path: Path, live: bool, flat: bool):
     """List all snapshot files under PATH (default: current directory).
 
     By default reads local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
 
+    Snapshots are grouped by target and test file; --flat prints one row per
+    snapshot with the whole node id instead.
+
     \b
     Examples:
       ditto list
       ditto list tests/ci/
+      ditto list --flat
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
     entries = _entries(manifest)
@@ -118,7 +128,7 @@ def cmd_list(console: Console, path: Path, live: bool):
         sys.exit(1)
 
     infos = _load_recorder_infos()
-    _render_snapshots(manifest, lock_identities(path), infos, console)
+    _render_snapshots(manifest, lock_identities(path), infos, console, flat=flat)
     _print_inventory_notes(path, entries, live=live, console=console)
     _exit_if_incomplete(manifest, console)
 
@@ -148,7 +158,11 @@ def cmd_status(console: Console, path: Path, live: bool):
         _print_inventory_notes(path, entries, live=live, console=console)
         sys.exit(1)
 
-    render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
+    render_stats(
+        gather_stats(located(manifest), _ext_map(_load_recorder_infos())),
+        lock_identities(path),
+        console,
+    )
     _print_inventory_notes(path, entries, live=live, console=console)
     _exit_if_incomplete(manifest, console)
 
@@ -190,10 +204,11 @@ def cmd_lint(console: Console, path: Path, live: bool):
 )
 @pass_console
 def cmd_stats(console: Console, path: Path, live: bool):
-    """Show per-directory snapshot usage breakdown.
+    """Show where snapshots live: a row per target directory or URI.
 
     By default breaks down local snapshots from disk and remote snapshots from
-    ditto.lock (credential-free); pass --live to read live backends.
+    ditto.lock (credential-free); pass --live to read live backends. Per-recorder
+    counts are in `ditto status`.
 
     \b
     Examples:
@@ -207,7 +222,9 @@ def cmd_stats(console: Console, path: Path, live: bool):
         sys.exit(1)
     em = _ext_map(_load_recorder_infos())
     dir_stats = [
-        (b.location, gather_stats(b.entries, em)) for b in manifest if b.error is None
+        (b.location, gather_stats(located_in(b), em))
+        for b in manifest
+        if b.error is None
     ]
     if dir_stats:
         _render_stats_table(dir_stats, console)

@@ -456,10 +456,13 @@ def test_list_shows_the_lock_s_test_and_key_and_marks_names_it_lacks(
     result = CliRunner().invoke(cmd_list, [str(pytester.path)], obj=Console(width=200))
 
     assert result.exit_code == 0, result.output
-    locked = next(line for line in result.output.splitlines() if "test_get" in line)
-    assert "test_mod.py::test_get[12:00]" in locked
+    rows = result.output.splitlines()
+    heading = next(line for line in rows if "test_mod.py" in line)
+    assert "test_get" not in heading
+    locked = next(line for line in rows if "test_get" in line)
+    assert "test_get[12:00]" in locked
     assert "body:raw" in locked
-    orphan = next(line for line in result.output.splitlines() if "test_old" in line)
+    orphan = next(line for line in rows if "test_old" in line)
     assert "test_mod.test_old" in orphan
     assert "not in lock" in orphan
 
@@ -503,7 +506,7 @@ def test_list_checks_the_lock_per_target(pytester) -> None:
     rows = [line for line in result.output.splitlines() if "test_t" in line]
     assert len(rows) == 2
     assert sum("not in lock" in row for row in rows) == 1
-    assert any("test_mod.py::test_t" in row for row in rows)
+    assert result.output.count("test_mod.py") == 1
 
 
 def test_list_live_runs_introspect(tmp_path) -> None:

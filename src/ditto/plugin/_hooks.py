@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from ditto._lockfile import LOCKFILE_NAME
-from ditto._report import PrunedSnapshot, render_session_report
+from ditto._report import PrunedSnapshot, ReportedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
-from ditto.snapshot import SnapshotMode
+from ditto.snapshot import SnapshotMode, WrittenSnapshot
 
 from ._drift import (
     delete_orphans,
@@ -134,6 +134,19 @@ def pytest_runtest_makereport(
     return report
 
 
+def _reported(written: list[WrittenSnapshot]) -> list[ReportedSnapshot]:
+    """Name each written snapshot the way `ditto list` names it."""
+    return [
+        ReportedSnapshot(
+            target_id=item.target_id,
+            nodeid=item.key.nodeid,
+            key=item.key.key,
+            recorder=item.recorder,
+        )
+        for item in written
+    ]
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     options = run_options(config)
@@ -198,8 +211,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         return
 
     render_session_report(
-        created=session_state(config).tracker.created,
-        updated=session_state(config).tracker.updated,
+        created=_reported(session_state(config).tracker.created),
+        updated=_reported(session_state(config).tracker.updated),
         pruned=pruned,
         would_prune=would_prune,
     )

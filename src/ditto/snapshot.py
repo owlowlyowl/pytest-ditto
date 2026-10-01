@@ -107,6 +107,18 @@ class LockSeen:
     recorder: str
 
 
+class WrittenSnapshot(NamedTuple):
+    """One snapshot this session wrote, and the target it was written to.
+
+    The session report groups these by `target_id` and names each by the test,
+    key and recorder the `SnapshotKey` carries, which is what `ditto list` shows.
+    """
+
+    target_id: str
+    key: SnapshotKey
+    recorder: str
+
+
 class _RegisteredTarget(NamedTuple):
     """A target the session used: where it is, and the backend built for it."""
 
@@ -132,8 +144,8 @@ class _SessionTracker:
     """
 
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
-    created: list[SnapshotKey] = field(default_factory=list)
-    updated: list[SnapshotKey] = field(default_factory=list)
+    created: list[WrittenSnapshot] = field(default_factory=list)
+    updated: list[WrittenSnapshot] = field(default_factory=list)
     # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
     # a backend instance means tests using different backends (separate fsspec
     # mappers for different tmp dirs) cannot collide even when group_name and key
@@ -496,21 +508,6 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     recorder = snapshot.recorder
     exists = storage_key in backend
 
-    # Build the lock observation up front (pure), but only record it AFTER the
-    # backend access succeeds — recording before the write would leave a phantom
-    # lock entry for a snapshot that failed to persist (see #84).
-    seen = (
-        LockSeen(
-            target_id=snapshot.target_id,
-            scheme=urlparse(snapshot.target).scheme,
-            nodeid=snapshot.nodeid,
-            key=key,
-            recorder=snapshot.recorder_name,
-        )
-        if snapshot.target_id
-        else None
-    )
-
     match snapshot.mode, exists:
         case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
             value = recorder.loads(backend[storage_key])
@@ -521,10 +518,25 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         case _:
             raw, value = _round_trip(recorder, data)
             backend[storage_key] = raw
-            (tracker.updated if exists else tracker.created).append(sk)
+            written = WrittenSnapshot(
+                target_id=snapshot.target_id,
+                key=sk,
+                recorder=snapshot.recorder_name,
+            )
+            (tracker.updated if exists else tracker.created).append(written)
 
-    # A missing key under VERIFY is recorded as "created" so the verify hook
-    # reports it as unsynced.
-    if seen is not None:
-        tracker.record_lock_seen(seen, created=not exists)
+    # Recorded only after the write succeeded, so a snapshot that failed to
+    # persist leaves no lock entry behind (see #84). A Snapshot built outside the
+    # fixture has no target and takes no part in lock maintenance.
+    if snapshot.target_id:
+        tracker.record_lock_seen(
+            LockSeen(
+                target_id=snapshot.target_id,
+                scheme=urlparse(snapshot.target).scheme,
+                nodeid=snapshot.nodeid,
+                key=key,
+                recorder=snapshot.recorder_name,
+            ),
+            created=not exists,
+        )
     return value

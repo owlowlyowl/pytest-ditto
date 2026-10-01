@@ -1,7 +1,8 @@
 # ditto status
 
-Shows aggregate statistics: total count, total size, breakdown by recorder
-type, and oldest/newest snapshot dates.
+The inventory's one summary: total count, total size, a breakdown by recorder
+type, and the oldest and newest snapshot — each named the way `ditto list` names
+a snapshot. Where each snapshot lives is [`ditto stats`](stats.md).
 
 ## Usage
 
@@ -25,12 +26,16 @@ ditto status tests/ci/
 
 ## Output
 
-Displays:
+A panel, laid out to fit the terminal:
 
-- Total snapshot count
-- Total size on disk
+- Total snapshot count and total size
 - Breakdown by recorder type (count and size)
-- Oldest and newest snapshot dates
+- The oldest and newest snapshot, each with its date and its name
+
+The oldest and newest are named by the test, key and recorder `ditto.lock`
+records, falling back to the storage name for a snapshot the lock doesn't
+record. The per-recorder counts appear here and not in `ditto stats`, so they
+are only in one place.
 
 ## Data source
 
