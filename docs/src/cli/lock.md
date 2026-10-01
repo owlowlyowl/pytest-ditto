@@ -15,10 +15,16 @@ ditto lock [PYTEST_ARGS]
 `ditto lock` re-runs your suite with `--ditto-lock`; extra arguments are passed
 through to pytest.
 
-The run reads every snapshot and compares it to the lock, but **never rewrites a
-snapshot** — this is not `ditto update`. A value that has changed is reported as
-drift, not silently re-recorded. Use [`ditto update`](update.md) to change a
-value.
+By default the suite runs in RECORD mode: snapshot calls reuse existing values
+and **create missing snapshots**. Existing values are not overwritten. Your
+test assertions compare those values with current expectations, and an assertion
+failure prevents the lock rebuild. Use [`ditto update`](update.md) to overwrite
+existing values; passing `--ditto-update` to this command also selects UPDATE mode.
+
+After a successful full run, the command rebuilds the lock's snapshot identities.
+It does not check backend drift: an orphan can remain without failing this run.
+Use [`ditto verify`](verify.md) for a read-only check of missing, orphan and
+unrecorded snapshots. The lock records identities, not expected snapshot values.
 
 ## Examples
 
@@ -39,8 +45,9 @@ them. So the run is refused when it used any of:
 - a failure, or any other non-zero exit status — a collection error counts,
   since a module that fails to import leaves no failed tests yet exits non-zero
 
-Nothing is written when it is refused, and the reason is printed rather than
-warned, so a warning filter cannot hide why the run failed:
+The lock is left unchanged when a rebuild is refused. Snapshots created during
+test execution remain; refusal does not undo those writes. The reason is printed
+rather than warned, so a warning filter cannot hide why the run failed:
 
 ```
 ditto: --ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid args, and no failures); leaving ditto.lock unchanged.
@@ -63,8 +70,8 @@ ones are added.
 
 A test that was collected but didn't pass — skipped, xfailed, deselected — keeps
 the entries it had, as does a test pytest did not collect because an ignore path
-or a skipping collector above it applied. Entries are only dropped for a test
-that ran and no longer produced them.
+or a skipping collector above it applied. For tests still present, a passing run
+replaces their entries with the snapshots they actually accessed.
 
 A target the run did not exercise is left as it was, so a suite that only
 reaches some of its backends does not lose the others. An existing lock file
@@ -77,12 +84,17 @@ prompted the rebuild, so a reviewer sees which snapshots a change added.
 
 ## When the run fails
 
-A drift check that fails, or a lock that can't be written, fails the run — this
-is lock maintenance you asked for, not bookkeeping to warn about. See
-[`ditto verify`](verify.md) for what each kind of drift means; fix the snapshots
-or the lock, then rebuild.
+A test or collection failure prevents the rebuild and fails the run. A lock
+that cannot be written also fails the run and prints the error. Backend drift
+is checked separately by [`ditto verify`](verify.md).
 
 ## After a prune
 
-A prune deletes the snapshots the lock does not record, so the lock no longer
-matches what a normal run reads. Rebuild it afterwards with `ditto lock`.
+Prune deletes orphans already absent from the lock, so deleting them does not
+itself require a lock rebuild. When removing or renaming tests or snapshot keys,
+first run `ditto lock` to drop obsolete identities from exercised targets, then
+run `ditto prune` to remove the newly orphaned files.
+
+A prune run can also create new snapshots while running tests. These remain
+unsynced because prune does not append them to the lock. If prune warns about
+snapshots produced during that run, use `ditto lock` to record their identities.
