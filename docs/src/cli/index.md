@@ -10,6 +10,7 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto update`](update.md) | Regenerate all snapshots |
 | [`ditto prune`](prune.md) | Remove stale snapshots |
 | [`ditto verify`](verify.md) | Fail if the backend drifted from `ditto.lock` |
+| [`ditto lock`](lock.md) | Rebuild `ditto.lock` from current snapshots |
 | [`ditto list`](list.md) | List every snapshot, grouped by target and test file |
 | [`ditto status`](status.md) | The inventory's one summary |
 | [`ditto clean`](clean.md) | Delete all `.ditto/` directories |
