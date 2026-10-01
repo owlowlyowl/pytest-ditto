@@ -32,6 +32,10 @@ targets, because the lock already records every resolved target from past runs.
 Pass `--live` to read the live backends instead (an internal `pytest --setup-only`
 pass that resolves real fixtures and per-test `record(target=…)` marks). `--live`
 imports your test modules and needs the same credentials your test run needs.
+If a backend can't be read (unreachable, or the credentials are wrong), the
+command still shows the backends it could read, then names each one it couldn't
+with the error and exits 1, so a partial inventory never passes for a complete
+one.
 
 Remote snapshots read from the lock have no physical size or modified date (shown
 as `—`); use `--live` for those. See [The Lock File](../guides/lock-file.md).

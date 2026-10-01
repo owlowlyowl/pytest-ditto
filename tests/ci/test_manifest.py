@@ -29,3 +29,18 @@ def test_round_trips_an_empty_manifest_through_json() -> None:
     actual = from_json(to_json(manifest))
 
     assert actual == manifest
+
+
+def test_round_trips_a_backend_that_could_not_be_read() -> None:
+    """A backend's enumeration error survives JSON serialization."""
+    manifest = [
+        BackendManifest(
+            location="redis://localhost:6379/0",
+            entries=[],
+            error="connection refused",
+        )
+    ]
+
+    actual = from_json(to_json(manifest))
+
+    assert actual == manifest
