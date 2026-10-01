@@ -227,7 +227,7 @@ def _render_doctor(checks: list[CheckResult], console: Console) -> None:
             if check.ok
             else Text("✗", style=f"bold {PRUNED}")
         )
-        table.add_row(check.name, status, check.detail)
+        table.add_row(Text(check.name), status, Text(check.detail))
 
     console.print(table)
 
@@ -243,7 +243,7 @@ def _render_lint_issues(issues: list[LintIssue], console: Console) -> None:
     table.add_column("Issue", style=f"bold {PRUNED}")
 
     for issue in issues:
-        table.add_row(issue.filename, issue.issue)
+        table.add_row(Text(issue.filename), Text(issue.issue))
 
     console.print(table)
 
@@ -305,7 +305,7 @@ def _render_stats_table(
                 style=colour_map.get(name, MUTED),
             )
         table.add_row(
-            d,
+            Text(d),
             str(s.total_count),
             _format_size_summary(s.total_size),
             recorder_text,
