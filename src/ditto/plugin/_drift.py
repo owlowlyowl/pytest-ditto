@@ -25,12 +25,15 @@ from ._targets import is_checkout_local
 
 __all__ = (
     "Orphan",
+    "FailedDeletion",
+    "PruneResult",
     "run_verify",
     "find_orphans",
     "local_target_ids",
     "split_shared",
     "refuse_shared_prune",
     "delete_orphans",
+    "report_failed_deletions",
 )
 
 
@@ -40,6 +43,20 @@ class Orphan(NamedTuple):
     target_id: str
     backend: MutableMapping[str, bytes]
     key: str
+
+
+class FailedDeletion(NamedTuple):
+    """An orphan whose deletion raised, and the error it raised."""
+
+    orphan: Orphan
+    reason: str
+
+
+class PruneResult(NamedTuple):
+    """The orphans a prune deleted and those it failed to delete."""
+
+    deleted: list[Orphan]
+    failed: list[FailedDeletion]
 
 
 def _classify_target(
@@ -163,7 +180,8 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
     Keys created this run (`unsynced`) are never orphans; they, and keys the lock
     records but the backend lacks (`missing`), are warned about instead. Requires
     a lock: when it is absent or unreadable, reports why, fails the session, and
-    returns no orphans. A target that cannot be read is warned about and skipped.
+    returns no orphans. A target that cannot be read is reported and fails the
+    session, and the other targets are still checked.
     """
     config = session.config
     try:
@@ -202,12 +220,9 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
                 modules_by_target.get(target_id, set()),
                 created_by_target.get(target_id, set()),
             )
-        except Exception as exc:  # backend unreachable, etc. — skip, never abort
-            warnings.warn(
-                f"could not prune {target_id!r}: {exc}",
-                category=DittoWarning,
-                stacklevel=1,
-            )
+        except Exception as exc:  # backend unreachable, etc.
+            _prune_report_error(f"could not read {target_id!r}: {exc}")
+            fail_session(session)
             continue
         for key in unsynced:
             warnings.warn(
@@ -283,21 +298,36 @@ def refuse_shared_prune(session: pytest.Session, shared: Sequence[Orphan]) -> No
     fail_session(session)
 
 
-def delete_orphans(orphans: Iterable[Orphan]) -> list[str]:
-    """Delete each orphan from its backend and return the keys deleted.
-
-    A failed deletion is warned about and left out of the result.
-    """
-    pruned: list[str] = []
-    for _, backend, key in orphans:
+def delete_orphans(orphans: Iterable[Orphan]) -> PruneResult:
+    """Delete each orphan from its backend, carrying on past a failed deletion."""
+    deleted: list[Orphan] = []
+    failed: list[FailedDeletion] = []
+    for orphan in orphans:
         try:
-            del backend[key]
+            del orphan.backend[orphan.key]
         except Exception as exc:
-            warnings.warn(
-                f"Failed to prune snapshot {key!r}: {exc}",
-                category=DittoWarning,
-                stacklevel=1,
-            )
+            failed.append(FailedDeletion(orphan, str(exc)))
         else:
-            pruned.append(key)
-    return pruned
+            deleted.append(orphan)
+    return PruneResult(deleted, failed)
+
+
+def report_failed_deletions(session: pytest.Session, result: PruneResult) -> None:
+    """Report each target's failed deletions, if any, and fail the run."""
+    if not result.failed:
+        return
+    deleted_counts: dict[str, int] = {}
+    for orphan in result.deleted:
+        deleted_counts[orphan.target_id] = deleted_counts.get(orphan.target_id, 0) + 1
+    failed_by_target: dict[str, list[FailedDeletion]] = {}
+    for failure in result.failed:
+        failed_by_target.setdefault(failure.orphan.target_id, []).append(failure)
+    for target_id, failures in sorted(failed_by_target.items()):
+        deleted = deleted_counts.get(target_id, 0)
+        _prune_report_error(
+            f"deleted {deleted} of {deleted + len(failures)} snapshot(s) from "
+            f"{target_id!r}; {len(failures)} could not be deleted:"
+        )
+        for failure in sorted(failures, key=lambda f: f.orphan.key):
+            print(f"  {failure.orphan.key}: {failure.reason}")
+    fail_session(session)

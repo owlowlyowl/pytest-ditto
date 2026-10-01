@@ -331,63 +331,47 @@ _ITER_RAISING_CONFTEST = """
 """
 
 
-def test_session_completes_when_backend_iter_raises_not_implemented(pytester) -> None:
-    """A prune backend that raises NotImplementedError from __iter__ is skipped.
+_ITER_RAISING_TEST = (
+    "import ditto\n\n"
+    "@ditto.record('json', target='testiter://shared')\n"
+    "def test_inner(snapshot):\n"
+    "    snapshot('v', key='k')\n"
+)
 
-    Enumeration only happens under --ditto-prune now. A backend whose __iter__
-    raises is warned about and skipped, so the prune run still completes.
-    """
+
+def test_prune_fails_the_run_when_a_target_cannot_be_listed(pytester) -> None:
+    """A target whose __iter__ raises can't be checked for orphans, so prune
+    reports it and fails the run after the tests pass."""
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
             cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
         )
     )
-    pytester.makepyfile(
-        "import ditto\n\n"
-        "@ditto.record('json', target='testiter://shared')\n"
-        "def test_inner(snapshot):\n"
-        "    snapshot('v', key='k')\n"
-    )
-
-    # First run seeds the lock; the broken __iter__ does not affect writing the
-    # snapshot or appending the lock.
+    pytester.makepyfile(_ITER_RAISING_TEST)
     pytester.runpytest().assert_outcomes(passed=1)
 
-    result = pytester.runpytest("--ditto-prune", "-W", "always")
+    result = pytester.runpytest("--ditto-prune")
 
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*could not prune*"])
-    result.stdout.fnmatch_lines(["*no iteration*"])
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto prune: could not read*: no iteration"])
 
 
-def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
-    """A prune backend that raises ConnectionError from __iter__ is skipped.
-
-    Regression: enumeration under prune must tolerate non-NotImplementedError
-    I/O errors (e.g. ConnectionError, PermissionError) from remote backends,
-    warning and skipping the target rather than aborting the prune.
-    """
+def test_prune_dry_run_fails_the_run_when_a_target_cannot_be_listed(pytester) -> None:
+    """A dry run that can't read a target fails, rather than reporting nothing
+    to prune."""
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
             cls="BrokenIterBackend", exc="ConnectionError", msg="network gone"
         )
     )
-    pytester.makepyfile(
-        "import ditto\n\n"
-        "@ditto.record('json', target='testiter://shared')\n"
-        "def test_inner(snapshot):\n"
-        "    snapshot('v', key='k')\n"
-    )
-
-    # First run seeds the lock; the broken __iter__ does not affect writing the
-    # snapshot or appending the lock.
+    pytester.makepyfile(_ITER_RAISING_TEST)
     pytester.runpytest().assert_outcomes(passed=1)
 
-    result = pytester.runpytest("--ditto-prune", "-W", "always")
+    result = pytester.runpytest("--ditto-prune-dry-run")
 
-    result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*could not prune*"])
-    result.stdout.fnmatch_lines(["*network gone*"])
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto prune: could not read*: network gone"])
 
 
 def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:

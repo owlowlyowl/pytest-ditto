@@ -110,6 +110,11 @@ Another branch's snapshots on such a target look like orphans, so first make
 sure each project and branch has its own target path. See
 [Sharing a target](lock-file.md#sharing-a-target).
 
+`ditto prune` (`--ditto-prune`) and `ditto prune --check`
+(`--ditto-prune-dry-run`) now fail the run when they can't read a target, and
+`ditto prune` fails when it can't delete a snapshot. Before, both only warned
+and exited 0, so a CI prune step passed with the orphans still there.
+
 ## Snapshot Key Format Change
 
 Recent versions changed how snapshot keys are derived. Snapshots recorded by

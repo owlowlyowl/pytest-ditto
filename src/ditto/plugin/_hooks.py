@@ -17,6 +17,7 @@ from ._drift import (
     find_orphans,
     local_target_ids,
     refuse_shared_prune,
+    report_failed_deletions,
     run_verify,
     split_shared,
 )
@@ -171,7 +172,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     orphans, shared = split_shared(orphans, local_ids)
                     if shared:
                         refuse_shared_prune(session, shared)
-                pruned = delete_orphans(orphans)
+                result = delete_orphans(orphans)
+                report_failed_deletions(session, result)
+                pruned = [orphan.key for orphan in result.deleted]
             case PruneMode.DRY_RUN:
                 would_prune = [orphan.key for orphan in find_orphans(session)]
             case PruneMode.OFF:

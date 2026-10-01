@@ -35,6 +35,10 @@ ditto prune --shared
   suite owns. A snapshot created during the same run is never deleted; run
   `ditto lock` to record it.
 - Needs a `ditto.lock`; without one it deletes nothing and fails.
+- Fails the run if it can't finish: a target it can't read (with `--check`
+  too), or a snapshot it couldn't delete. It still processes the other
+  targets, then says how many snapshots it deleted from each target and which
+  ones it couldn't, with the error.
 - Deletes nothing from a target that other checkouts might share (a remote URI,
   or a `file://` path outside the project, after following symlinks) unless
   you pass `--shared`. Without
