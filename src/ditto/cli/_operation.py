@@ -1,7 +1,4 @@
-"""Subprocess handoff lifecycle and a minimal standalone result consumer.
-
-The shared Rich policy and fuller operation rendering are separate follow-ups.
-"""
+"""Run pytest, consume its private result handoff, and render a standalone report."""
 
 from __future__ import annotations
 
