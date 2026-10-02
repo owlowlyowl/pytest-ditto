@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from ditto._handoff import LockOutcome, write_handoff
 from ditto._lockfile import LOCKFILE_NAME
 from ditto._report import PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
@@ -21,6 +22,7 @@ from ._drift import (
     run_verify,
     split_shared,
 )
+from ._handoff import session_handoff
 from ._introspect import write_introspect_manifest
 from ._lock import (
     choose_lock_action,
@@ -138,7 +140,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     options = run_options(config)
     pruned: list[PrunedSnapshot] = []
+    prune_failed: list[PrunedSnapshot] = []
     would_prune: list[PrunedSnapshot] = []
+    lock = LockOutcome("unchanged")
 
     if not is_xdist_worker(config) and not options.introspect_path:
         if xdist_is_distributing(config):
@@ -160,7 +164,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             return
         warn_if_lockfile_ignored(config)
         authoritative = is_authoritative_run(session, exitstatus)
-        write_session_lockfile(session, choose_lock_action(options, authoritative))
+        lock = write_session_lockfile(
+            session, choose_lock_action(options, authoritative)
+        )
         match options.prune:
             case PruneMode.DELETE:
                 orphans = find_orphans(session)
@@ -177,6 +183,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 pruned = [
                     PrunedSnapshot(orphan.target_id, orphan.key)
                     for orphan in result.deleted
+                ]
+                prune_failed = [
+                    PrunedSnapshot(failure.orphan.target_id, failure.orphan.key)
+                    for failure in result.failed
                 ]
             case PruneMode.DRY_RUN:
                 would_prune = [
@@ -195,6 +205,23 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if is_xdist_worker(config):
         # Each worker saw only its share of the tests; a report per worker would
         # be fragmented and interleaved with xdist's own output.
+        return
+
+    if options.handoff_path:
+        # The standalone CLI prints the report from the handoff instead.
+        handoff = session_handoff(
+            session_state(config).tracker.writes,
+            pruned,
+            prune_failed,
+            would_prune,
+            lock,
+        )
+        try:
+            write_handoff(Path(options.handoff_path), handoff)
+        except OSError as exc:
+            # The CLI then reports outcomes as unknown; pytest's own exit
+            # status is untouched.
+            print(f"ditto: could not write the handoff ({type(exc).__name__}).")
         return
 
     render_session_report(

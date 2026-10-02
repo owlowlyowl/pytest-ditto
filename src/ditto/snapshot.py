@@ -6,7 +6,7 @@ import string
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urlparse
 
 from .exceptions import (
@@ -107,6 +107,15 @@ class LockSeen:
     recorder: str
 
 
+class SnapshotWrite(NamedTuple):
+    """One write of a snapshot to its backend this session, and how it went."""
+
+    key: SnapshotKey
+    target: str
+    storage_key: str
+    outcome: Literal["created", "rewritten", "write_failed"]
+
+
 class _RegisteredTarget(NamedTuple):
     """A target the session used: where it is, and the backend built for it."""
 
@@ -132,8 +141,8 @@ class _SessionTracker:
     """
 
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
-    created: list[SnapshotKey] = field(default_factory=list)
-    updated: list[SnapshotKey] = field(default_factory=list)
+    # Every snapshot write this session, in order, including failed ones.
+    writes: list[SnapshotWrite] = field(default_factory=list)
     # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
     # a backend instance means tests using different backends (separate fsspec
     # mappers for different tmp dirs) cannot collide even when group_name and key
@@ -150,6 +159,16 @@ class _SessionTracker:
     # Maps portable target_id → the target registered for it; populated at
     # fixture creation so verify (and prune) can enumerate every active target.
     target_backends: dict[str, _RegisteredTarget] = field(default_factory=dict)
+
+    @property
+    def created(self) -> list[SnapshotKey]:
+        """Snapshots written for the first time this session."""
+        return [w.key for w in self.writes if w.outcome == "created"]
+
+    @property
+    def updated(self) -> list[SnapshotKey]:
+        """Existing snapshots overwritten this session."""
+        return [w.key for w in self.writes if w.outcome == "rewritten"]
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -520,8 +539,18 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             _, value = _round_trip(recorder, data)
         case _:
             raw, value = _round_trip(recorder, data)
-            backend[storage_key] = raw
-            (tracker.updated if exists else tracker.created).append(sk)
+            target = snapshot.target_id or snapshot.target
+            try:
+                backend[storage_key] = raw
+            except BaseException:
+                # Only the backend call is in here: a recorder error never
+                # reached storage, so it isn't a failed write.
+                tracker.writes.append(
+                    SnapshotWrite(sk, target, storage_key, "write_failed")
+                )
+                raise
+            outcome = "rewritten" if exists else "created"
+            tracker.writes.append(SnapshotWrite(sk, target, storage_key, outcome))
 
     # A missing key under VERIFY is recorded as "created" so the verify hook
     # reports it as unsynced.
