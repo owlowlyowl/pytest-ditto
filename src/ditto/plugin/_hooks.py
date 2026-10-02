@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ditto._handoff import LockOutcome, write_handoff
 from ditto._lockfile import LOCKFILE_NAME
-from ditto._report import PrunedSnapshot, render_session_report
+from ditto._report import LockOutcome, PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
 from ditto.snapshot import SnapshotMode
@@ -22,7 +21,6 @@ from ._drift import (
     run_verify,
     split_shared,
 )
-from ._handoff import session_handoff
 from ._introspect import write_introspect_manifest
 from ._lock import (
     choose_lock_action,
@@ -207,28 +205,15 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # be fragmented and interleaved with xdist's own output.
         return
 
-    if options.handoff_path:
-        # The standalone CLI prints the report from the handoff instead.
-        handoff = session_handoff(
-            session_state(config).tracker.writes,
-            pruned,
-            prune_failed,
-            would_prune,
-            lock,
-        )
-        try:
-            write_handoff(Path(options.handoff_path), handoff)
-        except OSError as exc:
-            # The CLI then reports outcomes as unknown; pytest's own exit
-            # status is untouched.
-            print(f"ditto: could not write the handoff ({type(exc).__name__}).")
-        return
-
+    tracker = session_state(config).tracker
     render_session_report(
-        created=session_state(config).tracker.created,
-        updated=session_state(config).tracker.updated,
+        created=tracker.created,
+        updated=tracker.updated,
         pruned=pruned,
         would_prune=would_prune,
+        write_failed=tracker.write_failed,
+        prune_failed=prune_failed,
+        lock=lock,
     )
 
 

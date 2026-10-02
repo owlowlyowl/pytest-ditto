@@ -1,6 +1,6 @@
 # ditto run
 
-Runs pytest and reports what happened to snapshots and `ditto.lock`. Any
+Runs pytest and reports snapshot activity via the ditto session report. Any
 extra arguments are forwarded directly to pytest.
 
 ## Usage
@@ -24,13 +24,10 @@ ditto run tests/ci/ -k test_foo
 
 ## Behaviour
 
-- Forwards all arguments to `pytest`, whose own output is unchanged
-- After the run, prints one Ditto report: each snapshot created, rewritten or
-  that failed to write, then whether `ditto.lock` was written, unchanged,
-  refused or failed. `ditto update`, `ditto lock` and `ditto prune` print the
-  same report; prune also lists each snapshot it deleted, failed to delete or
-  would delete.
-- Exits with pytest's exit status. If pytest doesn't report its outcomes (for
-  example under `pytest-xdist`), the report says they're unknown.
-- On Ctrl-C, pytest finishes its session (lock write, deletions) and the report
-  shows what completed; a second Ctrl-C stops it at once.
+- Forwards all arguments to `pytest` and exits with its status
+- After the run, the ditto session report lists each snapshot created,
+  updated or not written (its backend write raised), and whether `ditto.lock`
+  was written (entries added and removed), refused or failed. Running `pytest`
+  directly prints the same report. Under `--ditto-prune` it also lists each
+  snapshot pruned or not pruned; under `--ditto-prune-dry-run`, each it would
+  prune. A run that changed nothing prints no report.

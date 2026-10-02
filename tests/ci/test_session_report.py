@@ -1,0 +1,186 @@
+"""What the end-of-session snapshot report says a run did to snapshots and the lock."""
+
+from __future__ import annotations
+
+from io import StringIO
+
+import pytest
+from rich.console import Console
+
+from ditto._report import LockOutcome, render_session_report
+
+
+ONE_SNAPSHOT = """
+def test_snapshot(snapshot):
+    snapshot(1, key="x")
+"""
+
+
+def _failing_writes(pattern: str) -> str:
+    """A conftest whose backend raises on writes to keys containing `pattern`."""
+    return f"""
+        from ditto.backends import FsspecMapping
+        original = FsspecMapping.__setitem__
+        def write(self, key, value):
+            if {pattern!r} in key:
+                raise PermissionError("read-only")
+            return original(self, key, value)
+        FsspecMapping.__setitem__ = write
+    """
+
+
+def test_lists_rewrite_as_updated_when_update_overwrites_snapshot(
+    pytester: pytest.Pytester,
+) -> None:
+    """Overwriting an existing snapshot is reported as updated, not created."""
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+
+    run = pytester.runpytest_subprocess("--ditto-update")
+
+    run.stderr.fnmatch_lines(["*updated*1*test_orders*"])
+    assert "created" not in run.stderr.str()
+
+
+def test_lists_snapshot_as_not_written_when_backend_rejects_it(
+    pytester: pytest.Pytester,
+) -> None:
+    """A write the backend raised on is reported, not silently dropped."""
+    pytester.makeconftest(_failing_writes("@x~"))
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+
+    run = pytester.runpytest_subprocess()
+
+    run.assert_outcomes(failed=1)
+    run.stderr.fnmatch_lines(["*not written*1*test_orders*"])
+
+
+def test_keeps_completed_write_when_later_write_fails(
+    pytester: pytest.Pytester,
+) -> None:
+    """A failed write doesn't hide the write that succeeded before it."""
+    pytester.makeconftest(_failing_writes("@bad~"))
+    pytester.makepyfile(
+        test_orders="""
+        def test_writes(snapshot):
+            snapshot(1, key="good")
+            snapshot(2, key="bad")
+    """
+    )
+
+    run = pytester.runpytest_subprocess()
+
+    run.stderr.fnmatch_lines(["*created*1*good*", "*not written*1*bad*"])
+
+
+def test_lists_no_failed_write_when_snapshot_cannot_serialize(
+    pytester: pytest.Pytester,
+) -> None:
+    """A recorder error never reached storage, so it isn't a failed write."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_snapshot(snapshot):
+            snapshot(object(), key="x")
+    """
+    )
+
+    run = pytester.runpytest_subprocess()
+
+    run.assert_outcomes(failed=1)
+    assert "not written" not in run.stderr.str()
+
+
+def test_counts_lock_entries_when_update_replaces_a_key(
+    pytester: pytest.Pytester,
+) -> None:
+    """The lock row counts the entries actually added and removed."""
+    test = pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    test.write_text("def test_snapshot(snapshot):\n    snapshot(1, key='new')\n")
+
+    run = pytester.runpytest_subprocess("--ditto-update")
+
+    run.stderr.fnmatch_lines(["*lock*ditto.lock written*1 added*1 removed*"])
+
+
+def test_prints_no_report_when_run_changes_nothing(
+    pytester: pytest.Pytester,
+) -> None:
+    """A run that writes no snapshot and leaves the lock unchanged stays silent."""
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+
+    run = pytester.runpytest_subprocess()
+
+    assert "ditto snapshot report" not in run.stderr.str()
+
+
+def test_reports_failed_lock_when_lock_cannot_be_written(
+    pytester: pytest.Pytester,
+) -> None:
+    """A lock write failure is reported apart from the snapshot write it follows."""
+    pytester.makeconftest("""
+        import ditto.plugin._lock as lock
+        def fail(*args):
+            raise PermissionError("read-only")
+        lock.write_lockfile = fail
+    """)
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+
+    run = pytester.runpytest_subprocess("--ditto-update")
+
+    run.stderr.fnmatch_lines(["*created*1*", "*lock*ditto.lock failed*"])
+
+
+def test_reports_refused_lock_when_rebuild_is_narrowed(
+    pytester: pytest.Pytester,
+) -> None:
+    """A narrowed --ditto-lock is reported as refused rather than failed."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_one(snapshot):
+            snapshot(1, key="a")
+        def test_two(snapshot):
+            snapshot(2, key="b")
+    """
+    )
+
+    run = pytester.runpytest_subprocess("--ditto-lock", "-k", "one")
+
+    run.stderr.fnmatch_lines(["*lock*ditto.lock refused*"])
+
+
+def test_lists_snapshot_as_not_pruned_when_deletion_fails(
+    pytester: pytest.Pytester,
+) -> None:
+    """A deletion that raised is reported as not pruned, not as pruned."""
+    pytester.makeconftest("""
+        from ditto.backends import FsspecMapping
+        def delete(self, key):
+            raise PermissionError("read-only")
+        FsspecMapping.__delitem__ = delete
+    """)
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    (pytester.path / ".ditto" / "test_orders.old@a.json").write_text("1")
+
+    run = pytester.runpytest_subprocess("--ditto-prune")
+
+    run.stderr.fnmatch_lines(["*not pruned*1*", "*test_orders.old@a.json*"])
+    assert "  pruned" not in run.stderr.str()
+
+
+def test_prints_report_when_only_the_lock_changed() -> None:
+    """A lock rebuild that wrote no snapshot still says the lock was written."""
+    stream = StringIO()
+
+    render_session_report(
+        created=[],
+        updated=[],
+        pruned=[],
+        would_prune=[],
+        lock=LockOutcome("written", added=0, removed=2),
+        console=Console(file=stream, width=100),
+    )
+
+    assert "ditto.lock written  0 added · 2 removed" in stream.getvalue()

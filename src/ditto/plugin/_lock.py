@@ -19,7 +19,7 @@ from ditto._lockfile import (
     read_lockfile,
     write_lockfile,
 )
-from ditto._handoff import LockOutcome
+from ditto._report import LockOutcome
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
 from ._options import PruneMode, RunOptions

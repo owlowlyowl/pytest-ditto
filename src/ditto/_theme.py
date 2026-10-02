@@ -41,6 +41,8 @@ CREATED = GREEN  # new snapshot files
 UPDATED = BLUE  # overwritten snapshot files
 WOULD_PRUNE = YELLOW  # backend keys a --ditto-prune run would delete
 PRUNED = RED  # deleted files
+FAILED = MAROON  # writes and deletions that raised; a lock not written
+LOCK = TEAL  # a ditto.lock this session wrote
 
 TITLE = MAUVE  # panel / table titles
 HEADER = LAVENDER  # table column headers

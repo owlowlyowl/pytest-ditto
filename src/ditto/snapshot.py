@@ -111,8 +111,6 @@ class SnapshotWrite(NamedTuple):
     """One write of a snapshot to its backend this session, and how it went."""
 
     key: SnapshotKey
-    target: str
-    storage_key: str
     outcome: Literal["created", "rewritten", "write_failed"]
 
 
@@ -169,6 +167,11 @@ class _SessionTracker:
     def updated(self) -> list[SnapshotKey]:
         """Existing snapshots overwritten this session."""
         return [w.key for w in self.writes if w.outcome == "rewritten"]
+
+    @property
+    def write_failed(self) -> list[SnapshotKey]:
+        """Snapshots whose write to the backend raised this session."""
+        return [w.key for w in self.writes if w.outcome == "write_failed"]
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -539,18 +542,15 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             _, value = _round_trip(recorder, data)
         case _:
             raw, value = _round_trip(recorder, data)
-            target = snapshot.target_id or snapshot.target
             try:
                 backend[storage_key] = raw
             except BaseException:
                 # Only the backend call is in here: a recorder error never
                 # reached storage, so it isn't a failed write.
-                tracker.writes.append(
-                    SnapshotWrite(sk, target, storage_key, "write_failed")
-                )
+                tracker.writes.append(SnapshotWrite(sk, "write_failed"))
                 raise
             outcome = "rewritten" if exists else "created"
-            tracker.writes.append(SnapshotWrite(sk, target, storage_key, outcome))
+            tracker.writes.append(SnapshotWrite(sk, outcome))
 
     # A missing key under VERIFY is recorded as "created" so the verify hook
     # reports it as unsynced.

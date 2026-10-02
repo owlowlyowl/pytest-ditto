@@ -64,9 +64,6 @@ class RunOptions:
     prune_shared : bool
         `--ditto-prune-shared`: let `--ditto-prune` delete from a target that
         may be shared with other checkouts (see `_targets.is_checkout_local`).
-    handoff_path : str
-        `--ditto-handoff`: where to write the run's outcomes for the standalone
-        CLI, in place of the session report, or `""`.
     """
 
     snapshot_mode: SnapshotMode
@@ -74,7 +71,6 @@ class RunOptions:
     prune: PruneMode
     introspect_path: str
     prune_shared: bool = False
-    handoff_path: str = ""
 
 
 RUN_OPTIONS = pytest.StashKey[RunOptions]()
@@ -131,7 +127,6 @@ def read_run_options(config: pytest.Config) -> RunOptions:
         prune=prune_mode,
         introspect_path=str(config.getoption("--ditto-introspect", default="")),
         prune_shared=bool(config.getoption("--ditto-prune-shared", default=False)),
-        handoff_path=str(config.getoption("--ditto-handoff", default="")),
     )
 
 
@@ -179,15 +174,6 @@ def add_options(parser: pytest.Parser) -> None:
             "Internal: resolve every test's backend, write a JSON manifest of "
             "stored snapshots to PATH, then skip pruning. Used by the ditto CLI "
             "to introspect backends. Combine with --setup-only."
-        ),
-    )
-    group.addoption(
-        "--ditto-handoff",
-        default="",
-        metavar="PATH",
-        help=(
-            "Internal: write this run's snapshot and lock outcomes to PATH "
-            "instead of printing the snapshot report. Used by the ditto CLI."
         ),
     )
     group.addoption(
