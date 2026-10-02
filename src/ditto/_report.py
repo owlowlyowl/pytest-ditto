@@ -91,7 +91,7 @@ def _lock_delta(lock: LockOutcome) -> str:
     """The entries a written lock gained and lost, or that they're unknown."""
     if lock.added is None or lock.removed is None:
         return "previous entries unknown"
-    return f"{lock.added} added · {lock.removed} removed"
+    return f"{lock.added} added, {lock.removed} removed"
 
 
 def _lock_block(lock: LockOutcome) -> Text:

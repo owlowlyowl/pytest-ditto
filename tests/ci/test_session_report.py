@@ -207,4 +207,4 @@ def test_prints_report_when_only_the_lock_changed() -> None:
         console=Console(file=stream, width=100),
     )
 
-    assert "ditto.lock written  0 added · 2 removed" in stream.getvalue()
+    assert "ditto.lock written  0 added, 2 removed" in stream.getvalue()
