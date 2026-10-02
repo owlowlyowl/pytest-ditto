@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import msgspec
 
-from ._atomic import write_atomically
-
 RESULT_VERSION = 1
+
+Provenance = Literal["disk", "lock", "live", "runtime", "unknown"]
 
 
 class Identity(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -30,7 +29,7 @@ class Metadata(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
     size_bytes: int | None = None
     modified: float | None = None
-    source: Literal["disk", "lock", "live", "runtime", "unknown"] = "unknown"
+    source: Provenance = "unknown"
 
 
 class Activity(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -45,7 +44,7 @@ class Activity(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
 class Coverage(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     target: str
-    source: Literal["disk", "lock", "live", "runtime", "unknown"]
+    source: Provenance
     status: Literal["checked", "unchecked", "failed", "unresolved"]
     reason: str | None = None
 
@@ -179,7 +178,3 @@ def decode_result(data: bytes) -> OperationResult:
     if result.version != RESULT_VERSION:
         raise ValueError("Unsupported Ditto result version")
     return result
-
-
-def write_result(path: Path, result: OperationResult) -> None:
-    write_atomically(path, encode_result(result))

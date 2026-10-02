@@ -8,85 +8,28 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
-from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
-from msgspec.structs import replace
 from rich.console import Console
 from rich.text import Text
 
-from ditto._results import OperationResult, decode_result
+from ditto._result_io import read_result
+from ditto._result_policy import reconcile_exit
+from ditto._results import OperationResult
+
+from ._result_format import operation_lines
 
 
 def render_operation(result: OperationResult, console: Console) -> None:
-    console.print(Text(f"Ditto report · pytest exit {result.tests.exit_code}"))
-    console.print(Text(f"Scope {result.scope_kind} · {result.scope}"))
-    counts = Counter(event.outcome for event in result.activity)
-    console.print(
-        Text(
-            " · ".join(
-                f"{counts[word]} {word}"
-                for word in (
-                    "created",
-                    "rewritten",
-                    "deleted",
-                    "proposed",
-                    "failed",
-                    "missing",
-                )
-                if counts[word]
-            )
-            or (
-                "Snapshot activity unavailable"
-                if result.completeness == "unsupported"
-                else "No snapshot mutations reported"
-            )
-        )
-    )
-    for event in result.activity:
-        if event.outcome == "accessed":
-            continue
-        identity = event.object.identity
-        label = (
-            f"{identity.nodeid} · {identity.key} · {identity.recorder}"
-            if identity
-            else event.object.storage_key
-        )
-        console.print(Text(f"  {event.outcome}  {label} → {event.object.target}"))
-        if event.reason:
-            console.print(Text(f"    {event.reason}"))
-    console.print(
-        Text(
-            f"Lock {result.lock.status} · {len(result.lock.added)} entries added · "
-            f"{len(result.lock.removed)} removed"
-            if result.lock.status != "unknown"
-            else "Lock outcome unknown"
-        )
-    )
-    if result.lock.reason:
-        console.print(Text(result.lock.reason))
-    if result.reason:
-        console.print(Text(result.reason))
-    for check in result.checks:
-        console.print(Text(f"{check.name}: {check.outcome} · {check.reason}"))
-        if check.object:
-            owner = check.object.identity
-            label = (
-                f"{owner.nodeid} · {owner.key} · {owner.recorder}"
-                if owner
-                else check.object.storage_key
-            )
-            console.print(Text(f"  {label} → {check.object.target}"))
-    for coverage in result.coverage:
-        if coverage.status != "checked":
-            console.print(
-                Text(f"{coverage.target}: {coverage.status} · {coverage.reason}")
-            )
+    """Emit literal report text through the supplied console."""
+    for line in operation_lines(result):
+        console.print(Text(line))
 
 
 def run_standalone(
-    flags: tuple[str, ...],
-    pytest_args: tuple[str, ...],
+    flags: Sequence[str],
+    pytest_args: Sequence[str],
     console: Console,
 ) -> int:
     """Inherit pytest streams; remove private artifacts on every exit path.
@@ -143,7 +86,7 @@ def _consume_result(
     errors: Console,
 ) -> None:
     try:
-        result = decode_result(path.read_bytes())
+        result = read_result(path)
     except (OSError, ValueError):
         errors.print(
             Text(
@@ -159,11 +102,4 @@ def _consume_result(
                 "incomplete. Completed writes may remain."
             )
         )
-        result = replace(
-            result,
-            tests=replace(result.tests, exit_code=status),
-            completeness="incomplete",
-            scope_kind="unknown",
-            reason="Subprocess status differs from handoff; coverage incomplete",
-        )
-    render_operation(result, console)
+    render_operation(reconcile_exit(result, status), console)

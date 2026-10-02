@@ -7,17 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from ditto._lockfile import LOCKFILE_NAME, LockFile, read_lockfile
+from ditto._lockfile import LOCKFILE_NAME, read_lockfile
+from ditto._result_io import write_result
+from ditto._result_policy import (
+    finalize_result,
+    lock_result,
+    target_coverage,
+    unsupported_result,
+)
 from ditto._results import (
     RESULT_VERSION,
-    Coverage,
-    Identity,
-    LockDelta,
-    LockResult,
     OperationResult,
     TestResult,
-    safe_location,
-    write_result,
 )
 
 from ._lock import is_authoritative_run
@@ -26,6 +27,7 @@ from ._session import session_state
 
 
 def capture_lock_before(session: pytest.Session) -> None:
+    """Capture initial lock evidence in pytest's incremental session state."""
     state = session_state(session.config)
     try:
         state.lock_before = read_lockfile(session.config.rootpath / LOCKFILE_NAME)
@@ -33,86 +35,38 @@ def capture_lock_before(session: pytest.Session) -> None:
         state.lock_before_error = type(exc).__name__
 
 
-def _entries(lock: LockFile | None) -> set[tuple[str, str, str, str]]:
-    return (
-        {
-            (target, entry.nodeid, entry.key, entry.recorder)
-            for target, group in lock.targets.items()
-            for entry in group.entries
-        }
-        if lock
-        else set()
-    )
-
-
-def _delta(items: set[tuple[str, str, str, str]]) -> tuple[LockDelta, ...]:
-    return tuple(
-        LockDelta(safe_location(target), Identity(nodeid, key, recorder))
-        for target, nodeid, key, recorder in sorted(items)
-    )
-
-
 def collect_result(session: pytest.Session) -> OperationResult:
+    """Freeze pytest observations and apply the independent result policies."""
     state = session_state(session.config)
     status = (
         state.result_exit_code
         if state.result_exit_code is not None
         else int(session.exitstatus)
     )
-    lock = LockResult()
+    after = None
+    final_error = None
     try:
         after = read_lockfile(session.config.rootpath / LOCKFILE_NAME)
     except Exception as exc:
-        lock = LockResult(reason=f"{type(exc).__name__} reading final lock")
-    else:
-        if state.lock_before_error:
-            lock = LockResult(reason="Initial lock unreadable; deltas unknown")
-        else:
-            before_entries, after_entries = _entries(state.lock_before), _entries(after)
-            lock_status = (
-                "failed"
-                if state.lock_failure
-                else "unchanged"
-                if after == state.lock_before
-                else "written"
-            )
-            lock = LockResult(
-                lock_status,
-                _delta(after_entries - before_entries),
-                _delta(before_entries - after_entries),
-                state.lock_failure,
-            )
-    unsupported = xdist_is_distributing(session.config)
-    coverage = tuple(state.coverage) + tuple(
-        Coverage(
-            safe_location(target),
-            "runtime",
-            "unchecked",
-            "Runtime target resolved; physical inventory not enumerated",
-        )
-        for target in sorted(state.tracker.target_backends)
-        if not any(c.target == safe_location(target) for c in state.coverage)
+        final_error = type(exc).__name__
+    lock = lock_result(
+        state.lock_before,
+        after,
+        state.lock_before_error,
+        final_error,
+        state.lock_failure,
     )
-    if state.lock_before:
-        seen_targets = {c.target for c in coverage}
-        coverage += tuple(
-            Coverage(
-                safe_location(target),
-                "lock",
-                "unchecked",
-                "Historical target not resolved or inspected",
-            )
-            for target in sorted(state.lock_before.targets)
-            if safe_location(target) not in seen_targets
-        )
-    # A failed/interrupted pass cannot establish complete ownership discovery.
-    complete = status == 0 and not state.collection.uncollected
+    coverage = target_coverage(
+        state.coverage,
+        state.tracker.target_backends.keys(),
+        state.lock_before.targets.keys() if state.lock_before else frozenset(),
+    )
     full = is_authoritative_run(session, status) and not (
         state.collection.deselected
         or getattr(session.config.option, "collectonly", False)
         or getattr(session.config.option, "setuponly", False)
     )
-    return OperationResult(
+    result = OperationResult(
         RESULT_VERSION,
         str(session.config.rootpath),
         TestResult(
@@ -127,23 +81,15 @@ def collect_result(session: pytest.Session) -> OperationResult:
         coverage,
         tuple(state.checks),
         lock,
-        "unsupported" if unsupported else "complete" if complete else "incomplete",
-        "Snapshot aggregation under pytest-xdist is unsupported"
-        if unsupported
-        else "Run failed, interrupted, or has unexamined collection"
-        if not complete
-        else None,
-        "unknown"
-        if unsupported
-        else "full"
-        if full
-        else "selected"
-        if status == 0
-        else "unknown",
+        scope_kind="full" if full else "selected",
     )
+    if xdist_is_distributing(session.config):
+        return unsupported_result(result)
+    return finalize_result(result)
 
 
 def write_session_result(session: pytest.Session) -> None:
+    """Publish private evidence without replacing pytest's exit status."""
     path = run_options(session.config).result_path
     if not path:
         return

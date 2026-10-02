@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 
 import click
+from rich.console import Console
 
 from ._display import pass_console
 from ._operation import run_standalone
@@ -16,7 +17,7 @@ from ._operation import run_standalone
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @pass_console
-def cmd_run(console, pytest_args):
+def cmd_run(console: Console, pytest_args: tuple[str, ...]) -> None:
     """Run pytest, reporting any snapshot activity at the end.
 
     Any extra arguments are passed directly to pytest.
@@ -36,7 +37,7 @@ def cmd_run(console, pytest_args):
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @pass_console
-def cmd_update(console, pytest_args):
+def cmd_update(console: Console, pytest_args: tuple[str, ...]) -> None:
     """Re-run pytest with --ditto-update to regenerate snapshots.
 
     Any extra arguments are passed directly to pytest.
@@ -72,7 +73,9 @@ def cmd_update(console, pytest_args):
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @pass_console
-def cmd_prune(console, check, shared, pytest_args):
+def cmd_prune(
+    console: Console, check: bool, shared: bool, pytest_args: tuple[str, ...]
+) -> None:
     """Re-run pytest to delete snapshots not in ditto.lock.
 
     With --check, report what would be pruned without deleting anything. A
@@ -99,7 +102,7 @@ def cmd_prune(console, check, shared, pytest_args):
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @pass_console
-def cmd_lock(console, pytest_args):
+def cmd_lock(console: Console, pytest_args: tuple[str, ...]) -> None:
     """Rebuild ditto.lock from current snapshots (full run; values unchanged).
 
     Must run the whole suite: passing positional path/nodeid args narrows the run
@@ -120,7 +123,7 @@ def cmd_lock(console, pytest_args):
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 @pass_console
-def cmd_verify(console, pytest_args):
+def cmd_verify(console: Console, pytest_args: tuple[str, ...]) -> None:
     """Fail if the backend has drifted from ditto.lock (read-only).
 
     \b

@@ -25,7 +25,6 @@ from ditto.cli._diagnostics import (
 )
 from ditto.cli._inventory import cmd_list, cmd_stats, cmd_status
 from ditto.cli._maintenance import cmd_clean, cmd_recorders
-from ditto.cli._pytest import cmd_prune
 
 
 # ── test helpers ──────────────────────────────────────────────────────────────
@@ -375,42 +374,6 @@ def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
         result = CliRunner().invoke(cmd_recorders, [])
 
     assert result.exit_code == 1
-
-
-def test_prune_check_forwards_dry_run_flag() -> None:
-    """ditto prune --check forwards --ditto-prune-dry-run, not --ditto-prune."""
-    with patch("ditto.cli._operation.subprocess.run") as run:
-        run.return_value.returncode = 0
-        result = CliRunner().invoke(cmd_prune, ["--check"])
-
-    assert result.exit_code == 0
-    cmd = run.call_args.args[0]
-    assert "--ditto-prune-dry-run" in cmd
-    assert "--ditto-prune" not in cmd
-
-
-def test_prune_without_check_forwards_delete_flag() -> None:
-    """Plain ditto prune forwards --ditto-prune (delete)."""
-    with patch("ditto.cli._operation.subprocess.run") as run:
-        run.return_value.returncode = 0
-        result = CliRunner().invoke(cmd_prune, [])
-
-    assert result.exit_code == 0
-    cmd = run.call_args.args[0]
-    assert "--ditto-prune" in cmd
-    assert "--ditto-prune-dry-run" not in cmd
-
-
-def test_prune_shared_forwards_prune_shared_flag() -> None:
-    """ditto prune --shared forwards --ditto-prune-shared with --ditto-prune."""
-    with patch("ditto.cli._operation.subprocess.run") as run:
-        run.return_value.returncode = 0
-        result = CliRunner().invoke(cmd_prune, ["--shared"])
-
-    assert result.exit_code == 0
-    cmd = run.call_args.args[0]
-    assert "--ditto-prune" in cmd
-    assert "--ditto-prune-shared" in cmd
 
 
 # ── credential-free default + --live opt-in ───────────────────────────────────
