@@ -7,7 +7,8 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from ditto._report import LockOutcome, render_session_report
+from ditto._lockfile import LockOutcome
+from ditto._report import render_session_report
 
 
 ONE_SNAPSHOT = """
@@ -101,6 +102,29 @@ def test_counts_lock_entries_when_update_replaces_a_key(
     run = pytester.runpytest_subprocess("--ditto-update")
 
     run.stderr.fnmatch_lines(["*lock*ditto.lock written*1 added*1 removed*"])
+
+
+def test_omits_entry_counts_when_rebuild_replaces_an_unreadable_lock(
+    pytester: pytest.Pytester,
+) -> None:
+    """Replacing a lock that couldn't be read can't say how many entries changed."""
+    test = pytester.makepyfile(
+        test_orders="""
+        def test_one(snapshot):
+            snapshot(1, key="a")
+        def test_two(snapshot):
+            snapshot(2, key="b")
+    """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+    lock = pytester.path / "ditto.lock"
+    lock.write_text(lock.read_text().replace('"version": 1', '"version": 999'))
+    test.write_text("def test_one(snapshot):\n    snapshot(1, key='a')\n")
+
+    run = pytester.runpytest_subprocess("--ditto-lock")
+
+    run.stderr.fnmatch_lines(["*lock*ditto.lock written*previous entries unknown*"])
+    assert "added" not in run.stderr.str()
 
 
 def test_prints_no_report_when_run_changes_nothing(

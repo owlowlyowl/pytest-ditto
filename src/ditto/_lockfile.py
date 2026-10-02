@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal
 from urllib.parse import urlparse
 
 import msgspec
@@ -16,6 +18,7 @@ __all__ = (
     "LockEntry",
     "LockTarget",
     "LockFile",
+    "LockOutcome",
     "serialise",
     "deserialise",
     "read_lockfile",
@@ -53,6 +56,19 @@ class LockFile(msgspec.Struct, frozen=True):
 
     version: int
     targets: dict[str, LockTarget]
+
+
+@dataclass(frozen=True)
+class LockOutcome:
+    """What a session did to `ditto.lock`, counted in lock entries.
+
+    `added` and `removed` are None when the previous lock couldn't be read, so
+    the change in entries is unknown.
+    """
+
+    status: Literal["unchanged", "written", "failed", "refused"] = "unchanged"
+    added: int | None = 0
+    removed: int | None = 0
 
 
 def _canonical(lock: LockFile) -> LockFile:

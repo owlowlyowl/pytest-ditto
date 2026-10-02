@@ -1,12 +1,11 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from ._lockfile import LOCKFILE_NAME
+from ._lockfile import LOCKFILE_NAME, LockOutcome
 from ._theme import (
     CREATED,
     FAILED,
@@ -20,7 +19,7 @@ from ._theme import (
 from .snapshot import SnapshotKey
 
 
-__all__ = ("LockOutcome", "PrunedSnapshot", "render_session_report")
+__all__ = ("PrunedSnapshot", "render_session_report")
 
 # Wide enough for the longest row label, "not written".
 _LABEL_WIDTH = 13
@@ -36,15 +35,6 @@ class PrunedSnapshot:
 
     target_id: str
     key: str
-
-
-@dataclass(frozen=True)
-class LockOutcome:
-    """What a session did to `ditto.lock`, counted in lock entries."""
-
-    status: Literal["unchanged", "written", "failed", "refused"] = "unchanged"
-    added: int = 0
-    removed: int = 0
 
 
 def _pruned_by_target(
@@ -97,6 +87,13 @@ def _pruned_block(
     return text
 
 
+def _lock_delta(lock: LockOutcome) -> str:
+    """The entries a written lock gained and lost, or that they're unknown."""
+    if lock.added is None or lock.removed is None:
+        return "previous entries unknown"
+    return f"{lock.added} added · {lock.removed} removed"
+
+
 def _lock_block(lock: LockOutcome) -> Text:
     """The row saying what the session did to `ditto.lock`."""
     colour = LOCK if lock.status == "written" else FAILED
@@ -104,7 +101,7 @@ def _lock_block(lock: LockOutcome) -> Text:
     text.append(f"  {'lock':<{_LABEL_WIDTH}}", style=f"bold {colour}")
     text.append(f"{LOCKFILE_NAME} {lock.status}", style=colour)
     if lock.status == "written":
-        text.append(f"  {lock.added} added · {lock.removed} removed", style=MUTED)
+        text.append(f"  {_lock_delta(lock)}", style=MUTED)
     return text
 
 

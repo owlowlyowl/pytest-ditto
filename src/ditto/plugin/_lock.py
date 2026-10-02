@@ -12,6 +12,7 @@ from ditto.snapshot import LockSeen, SnapshotMode
 from ditto._lockfile import (
     LockEntry,
     LockFile,
+    LockOutcome,
     LockTarget,
     LOCKFILE_NAME,
     LOCKFILE_VERSION,
@@ -19,7 +20,6 @@ from ditto._lockfile import (
     read_lockfile,
     write_lockfile,
 )
-from ditto._report import LockOutcome
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
 from ._options import PruneMode, RunOptions
@@ -207,14 +207,27 @@ def _rewrite_lockfile(config: pytest.Config) -> LockOutcome:
             category=DittoWarning,
             stacklevel=1,
         )
-        existing = None
-    targets = dict(existing.targets) if existing is not None else {}
+        write_lockfile(path, _rebuilt_lock({}, grouped, state.collection))
+        # The old entries couldn't be read, so how many changed is unknown.
+        return LockOutcome("written", added=None, removed=None)
+    targets = existing.targets if existing is not None else {}
+    return _write_if_changed(
+        path, existing, _rebuilt_lock(targets, grouped, state.collection)
+    )
+
+
+def _rebuilt_lock(
+    targets: dict[str, LockTarget],
+    grouped: dict[tuple[str, str], list[LockEntry]],
+    collection: CollectionRecord,
+) -> LockFile:
+    """`targets` with each exercised target rebuilt from this run's entries."""
+    rebuilt = dict(targets)
     for (target_id, scheme), entries in grouped.items():
-        targets[target_id] = _rebuilt_target(
-            targets.get(target_id), scheme, entries, state.collection
+        rebuilt[target_id] = _rebuilt_target(
+            rebuilt.get(target_id), scheme, entries, collection
         )
-    lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
-    return _write_if_changed(path, existing, lock)
+    return LockFile(version=LOCKFILE_VERSION, targets=rebuilt)
 
 
 def warn_if_lockfile_ignored(config: pytest.Config) -> None:

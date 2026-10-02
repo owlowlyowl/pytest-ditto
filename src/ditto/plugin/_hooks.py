@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ditto._lockfile import LOCKFILE_NAME
-from ditto._report import LockOutcome, PrunedSnapshot, render_session_report
+from ditto._lockfile import LOCKFILE_NAME, LockOutcome
+from ditto._report import PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
 from ditto.snapshot import SnapshotMode
