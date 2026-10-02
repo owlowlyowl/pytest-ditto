@@ -56,9 +56,11 @@ def operation_lines(result: OperationResult) -> tuple[str, ...]:
             lines.append(f"  {object_label(check.object)} → {check.object.target}")
         elif check.target:
             lines.append(f"  {check.target}")
+    # Only failures: every target a run didn't enumerate is "unchecked", which
+    # would bury the report of a plain run. Fuller coverage display is #214's.
     lines.extend(
         f"{coverage.target}: {coverage.status} · {coverage.reason}"
         for coverage in result.coverage
-        if coverage.status != "checked"
+        if coverage.status == "failed"
     )
     return tuple(lines)

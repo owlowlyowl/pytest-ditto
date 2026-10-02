@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,12 +11,56 @@ from click.testing import CliRunner
 from ditto._results import (
     RESULT_VERSION,
     Activity,
+    Coverage,
     ObjectRef,
     OperationResult,
     TestResult as RunTests,
     encode_result,
 )
-from ditto.cli._pytest import cmd_update
+from ditto.cli._pytest import cmd_prune, cmd_update
+from ditto.cli._result_format import operation_lines
+
+
+class _FakePytest:
+    """Stands in for `subprocess.Popen` of the pytest child.
+
+    It writes `handoff` (if any) to the path in `--ditto-result=`, then its
+    `wait` raises KeyboardInterrupt `interrupts` times before returning `status`.
+    """
+
+    def __init__(
+        self, status: int, handoff: bytes | None = None, interrupts: int = 0
+    ) -> None:
+        self.status = status
+        self.handoff = handoff
+        self.interrupts = interrupts
+        self.command: list[str] = []
+        self.killed = False
+
+    def __call__(self, command: list[str]) -> _FakePytest:
+        self.command = command
+        if self.handoff is not None:
+            self.handoff_path().write_bytes(self.handoff)
+        return self
+
+    def handoff_path(self) -> Path:
+        prefix = "--ditto-result="
+        (flag,) = [a for a in self.command if a.startswith(prefix)]
+        return Path(flag.removeprefix(prefix))
+
+    def wait(self) -> int:
+        if self.interrupts:
+            self.interrupts -= 1
+            raise KeyboardInterrupt
+        return self.status
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def _invoke(command, child: _FakePytest, *args: str):
+    with patch("ditto.cli._operation.subprocess.Popen", child):
+        return CliRunner().invoke(command, list(args))
 
 
 def test_prints_legacy_report_when_pytest_runs_directly(
@@ -43,17 +86,9 @@ def test_preserves_child_status_when_handoff_is_unavailable(
     payload: bytes | None, status: int
 ) -> None:
     """Missing or malformed evidence cannot override the child exit status."""
+    child = _FakePytest(status, payload)
 
-    def child(command, **kwargs):
-        path = Path(
-            next(a.split("=", 1)[1] for a in command if a.startswith("--ditto-result="))
-        )
-        if payload is not None:
-            path.write_bytes(payload)
-        return subprocess.CompletedProcess(command, status)
-
-    with patch("ditto.cli._operation.subprocess.run", side_effect=child):
-        result = CliRunner().invoke(cmd_update, ["tests/", "-q"])
+    result = _invoke(cmd_update, child, "tests/", "-q")
     actual = result.exit_code
     expected = status
 
@@ -64,7 +99,7 @@ def test_preserves_child_status_when_handoff_is_unavailable(
 
 def test_reports_safe_failure_when_pytest_cannot_launch() -> None:
     """Launch errors report failure without copying exception secrets."""
-    with patch("ditto.cli._operation.subprocess.run", side_effect=OSError("secret")):
+    with patch("ditto.cli._operation.subprocess.Popen", side_effect=OSError("secret")):
         result = CliRunner().invoke(cmd_update)
     actual = result.exit_code
     expected = 1
@@ -140,15 +175,9 @@ def test_reports_actual_failure_when_handoff_exit_status_is_stale() -> None:
         scope_kind="full",
     )
 
-    def child(command, **kwargs):
-        path = Path(
-            next(a.split("=", 1)[1] for a in command if a.startswith("--ditto-result="))
-        )
-        path.write_bytes(encode_result(result_data))
-        return subprocess.CompletedProcess(command, 1)
+    child = _FakePytest(1, encode_result(result_data))
 
-    with patch("ditto.cli._operation.subprocess.run", side_effect=child):
-        result = CliRunner().invoke(cmd_update)
+    result = _invoke(cmd_update, child)
     actual = result.exit_code
     expected = 1
 
@@ -195,24 +224,11 @@ def test_reports_exact_missing_key_when_standalone_verify_detects_drift(
 @pytest.mark.parametrize("status", [0, 1, -15])
 def test_removes_private_artifacts_when_subprocess_exits(status: int) -> None:
     """Private handoff files disappear after success, failure, or a signal."""
-    directories = []
+    child = _FakePytest(status, b"malformed")
 
-    def child(command, **kwargs):
-        path = Path(
-            next(
-                argument.split("=", 1)[1]
-                for argument in command
-                if argument.startswith("--ditto-result=")
-            )
-        )
-        directories.append(path.parent)
-        path.write_bytes(b"malformed")
-        return subprocess.CompletedProcess(command, status)
+    _invoke(cmd_update, child)
 
-    with patch("ditto.cli._operation.subprocess.run", side_effect=child):
-        CliRunner().invoke(cmd_update)
-
-    assert not directories[0].exists()
+    assert not child.handoff_path().parent.exists()
 
 
 @pytest.mark.parametrize(
@@ -305,3 +321,65 @@ def test_shows_failed_deletion_reason_when_collecting_results(
 
     assert "bucket is read-only" in run.stdout.str()
     assert "bucket is read-only" not in handoff.read_text()
+
+
+def test_lets_pytest_finish_when_interrupted_once() -> None:
+    """A first Ctrl-C waits for pytest to finish its session rather than kill it."""
+    child = _FakePytest(2, interrupts=1)
+
+    result = _invoke(cmd_update, child)
+    actual = (result.exit_code, child.killed)
+
+    expected = (2, False)
+    assert actual == expected
+
+
+def test_kills_pytest_when_interrupted_twice() -> None:
+    """A second Ctrl-C stops pytest and reports the outcome as unknown."""
+    child = _FakePytest(2, interrupts=2)
+
+    result = _invoke(cmd_update, child)
+    actual = (result.exit_code, child.killed)
+
+    expected = (130, True)
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "arguments,flags",
+    [
+        ([], ["--ditto-prune"]),
+        (["--check"], ["--ditto-prune-dry-run"]),
+        (["--shared"], ["--ditto-prune", "--ditto-prune-shared"]),
+    ],
+)
+def test_forwards_prune_flags_when_prune_options_are_given(
+    arguments: list[str], flags: list[str]
+) -> None:
+    """ditto prune's options map onto the pytest prune flags it forwards."""
+    child = _FakePytest(0)
+
+    _invoke(cmd_prune, child, *arguments)
+    actual = [a for a in child.command if a.startswith("--ditto-prune")]
+
+    expected = flags
+    assert actual == expected
+
+
+def test_omits_unchecked_targets_when_rendering_report() -> None:
+    """The report names failed targets, not every target it didn't inspect."""
+    result = OperationResult(
+        RESULT_VERSION,
+        "/project",
+        RunTests(0),
+        coverage=(
+            Coverage("unread", "runtime", "unchecked", "Not enumerated"),
+            Coverage("broken", "live", "failed", "OSError inspecting target"),
+        ),
+    )
+
+    lines = operation_lines(result)
+    actual = [line for line in lines if "unread" in line or "broken" in line]
+
+    expected = ["broken: failed · OSError inspecting target"]
+    assert actual == expected

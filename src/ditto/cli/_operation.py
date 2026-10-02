@@ -24,17 +24,38 @@ def render_operation(result: OperationResult, console: Console) -> None:
         console.print(Text(line))
 
 
+def _wait_for_pytest(command: list[str]) -> tuple[int, bool]:
+    """Run pytest to completion; return its exit status and whether Ctrl-C was hit.
+
+    Ctrl-C reaches pytest too, which then finishes its session: the lock write,
+    any deletions, and the handoff. So a first Ctrl-C keeps waiting for it,
+    where `subprocess.run` would kill it a moment later, mid-write. A second
+    Ctrl-C kills it and propagates.
+    """
+    child = subprocess.Popen(command)
+    interrupted = False
+    while True:
+        try:
+            return child.wait(), interrupted
+        except KeyboardInterrupt:
+            if interrupted:
+                child.kill()
+                child.wait()
+                raise
+            interrupted = True
+
+
 def run_standalone(
     flags: Sequence[str],
     pytest_args: Sequence[str],
     console: Console,
+    errors: Console,
 ) -> int:
     """Inherit pytest streams; remove private artifacts on every exit path.
 
     Missing/malformed data leaves snapshot/lock outcomes unknown. The child
     exit status remains authoritative even after partial writes or no handoff.
     """
-    errors = Console(stderr=True)
     if any(
         arg == "--ditto-result" or arg.startswith("--ditto-result=")
         for arg in pytest_args
@@ -43,33 +64,34 @@ def run_standalone(
         return 2
     with tempfile.TemporaryDirectory(prefix="ditto-result-") as directory:
         path = Path(directory) / "result.json"
+        command = [
+            sys.executable,
+            "-m",
+            "pytest",
+            f"--ditto-result={path}",
+            *flags,
+            *pytest_args,
+        ]
         try:
-            child = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pytest",
-                    f"--ditto-result={path}",
-                    *flags,
-                    *pytest_args,
-                ],
-                check=False,
-            )
+            status, interrupted = _wait_for_pytest(command)
         except KeyboardInterrupt:
             errors.print(
                 Text(
-                    "Interrupted · snapshot and lock outcomes may be incomplete; "
+                    "Stopped pytest · snapshot and lock outcomes unknown; "
                     "completed writes are not rolled back."
                 )
             )
-            # Python's subprocess.run waits briefly for the child on Ctrl-C.
-            # Consume a handoff if it did finish; never infer absence of writes.
-            _consume_result(path, 130, console, errors)
             return 130
         except OSError as exc:
             errors.print(Text(f"Could not launch pytest ({type(exc).__name__})."))
             return 1
-        status = child.returncode
+        if interrupted:
+            errors.print(
+                Text(
+                    "Interrupted · pytest finished its session; the report shows "
+                    "what completed, and completed writes are not rolled back."
+                )
+            )
         if status < 0:
             status = 128 - status
         _consume_result(path, status, console, errors)

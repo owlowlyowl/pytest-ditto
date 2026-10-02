@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import sys
+from typing import NoReturn
 
 import click
 from rich.console import Console
 
 from ._display import pass_console
 from ._operation import run_standalone
+
+
+def _exit_standalone(
+    flags: tuple[str, ...], pytest_args: tuple[str, ...], console: Console
+) -> NoReturn:
+    """Run pytest with `flags`, report on stdout, explain problems on stderr, exit."""
+    sys.exit(run_standalone(flags, pytest_args, console, Console(stderr=True)))
 
 
 @click.command(
@@ -28,7 +36,7 @@ def cmd_run(console: Console, pytest_args: tuple[str, ...]) -> None:
       ditto run tests/ci/
       ditto run tests/ci/ -k test_foo
     """
-    sys.exit(run_standalone((), pytest_args, console))
+    _exit_standalone((), pytest_args, console)
 
 
 @click.command(
@@ -48,7 +56,7 @@ def cmd_update(console: Console, pytest_args: tuple[str, ...]) -> None:
       ditto update tests/ci/
       ditto update tests/ci/ -k test_foo
     """
-    sys.exit(run_standalone(("--ditto-update",), pytest_args, console))
+    _exit_standalone(("--ditto-update",), pytest_args, console)
 
 
 @click.command(
@@ -93,7 +101,7 @@ def cmd_prune(
     flags = ["--ditto-prune-dry-run" if check else "--ditto-prune"]
     if shared:
         flags.append("--ditto-prune-shared")
-    sys.exit(run_standalone(tuple(flags), pytest_args, console))
+    _exit_standalone(tuple(flags), pytest_args, console)
 
 
 @click.command(
@@ -114,7 +122,7 @@ def cmd_lock(console: Console, pytest_args: tuple[str, ...]) -> None:
     Examples:
       ditto lock
     """
-    sys.exit(run_standalone(("--ditto-lock",), pytest_args, console))
+    _exit_standalone(("--ditto-lock",), pytest_args, console)
 
 
 @click.command(
@@ -131,4 +139,4 @@ def cmd_verify(console: Console, pytest_args: tuple[str, ...]) -> None:
       ditto verify
       ditto verify tests/ci/
     """
-    sys.exit(run_standalone(("--ditto-verify",), pytest_args, console))
+    _exit_standalone(("--ditto-verify",), pytest_args, console)
