@@ -43,6 +43,7 @@ docs/site/
 !.pixi/config.toml
 
 # Dev
+/dev/
 .designs/
 .issues/
 .impl/
