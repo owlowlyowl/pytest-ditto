@@ -16,12 +16,11 @@ from ditto._lockfile import (
     read_lockfile,
     storage_key,
 )
-from ditto._results import Activity, Check, Coverage, Identity, ObjectRef, safe_location
+from ditto._results import Activity, Check, Identity, ObjectRef
 from ditto._reconcile import diff_backend, owned_prefixes
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
-from ._options import run_options
-from ._session import fail_session, session_state
+from ._session import collector, fail_session, session_state
 from ._targets import is_checkout_local
 
 
@@ -185,14 +184,15 @@ def _verify_report_drift(drift: list[TargetDrift], lock: LockFile) -> None:
         print("\n".join(_drift_lines(target_drift, identities)))
 
 
-def _verify_diagnostic(session: pytest.Session, message: str, safe_reason: str) -> None:
-    if run_options(session.config).result_path:
-        session_state(session.config).checks.append(
-            Check(
-                "storage agreement",
-                "failed",
-                safe_reason,
-            )
+def _verify_diagnostic(
+    session: pytest.Session,
+    message: str,
+    safe_reason: str,
+    target: str | None = None,
+) -> None:
+    if (results := collector(session.config)) is not None:
+        results.checks.append(
+            Check("storage agreement", "failed", safe_reason, target=target)
         )
     else:
         _verify_report_error(message)
@@ -241,63 +241,57 @@ def run_verify(session: pytest.Session) -> None:
                 created_by_target.get(target_id, set()),
             )
         except Exception as exc:  # backend unreachable, etc.
-            session_state(config).coverage.append(
-                Coverage(
-                    safe_location(target_id),
-                    "live",
-                    "failed",
-                    f"{type(exc).__name__} inspecting target",
-                )
-            )
+            reason = f"{type(exc).__name__} inspecting target"
+            if (results := collector(config)) is not None:
+                results.cover(target_id, "live", "failed", reason)
             _verify_diagnostic(
-                session,
-                f"could not verify {target_id!r}: {exc}",
-                f"{type(exc).__name__} inspecting {safe_location(target_id)}",
+                session, f"could not verify {target_id!r}: {exc}", reason, target_id
             )
             fail_session(session)
             continue
-        session_state(config).coverage.append(
-            Coverage(
-                safe_location(target_id),
-                "live",
-                "checked",
-                "Exercised target inventory",
-            )
-        )
-        session_state(config).checks.append(
-            Check(
-                "storage agreement",
-                "failed"
-                if (
-                    target_drift.missing or target_drift.orphan or target_drift.unsynced
+        if (results := collector(config)) is not None:
+            results.cover(target_id, "live", "checked", "Exercised target inventory")
+            results.checks.extend(
+                _drift_checks(
+                    target_drift, _target_identities(lock, target_id, target.scheme)
                 )
-                else "passed",
-                f"Target {safe_location(target_id)}",
             )
-        )
-        identities = _target_identities(lock, target_id, target.scheme)
-        for name, keys, reason in (
-            ("missing", target_drift.missing, "Recorded object absent"),
-            ("outside lock", target_drift.orphan, "Inspected object outside lock"),
-            ("unrecorded access", target_drift.unsynced, "Access absent from lock"),
-        ):
-            for key in sorted(keys):
-                owner = identities.get(key)
-                ref = ObjectRef(
-                    safe_location(target_id),
-                    key,
-                    Identity(owner.nodeid, owner.key, owner.recorder)
-                    if owner
-                    else None,
-                )
-                session_state(config).checks.append(Check(name, "failed", reason, ref))
         drift.append(target_drift)
 
     drifted = [d for d in drift if d.missing or d.orphan or d.unsynced]
     if drifted:
-        if not run_options(config).result_path:
+        if collector(config) is None:
             _verify_report_drift(drifted, lock)
         fail_session(session)
+
+
+def _drift_checks(
+    drift: TargetDrift, identities: Mapping[str, LockEntry]
+) -> list[Check]:
+    """One storage-agreement check for the target, then one per drifted key."""
+    agrees = not (drift.missing or drift.orphan or drift.unsynced)
+    checks = [
+        Check(
+            "storage agreement",
+            "passed" if agrees else "failed",
+            "Exercised target agrees with lock" if agrees else "Target drifted",
+            target=drift.target_id,
+        )
+    ]
+    for name, keys, reason in (
+        ("missing", drift.missing, "Recorded object absent"),
+        ("outside lock", drift.orphan, "Inspected object outside lock"),
+        ("unrecorded access", drift.unsynced, "Access absent from lock"),
+    ):
+        for key in sorted(keys):
+            owner = identities.get(key)
+            identity = (
+                Identity(owner.nodeid, owner.key, owner.recorder) if owner else None
+            )
+            checks.append(
+                Check(name, "failed", reason, ObjectRef(drift.target_id, key, identity))
+            )
+    return checks
 
 
 def _prune_report_error(message: str) -> None:
@@ -351,25 +345,18 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
                 created_by_target.get(target_id, set()),
             )
         except Exception as exc:  # backend unreachable, etc.
-            session_state(config).coverage.append(
-                Coverage(
-                    safe_location(target_id),
+            if (results := collector(config)) is not None:
+                results.cover(
+                    target_id,
                     "live",
                     "failed",
                     f"{type(exc).__name__} inspecting target",
                 )
-            )
             _prune_report_error(f"could not read {target_id!r}: {exc}")
             fail_session(session)
             continue
-        session_state(config).coverage.append(
-            Coverage(
-                safe_location(target_id),
-                "live",
-                "checked",
-                "Exercised target inventory",
-            )
-        )
+        if (results := collector(config)) is not None:
+            results.cover(target_id, "live", "checked", "Exercised target inventory")
         for key in sorted(drift.unsynced):
             warnings.warn(
                 f"ditto prune: {target_id!r}: {key} was produced this run but is "
@@ -458,7 +445,7 @@ def delete_orphans(
             if observe is not None:
                 observe(
                     Activity(
-                        ObjectRef(safe_location(orphan.target_id), orphan.key),
+                        ObjectRef(orphan.target_id, orphan.key),
                         "failed",
                         "delete",
                         f"{type(exc).__name__} deleting object; completion unconfirmed",
@@ -472,7 +459,7 @@ def delete_orphans(
             if observe is not None:
                 observe(
                     Activity(
-                        ObjectRef(safe_location(orphan.target_id), orphan.key),
+                        ObjectRef(orphan.target_id, orphan.key),
                         "deleted",
                         "delete",
                     )
@@ -484,7 +471,7 @@ def report_failed_deletions(session: pytest.Session, result: PruneResult) -> Non
     """Report each target's failed deletions, if any, and fail the run."""
     if not result.failed:
         return
-    if run_options(session.config).result_path:
+    if collector(session.config) is not None:
         fail_session(session)
         return
     deleted_counts: dict[str, int] = {}

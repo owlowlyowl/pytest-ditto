@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
 
+from ._credentials import mask_credentials
 from ._lockfile import LockEntry
 from ._inventory import location_key
 from ._manifest import BackendManifest
@@ -16,14 +16,13 @@ from ._results import (
     Metadata,
     ObjectRef,
     Provenance,
-    safe_location,
 )
 
 
 def inventory_result(
     manifest: Sequence[BackendManifest],
     scope: str,
-    sources: Mapping[str, str],
+    sources: Mapping[str, Provenance],
     identities: Mapping[tuple[str, str], LockEntry],
 ) -> InventoryResult:
     """Sources are supplied by discovery, never guessed from unknown metadata.
@@ -42,7 +41,7 @@ def inventory_result(
 def inventory_evidence(
     manifest: Sequence[BackendManifest],
     scope: str,
-    sources: Mapping[str, str],
+    sources: Mapping[str, Provenance],
     identities: Mapping[tuple[str, str], LockEntry],
     locations: Mapping[str, str],
 ) -> InventoryResult:
@@ -53,12 +52,9 @@ def inventory_evidence(
     items = []
     coverage = []
     for backend in manifest:
-        location = safe_location(backend.location)
+        location = mask_credentials(backend.location)
         source = sources.get(backend.location, "unknown")
-        if source not in ("disk", "lock", "live", "runtime", "unknown"):
-            raise ValueError("Invalid inventory provenance")
-        provenance = cast(Provenance, source)
-        coverage.append(backend_coverage(backend, provenance))
+        coverage.append(backend_coverage(backend, source))
         # Error entries are unknown, never an empty successful inventory.
         if backend.error is not None:
             continue
@@ -70,7 +66,7 @@ def inventory_evidence(
             items.append(
                 InventoryItem(
                     ObjectRef(location, entry.storage_key, identity),
-                    Metadata(entry.size_bytes, entry.modified, provenance),
+                    Metadata(entry.size_bytes, entry.modified, source),
                     "present" if source in ("disk", "live") else "unknown",
                 )
             )
@@ -79,7 +75,7 @@ def inventory_evidence(
 
 def backend_coverage(backend: BackendManifest, source: Provenance) -> Coverage:
     """Distinguish failed enumeration from empty or unexamined inventories."""
-    location = safe_location(backend.location)
+    location = mask_credentials(backend.location)
     if backend.error is not None:
         return Coverage(
             location,

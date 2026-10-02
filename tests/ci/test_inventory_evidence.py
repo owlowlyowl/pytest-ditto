@@ -5,7 +5,8 @@ import pytest
 from ditto._lockfile import LockEntry
 from ditto._manifest import BackendManifest, ManifestEntry
 from ditto._result_inventory import inventory_result
-from ditto._results import Coverage, Identity, safe_location
+from ditto._credentials import mask_credentials
+from ditto._results import Coverage, Identity
 
 
 @pytest.mark.parametrize(
@@ -111,6 +112,10 @@ def test_omits_backend_secrets_when_inventory_enumeration_fails() -> None:
             "simplecache::s3://user:secret@bucket/path?sig=secret",
             "simplecache::s3://user:***@bucket/path?sig=***",
         ),
+        (
+            "s3://bucket/path?X-Amz-Signature=secret",
+            "s3://bucket/path?X-Amz-Signature=***",
+        ),
     ],
 )
 def test_redacts_secrets_when_target_has_uri_credentials(
@@ -118,17 +123,17 @@ def test_redacts_secrets_when_target_has_uri_credentials(
     expected: str,
 ) -> None:
     """Target locations omit URI passwords and signed query values."""
-    actual = safe_location(location)
+    actual = mask_credentials(location)
 
     assert actual == expected
 
 
-@pytest.mark.parametrize("namespace", ["a", "b"])
-def test_preserves_target_identity_when_uri_options_are_public(namespace: str) -> None:
-    """Public URI options continue to distinguish backend targets."""
-    location = f"redis://host/0?namespace={namespace}"
-
-    actual = safe_location(location)
+@pytest.mark.parametrize(
+    "location", ["redis://host/0?namespace=a", "redis://host/0?keyspace=b"]
+)
+def test_preserves_target_identity_when_uri_options_are_public(location: str) -> None:
+    """Public URI options, even ones named like secrets, still distinguish targets."""
+    actual = mask_credentials(location)
 
     expected = location
     assert actual == expected

@@ -54,6 +54,8 @@ def operation_lines(result: OperationResult) -> tuple[str, ...]:
         lines.append(f"{check.name}: {check.outcome} · {check.reason}")
         if check.object:
             lines.append(f"  {object_label(check.object)} → {check.object.target}")
+        elif check.target:
+            lines.append(f"  {check.target}")
     lines.extend(
         f"{coverage.target}: {coverage.status} · {coverage.reason}"
         for coverage in result.coverage

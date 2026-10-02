@@ -18,10 +18,11 @@ from ditto._lockfile import (
     read_lockfile,
     write_lockfile,
 )
+from ditto._result_policy import LockProblem
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
 from ._options import PruneMode, RunOptions
-from ._session import CollectionRecord, fail_session, session_state
+from ._session import CollectionRecord, collector, fail_session, session_state
 
 
 __all__ = (
@@ -248,6 +249,11 @@ def _fail_run(session: pytest.Session, message: str) -> None:
     fail_session(session)
 
 
+def _note_lock_problem(session: pytest.Session, problem: LockProblem) -> None:
+    if (results := collector(session.config)) is not None:
+        results.lock_problem = problem
+
+
 def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     """Apply `action` to `ditto.lock` for a single-process run.
 
@@ -261,9 +267,9 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
         case LockAction.KEEP:
             return
         case LockAction.REFUSE:
-            session_state(
-                session.config
-            ).lock_failure = "Lock rebuild refused: incomplete run"
+            _note_lock_problem(
+                session, LockProblem("refused", "Lock rebuild refused: incomplete run")
+            )
             _fail_run(
                 session,
                 "--ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid "
@@ -277,9 +283,10 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     try:
         write(session.config)
     except Exception as exc:  # never crash a run over a lock-file write
-        session_state(
-            session.config
-        ).lock_failure = f"{type(exc).__name__} during lock maintenance"
+        _note_lock_problem(
+            session,
+            LockProblem("failed", f"{type(exc).__name__} during lock maintenance"),
+        )
         if action is LockAction.REBUILD:
             _fail_run(session, f"failed to write {LOCKFILE_NAME}: {exc}")
         else:

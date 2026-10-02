@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import msgspec
 
 RESULT_VERSION = 1
 
 Provenance = Literal["disk", "lock", "live", "runtime", "unknown"]
+CoverageStatus = Literal["checked", "unchecked", "failed", "unresolved"]
+Completeness = Literal["complete", "incomplete", "unsupported"]
+ScopeKind = Literal["full", "selected", "unknown"]
 
 
 class Identity(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -45,7 +47,7 @@ class Activity(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 class Coverage(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     target: str
     source: Provenance
-    status: Literal["checked", "unchecked", "failed", "unresolved"]
+    status: CoverageStatus
     reason: str | None = None
 
 
@@ -62,10 +64,13 @@ class InventoryResult(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
 
 class Check(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """One check's outcome, about one object, one target, or the whole run."""
+
     name: str
     outcome: Literal["passed", "failed", "skipped", "unknown"]
     reason: str
     object: ObjectRef | None = None
+    target: str | None = None
 
 
 class LockDelta(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -76,7 +81,7 @@ class LockDelta(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
 
 class LockResult(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
-    status: Literal["unchanged", "written", "failed", "unknown"] = "unknown"
+    status: Literal["unchanged", "written", "failed", "refused", "unknown"] = "unknown"
     added: tuple[LockDelta, ...] = ()
     removed: tuple[LockDelta, ...] = ()
     reason: str | None = None
@@ -108,65 +113,9 @@ class OperationResult(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     coverage: tuple[Coverage, ...] = ()
     checks: tuple[Check, ...] = ()
     lock: LockResult = LockResult()
-    completeness: Literal["complete", "incomplete", "unsupported"] = "incomplete"
+    completeness: Completeness = "incomplete"
     reason: str | None = None
-    scope_kind: Literal["full", "selected", "unknown"] = "unknown"
-
-
-def safe_location(location: str) -> str:
-    """Redact URI secrets without merging targets that differ by public options.
-
-    Never include runtime storage options in results. Unknown backend exception
-    messages must be replaced with safe reasons, not copied into artifacts.
-    """
-    parts = []
-    for part in location.split("::"):
-        if "://" not in part:
-            parts.append(part)
-            continue
-        try:
-            parsed = urlsplit(part)
-            netloc = parsed.netloc
-            if "@" in netloc:
-                auth, _, host = netloc.rpartition("@")
-                netloc = (
-                    f"{auth.partition(':')[0]}:***@{host}" if ":" in auth else netloc
-                )
-            query = parse_qsl(parsed.query, keep_blank_values=True)
-            masked = [
-                (
-                    name,
-                    "***"
-                    if any(
-                        word in name.lower()
-                        for word in (
-                            "password",
-                            "passwd",
-                            "pwd",
-                            "secret",
-                            "token",
-                            "key",
-                            "sig",
-                            "credential",
-                            "authorization",
-                        )
-                    )
-                    else value,
-                )
-                for name, value in query
-            ]
-            parts.append(
-                urlunsplit((
-                    parsed.scheme,
-                    netloc,
-                    parsed.path,
-                    urlencode(masked, safe="*") if masked != query else parsed.query,
-                    "",
-                ))
-            )
-        except ValueError:
-            parts.append("<invalid target URI>")
-    return "::".join(parts)
+    scope_kind: ScopeKind = "unknown"
 
 
 def encode_result(result: OperationResult) -> bytes:

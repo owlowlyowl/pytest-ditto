@@ -15,7 +15,7 @@ from ditto.exceptions import (
     DittoUnhashableStorageOptionsError,
 )
 
-from ._credentials import uri_credentials_error
+from ditto._credentials import uri_credentials_error
 from ._options import StorageOptions, get_storage_options
 from ._profiles import load_target_profiles, resolve_profile
 from ._session import DittoSession, TargetCacheKey, maybe_enter, session_state

@@ -299,3 +299,42 @@ def test_snapshot(snapshot):
     )
 
     assert actual == expected
+
+
+def test_records_no_storage_failure_when_snapshot_cannot_serialize(
+    pytester: pytest.Pytester,
+) -> None:
+    """A recorder error never touched storage, so it is not an unconfirmed write."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_snapshot(snapshot):
+            snapshot(object(), key="x")
+    """
+    )
+
+    run, result = _handoff(pytester, "--ditto-update")
+
+    run.assert_outcomes(failed=1)
+    actual = result.activity
+    expected = ()
+    assert actual == expected
+
+
+def test_reports_refused_lock_when_rebuild_is_narrowed(
+    pytester: pytest.Pytester,
+) -> None:
+    """A refused rebuild is reported as refused, not as a failed write."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_one(snapshot):
+            snapshot(1, key="a")
+        def test_two(snapshot):
+            snapshot(2, key="b")
+    """
+    )
+
+    _, result = _handoff(pytester, "--ditto-lock", "-k", "one")
+    actual = result.lock.status
+
+    expected = "refused"
+    assert actual == expected

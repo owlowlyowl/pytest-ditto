@@ -9,7 +9,7 @@ import pytest
 from ditto.exceptions import DittoAmbiguousTargetError
 from ditto.snapshot import SnapshotMode
 
-from ._credentials import uri_credentials_error
+from ditto._credentials import uri_credentials_error
 
 
 __all__ = (

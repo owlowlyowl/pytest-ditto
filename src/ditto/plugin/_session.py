@@ -8,8 +8,8 @@ from typing import cast
 import pytest
 
 from ditto.snapshot import _SessionTracker
-from ditto._lockfile import LockFile
-from ditto._results import Check, Coverage, TestPhase
+
+from ._collector import ResultCollector
 
 
 __all__ = (
@@ -18,6 +18,7 @@ __all__ = (
     "DittoSession",
     "SESSION_STATE",
     "session_state",
+    "collector",
     "maybe_enter",
     "fail_session",
 )
@@ -43,6 +44,8 @@ class CollectionRecord:
         Every test collected, including deselected ones.
     passed
         Tests whose call phase passed.
+    deselected
+        Tests collected but deselected (`-k`, `-m`, or a plugin).
     uncollected
         What pytest left out: each path it ignored and each collector that
         skipped, as a node id (`""` for the root directory).
@@ -73,13 +76,8 @@ class DittoSession:
         default_factory=dict
     )
     collection: CollectionRecord = field(default_factory=CollectionRecord)
-    lock_before: LockFile | None = None
-    lock_before_error: str | None = None
-    lock_failure: str | None = None
-    coverage: list[Coverage] = field(default_factory=list)
-    checks: list[Check] = field(default_factory=list)
-    test_phases: list[TestPhase] = field(default_factory=list)
-    result_exit_code: int | None = None
+    # Present only when the run was asked for a structured result.
+    result: ResultCollector | None = None
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()
@@ -91,6 +89,11 @@ def session_state(config: pytest.Config) -> DittoSession:
     if state is None:
         state = config.stash[SESSION_STATE] = DittoSession()
     return state
+
+
+def collector(config: pytest.Config) -> ResultCollector | None:
+    """Return the session's result collector, or None when no result was asked for."""
+    return session_state(config).result
 
 
 def maybe_enter(

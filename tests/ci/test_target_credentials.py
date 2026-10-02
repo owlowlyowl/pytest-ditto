@@ -2,7 +2,7 @@
 
 import pytest
 
-from ditto.plugin._credentials import uri_credentials_error
+from ditto._credentials import uri_credentials_error
 
 pytest_plugins = ["pytester"]
 

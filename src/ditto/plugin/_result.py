@@ -10,38 +10,75 @@ import pytest
 from ditto._lockfile import LOCKFILE_NAME, read_lockfile
 from ditto._result_io import write_result
 from ditto._result_policy import (
-    finalize_result,
+    classify,
     lock_result,
+    redact_targets,
     target_coverage,
-    unsupported_result,
 )
 from ditto._results import (
     RESULT_VERSION,
+    Activity,
+    Identity,
+    Metadata,
+    ObjectRef,
     OperationResult,
     TestResult,
 )
+from ditto.snapshot import SnapshotEvent
 
+from ._collector import ResultCollector
 from ._lock import is_authoritative_run
-from ._options import run_options, xdist_is_distributing
+from ._options import xdist_is_distributing
 from ._session import session_state
 
 
-def capture_lock_before(session: pytest.Session) -> None:
-    """Capture initial lock evidence in pytest's incremental session state."""
-    state = session_state(session.config)
+__all__ = ("start_collector", "write_session_result")
+
+
+def start_collector(session: pytest.Session, path: Path) -> ResultCollector:
+    """Begin collecting for `path`: note the lock now, and record snapshot calls."""
+    results = ResultCollector(path)
     try:
-        state.lock_before = read_lockfile(session.config.rootpath / LOCKFILE_NAME)
+        results.lock_before = read_lockfile(session.config.rootpath / LOCKFILE_NAME)
     except Exception as exc:
-        state.lock_before_error = type(exc).__name__
+        results.lock_before_error = type(exc).__name__
+    session_state(session.config).tracker.events = []
+    return results
 
 
-def collect_result(session: pytest.Session) -> OperationResult:
-    """Freeze pytest observations and apply the independent result policies."""
+def snapshot_activity(event: SnapshotEvent) -> Activity:
+    """Describe one snapshot call; a failure's reason names only the error type."""
+    ref = ObjectRef(
+        event.target,
+        event.storage_key,
+        Identity(event.key.nodeid, event.key.key, event.key.identifier),
+    )
+    match event.outcome, event.phase:
+        case "failed", "write":
+            reason = f"{event.error} during snapshot write; completion unconfirmed"
+        case "failed", "read":
+            reason = f"{event.error} during snapshot read"
+        case "missing", _:
+            reason = "Referenced object absent"
+        case _:
+            reason = None
+    metadata = (
+        Metadata(size_bytes=event.size, source="runtime")
+        if event.size is not None
+        else Metadata()
+    )
+    return Activity(ref, event.outcome, event.phase, reason, metadata)
+
+
+def collect_result(
+    session: pytest.Session, results: ResultCollector
+) -> OperationResult:
+    """Freeze the session's evidence into an unredacted result."""
     state = session_state(session.config)
-    status = (
-        state.result_exit_code
-        if state.result_exit_code is not None
-        else int(session.exitstatus)
+    status = int(
+        results.exit_override
+        if results.exit_override is not None
+        else session.exitstatus
     )
     after = None
     final_error = None
@@ -49,24 +86,18 @@ def collect_result(session: pytest.Session) -> OperationResult:
         after = read_lockfile(session.config.rootpath / LOCKFILE_NAME)
     except Exception as exc:
         final_error = type(exc).__name__
-    lock = lock_result(
-        state.lock_before,
-        after,
-        state.lock_before_error,
-        final_error,
-        state.lock_failure,
-    )
-    coverage = target_coverage(
-        state.coverage,
-        state.tracker.target_backends.keys(),
-        state.lock_before.targets.keys() if state.lock_before else frozenset(),
-    )
     full = is_authoritative_run(session, status) and not (
         state.collection.deselected
         or getattr(session.config.option, "collectonly", False)
         or getattr(session.config.option, "setuponly", False)
     )
-    result = OperationResult(
+    completeness, scope_kind, reason = classify(
+        status,
+        full=full,
+        uncollected=bool(state.collection.uncollected),
+        distributing=xdist_is_distributing(session.config),
+    )
+    return OperationResult(
         RESULT_VERSION,
         str(session.config.rootpath),
         TestResult(
@@ -75,26 +106,33 @@ def collect_result(session: pytest.Session) -> OperationResult:
             tuple(sorted(state.collection.passed)),
             tuple(sorted(state.collection.uncollected)),
             tuple(sorted(state.collection.deselected)),
-            tuple(state.test_phases),
+            tuple(results.phases),
         ),
-        tuple(state.tracker.activity),
-        coverage,
-        tuple(state.checks),
-        lock,
-        scope_kind="full" if full else "selected",
+        tuple(snapshot_activity(event) for event in state.tracker.events or ())
+        + tuple(results.activity),
+        target_coverage(
+            results.coverage,
+            state.tracker.target_backends.keys(),
+            results.lock_before.targets.keys() if results.lock_before else frozenset(),
+        ),
+        tuple(results.checks),
+        lock_result(
+            results.lock_before,
+            after,
+            results.lock_before_error,
+            final_error,
+            results.lock_problem,
+        ),
+        completeness,
+        reason,
+        scope_kind,
     )
-    if xdist_is_distributing(session.config):
-        return unsupported_result(result)
-    return finalize_result(result)
 
 
-def write_session_result(session: pytest.Session) -> None:
-    """Publish private evidence without replacing pytest's exit status."""
-    path = run_options(session.config).result_path
-    if not path:
-        return
+def write_session_result(session: pytest.Session, results: ResultCollector) -> None:
+    """Publish the redacted handoff; never let a failure mask pytest's outcome."""
     try:
-        write_result(Path(path), collect_result(session))
+        write_result(results.path, redact_targets(collect_result(session, results)))
     except Exception as exc:
         # Never serialize arbitrary backend messages or mask pytest's outcome.
         print(

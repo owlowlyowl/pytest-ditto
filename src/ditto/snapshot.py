@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import string
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Iterator, MutableMapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, NamedTuple
+from functools import partial
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urlparse
 
-from ._results import Activity, Identity, Metadata, ObjectRef, safe_location
 from .exceptions import (
     DittoSnapshotNameCollisionError,
     DittoSnapshotNameTooLongError,
@@ -108,6 +109,23 @@ class LockSeen:
     recorder: str
 
 
+class SnapshotEvent(NamedTuple):
+    """What one snapshot call did to its backend.
+
+    `target` is the unmasked target id; whoever publishes events masks it.
+    `error` is the exception's type name only: a backend or recorder message
+    can carry credentials or snapshot content.
+    """
+
+    target: str
+    storage_key: str
+    key: SnapshotKey
+    outcome: Literal["accessed", "missing", "created", "rewritten", "failed"]
+    phase: Literal["read", "write"]
+    error: str | None = None
+    size: int | None = None
+
+
 class _RegisteredTarget(NamedTuple):
     """A target the session used: where it is, and the backend built for it."""
 
@@ -135,8 +153,9 @@ class _SessionTracker:
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
     created: list[SnapshotKey] = field(default_factory=list)
     updated: list[SnapshotKey] = field(default_factory=list)
-    # Events preserve target identity as well as the exact snapshot identity.
-    activity: list[Activity] = field(default_factory=list)
+    # What each snapshot call did to its backend. None unless someone asked for
+    # it (`--ditto-result`), so an ordinary run records nothing.
+    events: list[SnapshotEvent] | None = None
     # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
     # a backend instance means tests using different backends (separate fsspec
     # mappers for different tmp dirs) cannot collide even when group_name and key
@@ -153,6 +172,11 @@ class _SessionTracker:
     # Maps portable target_id → the target registered for it; populated at
     # fixture creation so verify (and prune) can enumerate every active target.
     target_backends: dict[str, _RegisteredTarget] = field(default_factory=dict)
+
+    def note(self, event: SnapshotEvent) -> None:
+        """Keep `event` when events are being recorded."""
+        if self.events is not None:
+            self.events.append(event)
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -437,6 +461,26 @@ def _round_trip(recorder: Recorder, data: Any) -> tuple[bytes, Any]:
     return raw, recorder.loads(raw)
 
 
+_EventOf = Callable[..., SnapshotEvent]
+
+
+@contextmanager
+def _storage_io(
+    tracker: _SessionTracker, event_of: _EventOf, phase: Literal["read", "write"]
+) -> Iterator[None]:
+    """Note a backend operation that raised, then let the error propagate.
+
+    Only backend calls run inside this, so a recorder error is never mistaken
+    for a storage failure. `BaseException`, because a Ctrl-C mid-write leaves
+    that write unconfirmed too.
+    """
+    try:
+        yield
+    except BaseException as exc:
+        tracker.note(event_of("failed", phase, type(exc).__name__))
+        raise
+
+
 def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
     """Persist `data` to the backend as the snapshot for `key`.
 
@@ -497,23 +541,11 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     tracker.register_access(backend, key_of, sk)
 
     recorder = snapshot.recorder
-    ref = ObjectRef(
-        safe_location(snapshot.target_id or snapshot.target),
-        storage_key,
-        Identity(sk.nodeid, sk.key, sk.identifier),
+    event_of = partial(
+        SnapshotEvent, snapshot.target_id or snapshot.target, storage_key, sk
     )
-    try:
+    with _storage_io(tracker, event_of, "read"):
         exists = storage_key in backend
-    except BaseException as exc:
-        tracker.activity.append(
-            Activity(
-                ref,
-                "failed",
-                "read",
-                f"{type(exc).__name__} checking snapshot presence",
-            )
-        )
-        raise
 
     # Build the lock observation up front (pure), but only record it AFTER the
     # backend access succeeds — recording before the write would leave a phantom
@@ -530,49 +562,24 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         else None
     )
 
-    phase = (
-        "read"
-        if snapshot.mode is SnapshotMode.VERIFY
-        or (exists and snapshot.mode is not SnapshotMode.UPDATE)
-        else "write"
-    )
-    try:
-        match snapshot.mode, exists:
-            case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
+    match snapshot.mode, exists:
+        case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
+            with _storage_io(tracker, event_of, "read"):
                 raw = backend[storage_key]
-                value = recorder.loads(raw)
-                event = Activity(
-                    ref,
-                    "accessed",
-                    "read",
-                    metadata=Metadata(size_bytes=len(raw), source="runtime"),
-                )
-            case SnapshotMode.VERIFY, False:
-                # Never write. Verification still classifies the missing object.
-                _, value = _round_trip(recorder, data)
-                event = Activity(ref, "missing", "read", "Referenced object absent")
-            case _:
-                raw, value = _round_trip(recorder, data)
+            value = recorder.loads(raw)
+            tracker.note(event_of("accessed", "read", size=len(raw)))
+        case SnapshotMode.VERIFY, False:
+            # Never write to the backend: leave it untouched so the drift check
+            # can detect the missing key.
+            _, value = _round_trip(recorder, data)
+            tracker.note(event_of("missing", "read"))
+        case _:
+            raw, value = _round_trip(recorder, data)
+            with _storage_io(tracker, event_of, "write"):
                 backend[storage_key] = raw
-                (tracker.updated if exists else tracker.created).append(sk)
-                event = Activity(
-                    ref,
-                    "rewritten" if exists else "created",
-                    "write",
-                    metadata=Metadata(size_bytes=len(raw), source="runtime"),
-                )
-    except BaseException as exc:
-        # Backend/recorder messages can contain credentials or snapshot content.
-        tracker.activity.append(
-            Activity(
-                ref,
-                "failed",
-                phase,
-                f"{type(exc).__name__} during snapshot {phase}; completion unconfirmed",
-            )
-        )
-        raise
-    tracker.activity.append(event)
+            (tracker.updated if exists else tracker.created).append(sk)
+            outcome = "rewritten" if exists else "created"
+            tracker.note(event_of(outcome, "write", size=len(raw)))
 
     # A missing key under VERIFY is recorded as "created" so the verify hook
     # reports it as unsynced.

@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse
 
 
-__all__ = ("uri_credentials_error",)
+__all__ = ("mask_credentials", "uri_credentials_error")
 
 
 # Query parameters whose values are secrets, compared case-insensitively: a
@@ -55,6 +55,18 @@ def _masked(part: str) -> str:
         [(n, "***" if _is_secret_param(n) else v) for n, v in query], safe="*"
     )
     return parsed._replace(netloc=netloc, query=masked_query).geturl()
+
+
+def mask_credentials(uri: str) -> str:
+    """Return `uri` with each part's password and secret query values masked.
+
+    Each part of an fsspec chain (`simplecache::s3://...`) is masked. A URI
+    that can't be parsed is replaced whole, since it can't be masked safely.
+    """
+    try:
+        return "::".join(_masked(part) for part in uri.split("::"))
+    except ValueError:
+        return "<invalid target URI>"
 
 
 def uri_credentials_error(uri: str) -> str | None:
