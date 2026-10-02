@@ -259,3 +259,49 @@ def test_retains_orphan_only_when_prune_policy_requires_it(
     expected = remains
     assert actual == expected
     run.assert_outcomes(passed=1)
+
+
+def test_shows_lock_parse_error_when_standalone_verify_cannot_read_lock(
+    pytester: pytest.Pytester,
+) -> None:
+    """Standalone verify keeps the diagnostic that says how the lock is broken."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_snapshot(snapshot):
+            snapshot(1, key="x")
+    """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    (pytester.path / "ditto.lock").write_text("{not json")
+
+    run = pytester.run(
+        sys.executable, "-c", "from ditto.cli import cli; cli()", "verify", "-q"
+    )
+
+    assert "JSON is malformed" in run.stdout.str()
+
+
+def test_shows_failed_deletion_reason_when_collecting_results(
+    pytester: pytest.Pytester,
+) -> None:
+    """A failed deletion's reason reaches the terminal but not the handoff file."""
+    pytester.makeconftest("""
+        from ditto.backends import FsspecMapping
+        def delete(self, key):
+            raise PermissionError("bucket is read-only")
+        FsspecMapping.__delitem__ = delete
+    """)
+    pytester.makepyfile(
+        test_orders="""
+        def test_snapshot(snapshot):
+            snapshot(1, key="x")
+    """
+    )
+    pytester.runpytest_subprocess().assert_outcomes(passed=1)
+    (pytester.path / ".ditto" / "test_orders.old@a.json").write_text("1")
+    handoff = pytester.path / "result.json"
+
+    run = pytester.runpytest_subprocess("--ditto-prune", f"--ditto-result={handoff}")
+
+    assert "bucket is read-only" in run.stdout.str()
+    assert "bucket is read-only" not in handoff.read_text()

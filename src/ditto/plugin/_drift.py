@@ -184,18 +184,22 @@ def _verify_report_drift(drift: list[TargetDrift], lock: LockFile) -> None:
         print("\n".join(_drift_lines(target_drift, identities)))
 
 
-def _verify_diagnostic(
+def _verify_failure(
     session: pytest.Session,
     message: str,
     safe_reason: str,
     target: str | None = None,
 ) -> None:
+    """Print the full diagnostic, and record a check when results are collected.
+
+    The terminal gets the error's detail; the handoff gets only `safe_reason`,
+    since an exception message can carry credentials.
+    """
+    _verify_report_error(message)
     if (results := collector(session.config)) is not None:
         results.checks.append(
             Check("storage agreement", "failed", safe_reason, target=target)
         )
-    else:
-        _verify_report_error(message)
 
 
 def run_verify(session: pytest.Session) -> None:
@@ -204,11 +208,11 @@ def run_verify(session: pytest.Session) -> None:
     try:
         lock = read_lockfile(config.rootpath / LOCKFILE_NAME)
     except DittoLockFileError as exc:
-        _verify_diagnostic(session, str(exc), f"{type(exc).__name__} reading lock")
+        _verify_failure(session, str(exc), f"{type(exc).__name__} reading lock")
         fail_session(session)
         return
     if lock is None:
-        _verify_diagnostic(
+        _verify_failure(
             session,
             f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one.",
             "No lock to verify against; run ditto lock",
@@ -244,7 +248,7 @@ def run_verify(session: pytest.Session) -> None:
             reason = f"{type(exc).__name__} inspecting target"
             if (results := collector(config)) is not None:
                 results.cover(target_id, "live", "failed", reason)
-            _verify_diagnostic(
+            _verify_failure(
                 session, f"could not verify {target_id!r}: {exc}", reason, target_id
             )
             fail_session(session)
@@ -260,6 +264,8 @@ def run_verify(session: pytest.Session) -> None:
 
     drifted = [d for d in drift if d.missing or d.orphan or d.unsynced]
     if drifted:
+        # The drift listing is a summary: the standalone report lists the same
+        # keys from the handoff. Errors above print either way.
         if collector(config) is None:
             _verify_report_drift(drifted, lock)
         fail_session(session)
@@ -470,9 +476,6 @@ def delete_orphans(
 def report_failed_deletions(session: pytest.Session, result: PruneResult) -> None:
     """Report each target's failed deletions, if any, and fail the run."""
     if not result.failed:
-        return
-    if collector(session.config) is not None:
-        fail_session(session)
         return
     deleted_counts: dict[str, int] = {}
     for orphan in result.deleted:
