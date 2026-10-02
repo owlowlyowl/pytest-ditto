@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from ditto._lockfile import LOCKFILE_NAME
+from ditto._results import Activity, ObjectRef, TestPhase, safe_location
 from ditto._report import PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
@@ -39,6 +40,7 @@ from ._options import (
     validate_ini_options,
     xdist_is_distributing,
 )
+from ._result import capture_lock_before, write_session_result
 from ._session import SESSION_STATE, DittoSession, session_state
 
 
@@ -52,6 +54,7 @@ __all__ = (
     "pytest_deselected",
     "pytest_runtest_makereport",
     "pytest_sessionfinish",
+    "pytest_sessionfinish_result",
     "pytest_unconfigure",
 )
 
@@ -79,6 +82,8 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     session.config.stash[SESSION_STATE] = DittoSession()
+    if run_options(session.config).result_path:
+        capture_lock_before(session)
 
 
 def _path_nodeid(path: Path, rootpath: Path) -> str | None:
@@ -122,6 +127,7 @@ def pytest_collection_finish(session: pytest.Session) -> None:
 def pytest_deselected(items: Sequence[pytest.Item]) -> None:
     for item in items:
         session_state(item.config).collection.collected.add(item.nodeid)
+        session_state(item.config).collection.deselected.add(item.nodeid)
 
 
 @pytest.hookimpl(wrapper=True)
@@ -129,9 +135,37 @@ def pytest_runtest_makereport(
     item: pytest.Item,
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     report = yield
+    if report.when in ("setup", "call", "teardown"):
+        session_state(item.config).test_phases.append(
+            TestPhase(
+                item.nodeid,
+                report.when,
+                report.outcome,
+                hasattr(report, "wasxfail"),
+            )
+        )
     if report.when == "call" and report.passed:
         session_state(item.config).collection.passed.add(item.nodeid)
     return report
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True, specname="pytest_sessionfinish")
+def pytest_sessionfinish_result(
+    session: pytest.Session,
+) -> Generator[None, None, None]:
+    # Observe final status after all session-finish hooks, without moving the
+    # ordinary maintenance/reporting hook relative to pytest's own hooks.
+    try:
+        yield
+    except BaseException as exc:
+        if run_options(session.config).result_path:
+            session_state(session.config).result_exit_code = (
+                2 if isinstance(exc, KeyboardInterrupt) else 3
+            )
+        raise
+    finally:
+        if not is_xdist_worker(session.config):
+            write_session_result(session)
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -172,7 +206,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     orphans, shared = split_shared(orphans, local_ids)
                     if shared:
                         refuse_shared_prune(session, shared)
-                result = delete_orphans(orphans)
+                result = delete_orphans(
+                    orphans,
+                    session_state(config).tracker.activity.append,
+                )
                 report_failed_deletions(session, result)
                 pruned = [
                     PrunedSnapshot(orphan.target_id, orphan.key)
@@ -186,6 +223,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             case PruneMode.OFF:
                 pass
 
+    session_state(config).tracker.activity.extend(
+        Activity(
+            ObjectRef(safe_location(o.target_id), o.key),
+            "proposed",
+            "review",
+            "Outside lock in exercised target; legacy prune candidate",
+        )
+        for o in would_prune
+    )
+
     if options.introspect_path:
         write_introspect_manifest(
             options.introspect_path, session_state(config).introspect_backends
@@ -195,6 +242,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if is_xdist_worker(config):
         # Each worker saw only its share of the tests; a report per worker would
         # be fragmented and interleaved with xdist's own output.
+        return
+
+    if options.result_path:
         return
 
     render_session_report(

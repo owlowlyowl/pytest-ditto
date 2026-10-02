@@ -379,7 +379,7 @@ def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
 
 def test_prune_check_forwards_dry_run_flag() -> None:
     """ditto prune --check forwards --ditto-prune-dry-run, not --ditto-prune."""
-    with patch("ditto.cli._pytest.subprocess.run") as run:
+    with patch("ditto.cli._operation.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, ["--check"])
 
@@ -391,7 +391,7 @@ def test_prune_check_forwards_dry_run_flag() -> None:
 
 def test_prune_without_check_forwards_delete_flag() -> None:
     """Plain ditto prune forwards --ditto-prune (delete)."""
-    with patch("ditto.cli._pytest.subprocess.run") as run:
+    with patch("ditto.cli._operation.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, [])
 
@@ -403,7 +403,7 @@ def test_prune_without_check_forwards_delete_flag() -> None:
 
 def test_prune_shared_forwards_prune_shared_flag() -> None:
     """ditto prune --shared forwards --ditto-prune-shared with --ditto-prune."""
-    with patch("ditto.cli._pytest.subprocess.run") as run:
+    with patch("ditto.cli._operation.subprocess.run") as run:
         run.return_value.returncode = 0
         result = CliRunner().invoke(cmd_prune, ["--shared"])
 

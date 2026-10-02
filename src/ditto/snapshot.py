@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
+from ._results import Activity, Identity, Metadata, ObjectRef, safe_location
 from .exceptions import (
     DittoSnapshotNameCollisionError,
     DittoSnapshotNameTooLongError,
@@ -134,6 +135,8 @@ class _SessionTracker:
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
     created: list[SnapshotKey] = field(default_factory=list)
     updated: list[SnapshotKey] = field(default_factory=list)
+    # Events preserve target identity as well as the exact snapshot identity.
+    activity: list[Activity] = field(default_factory=list)
     # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
     # a backend instance means tests using different backends (separate fsspec
     # mappers for different tmp dirs) cannot collide even when group_name and key
@@ -494,7 +497,23 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
     tracker.register_access(backend, key_of, sk)
 
     recorder = snapshot.recorder
-    exists = storage_key in backend
+    ref = ObjectRef(
+        safe_location(snapshot.target_id or snapshot.target),
+        storage_key,
+        Identity(sk.nodeid, sk.key, sk.identifier),
+    )
+    try:
+        exists = storage_key in backend
+    except BaseException as exc:
+        tracker.activity.append(
+            Activity(
+                ref,
+                "failed",
+                "read",
+                f"{type(exc).__name__} checking snapshot presence",
+            )
+        )
+        raise
 
     # Build the lock observation up front (pure), but only record it AFTER the
     # backend access succeeds — recording before the write would leave a phantom
@@ -511,17 +530,49 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
         else None
     )
 
-    match snapshot.mode, exists:
-        case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
-            value = recorder.loads(backend[storage_key])
-        case SnapshotMode.VERIFY, False:
-            # Never write to the backend: leave it untouched so the drift check
-            # can detect the missing key.
-            _, value = _round_trip(recorder, data)
-        case _:
-            raw, value = _round_trip(recorder, data)
-            backend[storage_key] = raw
-            (tracker.updated if exists else tracker.created).append(sk)
+    phase = (
+        "read"
+        if snapshot.mode is SnapshotMode.VERIFY
+        or (exists and snapshot.mode is not SnapshotMode.UPDATE)
+        else "write"
+    )
+    try:
+        match snapshot.mode, exists:
+            case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
+                raw = backend[storage_key]
+                value = recorder.loads(raw)
+                event = Activity(
+                    ref,
+                    "accessed",
+                    "read",
+                    metadata=Metadata(size_bytes=len(raw), source="runtime"),
+                )
+            case SnapshotMode.VERIFY, False:
+                # Never write. Verification still classifies the missing object.
+                _, value = _round_trip(recorder, data)
+                event = Activity(ref, "missing", "read", "Referenced object absent")
+            case _:
+                raw, value = _round_trip(recorder, data)
+                backend[storage_key] = raw
+                (tracker.updated if exists else tracker.created).append(sk)
+                event = Activity(
+                    ref,
+                    "rewritten" if exists else "created",
+                    "write",
+                    metadata=Metadata(size_bytes=len(raw), source="runtime"),
+                )
+    except BaseException as exc:
+        # Backend/recorder messages can contain credentials or snapshot content.
+        tracker.activity.append(
+            Activity(
+                ref,
+                "failed",
+                phase,
+                f"{type(exc).__name__} during snapshot {phase}; completion unconfirmed",
+            )
+        )
+        raise
+    tracker.activity.append(event)
 
     # A missing key under VERIFY is recorded as "created" so the verify hook
     # reports it as unsynced.

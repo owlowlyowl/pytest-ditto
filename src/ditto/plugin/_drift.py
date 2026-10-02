@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, Mapping, MutableMapping, Sequence, Set
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence, Set
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,9 +16,11 @@ from ditto._lockfile import (
     read_lockfile,
     storage_key,
 )
+from ditto._results import Activity, Check, Coverage, Identity, ObjectRef, safe_location
 from ditto._reconcile import diff_backend, owned_prefixes
 from ditto.exceptions import DittoLockFileError, DittoWarning
 
+from ._options import run_options
 from ._session import fail_session, session_state
 from ._targets import is_checkout_local
 
@@ -183,18 +185,33 @@ def _verify_report_drift(drift: list[TargetDrift], lock: LockFile) -> None:
         print("\n".join(_drift_lines(target_drift, identities)))
 
 
+def _verify_diagnostic(session: pytest.Session, message: str, safe_reason: str) -> None:
+    if run_options(session.config).result_path:
+        session_state(session.config).checks.append(
+            Check(
+                "storage agreement",
+                "failed",
+                safe_reason,
+            )
+        )
+    else:
+        _verify_report_error(message)
+
+
 def run_verify(session: pytest.Session) -> None:
     """Verify every exercised target against ditto.lock; fail the session on drift."""
     config = session.config
     try:
         lock = read_lockfile(config.rootpath / LOCKFILE_NAME)
     except DittoLockFileError as exc:
-        _verify_report_error(str(exc))
+        _verify_diagnostic(session, str(exc), f"{type(exc).__name__} reading lock")
         fail_session(session)
         return
     if lock is None:
-        _verify_report_error(
-            f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one."
+        _verify_diagnostic(
+            session,
+            f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one.",
+            "No lock to verify against; run ditto lock",
         )
         fail_session(session)
         return
@@ -224,14 +241,62 @@ def run_verify(session: pytest.Session) -> None:
                 created_by_target.get(target_id, set()),
             )
         except Exception as exc:  # backend unreachable, etc.
-            _verify_report_error(f"could not verify {target_id!r}: {exc}")
+            session_state(config).coverage.append(
+                Coverage(
+                    safe_location(target_id),
+                    "live",
+                    "failed",
+                    f"{type(exc).__name__} inspecting target",
+                )
+            )
+            _verify_diagnostic(
+                session,
+                f"could not verify {target_id!r}: {exc}",
+                f"{type(exc).__name__} inspecting {safe_location(target_id)}",
+            )
             fail_session(session)
             continue
+        session_state(config).coverage.append(
+            Coverage(
+                safe_location(target_id),
+                "live",
+                "checked",
+                "Exercised target inventory",
+            )
+        )
+        session_state(config).checks.append(
+            Check(
+                "storage agreement",
+                "failed"
+                if (
+                    target_drift.missing or target_drift.orphan or target_drift.unsynced
+                )
+                else "passed",
+                f"Target {safe_location(target_id)}",
+            )
+        )
+        identities = _target_identities(lock, target_id, target.scheme)
+        for name, keys, reason in (
+            ("missing", target_drift.missing, "Recorded object absent"),
+            ("outside lock", target_drift.orphan, "Inspected object outside lock"),
+            ("unrecorded access", target_drift.unsynced, "Access absent from lock"),
+        ):
+            for key in sorted(keys):
+                owner = identities.get(key)
+                ref = ObjectRef(
+                    safe_location(target_id),
+                    key,
+                    Identity(owner.nodeid, owner.key, owner.recorder)
+                    if owner
+                    else None,
+                )
+                session_state(config).checks.append(Check(name, "failed", reason, ref))
         drift.append(target_drift)
 
     drifted = [d for d in drift if d.missing or d.orphan or d.unsynced]
     if drifted:
-        _verify_report_drift(drifted, lock)
+        if not run_options(config).result_path:
+            _verify_report_drift(drifted, lock)
         fail_session(session)
 
 
@@ -286,9 +351,25 @@ def find_orphans(session: pytest.Session) -> list[Orphan]:
                 created_by_target.get(target_id, set()),
             )
         except Exception as exc:  # backend unreachable, etc.
+            session_state(config).coverage.append(
+                Coverage(
+                    safe_location(target_id),
+                    "live",
+                    "failed",
+                    f"{type(exc).__name__} inspecting target",
+                )
+            )
             _prune_report_error(f"could not read {target_id!r}: {exc}")
             fail_session(session)
             continue
+        session_state(config).coverage.append(
+            Coverage(
+                safe_location(target_id),
+                "live",
+                "checked",
+                "Exercised target inventory",
+            )
+        )
         for key in sorted(drift.unsynced):
             warnings.warn(
                 f"ditto prune: {target_id!r}: {key} was produced this run but is "
@@ -363,23 +444,48 @@ def refuse_shared_prune(session: pytest.Session, shared: Sequence[Orphan]) -> No
     fail_session(session)
 
 
-def delete_orphans(orphans: Iterable[Orphan]) -> PruneResult:
+def delete_orphans(
+    orphans: Iterable[Orphan],
+    observe: Callable[[Activity], None] | None = None,
+) -> PruneResult:
     """Delete each orphan from its backend, carrying on past a failed deletion."""
     deleted: list[Orphan] = []
     failed: list[FailedDeletion] = []
     for orphan in orphans:
         try:
             del orphan.backend[orphan.key]
-        except Exception as exc:
+        except BaseException as exc:
+            if observe is not None:
+                observe(
+                    Activity(
+                        ObjectRef(safe_location(orphan.target_id), orphan.key),
+                        "failed",
+                        "delete",
+                        f"{type(exc).__name__} deleting object; completion unconfirmed",
+                    )
+                )
+            if not isinstance(exc, Exception):
+                raise
             failed.append(FailedDeletion(orphan, str(exc)))
         else:
             deleted.append(orphan)
+            if observe is not None:
+                observe(
+                    Activity(
+                        ObjectRef(safe_location(orphan.target_id), orphan.key),
+                        "deleted",
+                        "delete",
+                    )
+                )
     return PruneResult(deleted, failed)
 
 
 def report_failed_deletions(session: pytest.Session, result: PruneResult) -> None:
     """Report each target's failed deletions, if any, and fail the run."""
     if not result.failed:
+        return
+    if run_options(session.config).result_path:
+        fail_session(session)
         return
     deleted_counts: dict[str, int] = {}
     for orphan in result.deleted:

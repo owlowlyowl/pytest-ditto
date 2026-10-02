@@ -71,6 +71,7 @@ class RunOptions:
     prune: PruneMode
     introspect_path: str
     prune_shared: bool = False
+    result_path: str = ""
 
 
 RUN_OPTIONS = pytest.StashKey[RunOptions]()
@@ -127,6 +128,7 @@ def read_run_options(config: pytest.Config) -> RunOptions:
         prune=prune_mode,
         introspect_path=str(config.getoption("--ditto-introspect", default="")),
         prune_shared=bool(config.getoption("--ditto-prune-shared", default=False)),
+        result_path=str(config.getoption("--ditto-result", default="")),
     )
 
 
@@ -193,6 +195,12 @@ def add_options(parser: pytest.Parser) -> None:
             "Read-only: fail the run if the live backend has drifted from "
             "ditto.lock (missing, orphan, or unrecorded snapshots)."
         ),
+    )
+    group.addoption(
+        "--ditto-result",
+        default="",
+        metavar="PATH",
+        help="Internal: write structured standalone activity to PATH.",
     )
     parser.addini(
         "ditto_target",

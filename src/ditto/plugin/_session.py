@@ -8,6 +8,8 @@ from typing import cast
 import pytest
 
 from ditto.snapshot import _SessionTracker
+from ditto._lockfile import LockFile
+from ditto._results import Check, Coverage, TestPhase
 
 
 __all__ = (
@@ -48,6 +50,7 @@ class CollectionRecord:
 
     collected: set[str] = field(default_factory=set)
     passed: set[str] = field(default_factory=set)
+    deselected: set[str] = field(default_factory=set)
     uncollected: set[str] = field(default_factory=set)
 
 
@@ -70,6 +73,13 @@ class DittoSession:
         default_factory=dict
     )
     collection: CollectionRecord = field(default_factory=CollectionRecord)
+    lock_before: LockFile | None = None
+    lock_before_error: str | None = None
+    lock_failure: str | None = None
+    coverage: list[Coverage] = field(default_factory=list)
+    checks: list[Check] = field(default_factory=list)
+    test_phases: list[TestPhase] = field(default_factory=list)
+    result_exit_code: int | None = None
 
 
 SESSION_STATE = pytest.StashKey[DittoSession]()

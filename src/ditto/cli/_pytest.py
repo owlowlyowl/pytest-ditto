@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 
 import click
+
+from ._display import pass_console
+from ._operation import run_standalone
 
 
 @click.command(
@@ -13,7 +15,8 @@ import click
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_run(pytest_args):
+@pass_console
+def cmd_run(console, pytest_args):
     """Run pytest, reporting any snapshot activity at the end.
 
     Any extra arguments are passed directly to pytest.
@@ -24,11 +27,7 @@ def cmd_run(pytest_args):
       ditto run tests/ci/
       ditto run tests/ci/ -k test_foo
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", *pytest_args],
-        check=False,
-    )
-    sys.exit(result.returncode)
+    sys.exit(run_standalone((), pytest_args, console))
 
 
 @click.command(
@@ -36,7 +35,8 @@ def cmd_run(pytest_args):
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_update(pytest_args):
+@pass_console
+def cmd_update(console, pytest_args):
     """Re-run pytest with --ditto-update to regenerate snapshots.
 
     Any extra arguments are passed directly to pytest.
@@ -47,11 +47,7 @@ def cmd_update(pytest_args):
       ditto update tests/ci/
       ditto update tests/ci/ -k test_foo
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--ditto-update", *pytest_args],
-        check=False,
-    )
-    sys.exit(result.returncode)
+    sys.exit(run_standalone(("--ditto-update",), pytest_args, console))
 
 
 @click.command(
@@ -75,7 +71,8 @@ def cmd_update(pytest_args):
     ),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_prune(check, shared, pytest_args):
+@pass_console
+def cmd_prune(console, check, shared, pytest_args):
     """Re-run pytest to delete snapshots not in ditto.lock.
 
     With --check, report what would be pruned without deleting anything. A
@@ -93,11 +90,7 @@ def cmd_prune(check, shared, pytest_args):
     flags = ["--ditto-prune-dry-run" if check else "--ditto-prune"]
     if shared:
         flags.append("--ditto-prune-shared")
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", *flags, *pytest_args],
-        check=False,
-    )
-    sys.exit(result.returncode)
+    sys.exit(run_standalone(tuple(flags), pytest_args, console))
 
 
 @click.command(
@@ -105,7 +98,8 @@ def cmd_prune(check, shared, pytest_args):
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_lock(pytest_args):
+@pass_console
+def cmd_lock(console, pytest_args):
     """Rebuild ditto.lock from current snapshots (full run; values unchanged).
 
     Must run the whole suite: passing positional path/nodeid args narrows the run
@@ -117,11 +111,7 @@ def cmd_lock(pytest_args):
     Examples:
       ditto lock
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--ditto-lock", *pytest_args],
-        check=False,
-    )
-    sys.exit(result.returncode)
+    sys.exit(run_standalone(("--ditto-lock",), pytest_args, console))
 
 
 @click.command(
@@ -129,7 +119,8 @@ def cmd_lock(pytest_args):
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
-def cmd_verify(pytest_args):
+@pass_console
+def cmd_verify(console, pytest_args):
     """Fail if the backend has drifted from ditto.lock (read-only).
 
     \b
@@ -137,8 +128,4 @@ def cmd_verify(pytest_args):
       ditto verify
       ditto verify tests/ci/
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--ditto-verify", *pytest_args],
-        check=False,
-    )
-    sys.exit(result.returncode)
+    sys.exit(run_standalone(("--ditto-verify",), pytest_args, console))

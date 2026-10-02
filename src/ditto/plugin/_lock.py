@@ -261,6 +261,9 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
         case LockAction.KEEP:
             return
         case LockAction.REFUSE:
+            session_state(
+                session.config
+            ).lock_failure = "Lock rebuild refused: incomplete run"
             _fail_run(
                 session,
                 "--ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid "
@@ -274,6 +277,9 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     try:
         write(session.config)
     except Exception as exc:  # never crash a run over a lock-file write
+        session_state(
+            session.config
+        ).lock_failure = f"{type(exc).__name__} during lock maintenance"
         if action is LockAction.REBUILD:
             _fail_run(session, f"failed to write {LOCKFILE_NAME}: {exc}")
         else:
