@@ -153,13 +153,16 @@ def test_reports_failed_lock_when_lock_cannot_be_written(
 
     run = pytester.runpytest_subprocess("--ditto-update")
 
-    run.stderr.fnmatch_lines(["*created*1*", "*lock*ditto.lock failed*"])
+    run.stderr.fnmatch_lines([
+        "*created*1*",
+        "*lock*ditto.lock failed*PermissionError*",
+    ])
 
 
 def test_reports_refused_lock_when_rebuild_is_narrowed(
     pytester: pytest.Pytester,
 ) -> None:
-    """A narrowed --ditto-lock is reported as refused rather than failed."""
+    """A narrowed --ditto-lock is reported as refused, saying it was narrowed."""
     pytester.makepyfile(
         test_orders="""
         def test_one(snapshot):
@@ -171,7 +174,43 @@ def test_reports_refused_lock_when_rebuild_is_narrowed(
 
     run = pytester.runpytest_subprocess("--ditto-lock", "-k", "one")
 
-    run.stderr.fnmatch_lines(["*lock*ditto.lock refused*"])
+    run.stderr.fnmatch_lines(["*lock*ditto.lock refused*narrowed run*"])
+
+
+def test_reports_refused_lock_when_rebuild_has_failing_tests(
+    pytester: pytest.Pytester,
+) -> None:
+    """A --ditto-lock run with a failing test is refused, saying tests failed."""
+    pytester.makepyfile(
+        test_orders="""
+        def test_one(snapshot):
+            snapshot(1, key="a")
+        def test_two():
+            assert False
+    """
+    )
+
+    run = pytester.runpytest_subprocess("--ditto-lock")
+
+    run.stderr.fnmatch_lines(["*lock*ditto.lock refused*tests failed*"])
+
+
+def test_lists_no_failed_write_when_write_is_interrupted(
+    pytester: pytest.Pytester,
+) -> None:
+    """An interrupt during a write isn't a failed write: it may have finished."""
+    pytester.makeconftest("""
+        from ditto.backends import FsspecMapping
+        def write(self, key, value):
+            raise KeyboardInterrupt
+        FsspecMapping.__setitem__ = write
+    """)
+    pytester.makepyfile(test_orders=ONE_SNAPSHOT)
+
+    run = pytester.runpytest_subprocess()
+
+    assert run.ret == pytest.ExitCode.INTERRUPTED
+    assert "not written" not in run.stderr.str()
 
 
 def test_lists_snapshot_as_not_pruned_when_deletion_fails(

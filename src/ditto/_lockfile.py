@@ -63,12 +63,14 @@ class LockOutcome:
     """What a session did to `ditto.lock`, counted in lock entries.
 
     `added` and `removed` are None when the previous lock couldn't be read, so
-    the change in entries is unknown.
+    the change in entries is unknown. `reason` says briefly why a lock was
+    refused or failed; it never holds an error message.
     """
 
     status: Literal["unchanged", "written", "failed", "refused"] = "unchanged"
     added: int | None = 0
     removed: int | None = 0
+    reason: str = ""
 
 
 def _canonical(lock: LockFile) -> LockFile:

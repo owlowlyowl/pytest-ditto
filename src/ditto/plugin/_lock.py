@@ -125,6 +125,13 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     simpler and safe; `ditto lock` with no positional args is the supported full
     rebuild.
     """
+    if _is_narrowed(session):
+        return False
+    return session.testsfailed == 0 and exitstatus == 0
+
+
+def _is_narrowed(session: pytest.Session) -> bool:
+    """True when the run was filtered or narrowed to part of the suite."""
     opt = session.config.option
     # Any truthy signal here means the run was narrowed or filtered and is not
     # authoritative over the full keyspace. Add new narrowing options to the tuple.
@@ -135,9 +142,16 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
         getattr(opt, "failed_first", False),  # --ff
         getattr(opt, "file_or_dir", None),  # positional path/nodeid args
     )
-    if any(narrowing):
-        return False
-    return session.testsfailed == 0 and exitstatus == 0
+    return any(narrowing)
+
+
+def _refusal_reason(session: pytest.Session) -> str:
+    """Why `is_authoritative_run` refused this run, in a few words."""
+    if _is_narrowed(session):
+        return "narrowed run"
+    if session.testsfailed:
+        return "tests failed"
+    return "run did not exit cleanly"
 
 
 def _containing_nodeids(nodeid: str) -> Iterator[str]:
@@ -299,7 +313,7 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> LockO
                 "--ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid "
                 f"args, and no failures); leaving {LOCKFILE_NAME} unchanged.",
             )
-            return LockOutcome("refused")
+            return LockOutcome("refused", reason=_refusal_reason(session))
         case LockAction.APPEND:
             write = _append_lockfile
         case LockAction.REBUILD:
@@ -315,4 +329,4 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> LockO
                 category=DittoWarning,
                 stacklevel=1,
             )
-        return LockOutcome("failed")
+        return LockOutcome("failed", reason=type(exc).__name__)

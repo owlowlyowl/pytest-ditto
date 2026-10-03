@@ -544,9 +544,10 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             raw, value = _round_trip(recorder, data)
             try:
                 backend[storage_key] = raw
-            except BaseException:
+            except Exception:
                 # Only the backend call is in here: a recorder error never
-                # reached storage, so it isn't a failed write.
+                # reached storage, so it isn't a failed write. An interrupt
+                # isn't one either, since the write may have finished.
                 tracker.writes.append(SnapshotWrite(sk, "write_failed"))
                 raise
             outcome = "rewritten" if exists else "created"

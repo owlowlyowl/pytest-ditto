@@ -102,6 +102,8 @@ def _lock_block(lock: LockOutcome) -> Text:
     text.append(f"{LOCKFILE_NAME} {lock.status}", style=colour)
     if lock.status == "written":
         text.append(f"  {_lock_delta(lock)}", style=MUTED)
+    elif lock.reason:
+        text.append(f"  {lock.reason}", style=MUTED)
     return text
 
 
