@@ -37,7 +37,8 @@ ditto prune --shared
   record, and keys the lock records but the backend lacks, are each reported
   against the target that holds them.
 - The session report groups each deleted snapshot under the target it was
-  deleted from, so a suite with several backends can tell them apart.
+  deleted from, so a suite with several backends can tell them apart. A
+  snapshot it couldn't delete is listed as not pruned.
 - Needs a `ditto.lock`; without one it deletes nothing and fails.
 - Fails the run if it can't finish: a target it can't read (with `--check`
   too), or a snapshot it couldn't delete. It still processes the other

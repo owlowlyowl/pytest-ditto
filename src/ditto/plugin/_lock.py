@@ -4,6 +4,7 @@ import re
 import warnings
 from collections.abc import Iterable, Iterator
 from enum import Enum
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,7 @@ from ditto.snapshot import LockSeen, SnapshotMode
 from ditto._lockfile import (
     LockEntry,
     LockFile,
+    LockOutcome,
     LockTarget,
     LOCKFILE_NAME,
     LOCKFILE_VERSION,
@@ -66,20 +68,39 @@ def _grouped(seen: set[LockSeen]) -> dict[tuple[str, str], list[LockEntry]]:
     return grouped
 
 
-def _append_lockfile(config: pytest.Config) -> None:
+def _entries(lock: LockFile | None) -> set[tuple[str, LockEntry]]:
+    """Every `(target id, entry)` pair in `lock`."""
+    if lock is None:
+        return set()
+    return {(t, e) for t, target in lock.targets.items() for e in target.entries}
+
+
+def _write_if_changed(
+    path: Path, existing: LockFile | None, lock: LockFile
+) -> LockOutcome:
+    """Write `lock` unless it equals `existing`; count the entries that changed."""
+    if lock == existing:
+        return LockOutcome("unchanged")
+    write_lockfile(path, lock)
+    before, after = _entries(existing), _entries(lock)
+    return LockOutcome("written", len(after - before), len(before - after))
+
+
+def _append_lockfile(config: pytest.Config) -> LockOutcome:
     """Union this session's newly-created entries into `ditto.lock` (append-only)."""
     grouped = _grouped(session_state(config).tracker.lock_created)
     if not grouped:
-        return
+        return LockOutcome("unchanged")
     path = config.rootpath / LOCKFILE_NAME
     existing = read_lockfile(path)
     lock = existing
     for (target_id, scheme), entries in grouped.items():
         lock = merge_append(lock, target_id, scheme, entries)
     # `grouped` is non-empty (guarded above), so the loop runs and `lock` is a
-    # LockFile; the `is not None` keeps that explicit for the type checker.
-    if lock is not None and lock != existing:
-        write_lockfile(path, lock)
+    # LockFile; the check keeps that explicit for the type checker.
+    if lock is None:
+        return LockOutcome("unchanged")
+    return _write_if_changed(path, existing, lock)
 
 
 def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
@@ -104,6 +125,13 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
     simpler and safe; `ditto lock` with no positional args is the supported full
     rebuild.
     """
+    if _is_narrowed(session):
+        return False
+    return session.testsfailed == 0 and exitstatus == 0
+
+
+def _is_narrowed(session: pytest.Session) -> bool:
+    """True when the run was filtered or narrowed to part of the suite."""
     opt = session.config.option
     # Any truthy signal here means the run was narrowed or filtered and is not
     # authoritative over the full keyspace. Add new narrowing options to the tuple.
@@ -114,9 +142,16 @@ def is_authoritative_run(session: pytest.Session, exitstatus: int) -> bool:
         getattr(opt, "failed_first", False),  # --ff
         getattr(opt, "file_or_dir", None),  # positional path/nodeid args
     )
-    if any(narrowing):
-        return False
-    return session.testsfailed == 0 and exitstatus == 0
+    return any(narrowing)
+
+
+def _refusal_reason(session: pytest.Session) -> str:
+    """Why `is_authoritative_run` refused this run, in a few words."""
+    if _is_narrowed(session):
+        return "narrowed run"
+    if session.testsfailed:
+        return "tests failed"
+    return "run did not exit cleanly"
 
 
 def _containing_nodeids(nodeid: str) -> Iterator[str]:
@@ -165,7 +200,7 @@ def _rebuilt_target(
     return LockTarget(scheme=current.scheme, entries=tuple(sorted(set(entries) | kept)))
 
 
-def _rewrite_lockfile(config: pytest.Config) -> None:
+def _rewrite_lockfile(config: pytest.Config) -> LockOutcome:
     """Rebuild each exercised target's entries from this run, test by test.
 
     Targets present in the existing file but not exercised this run are
@@ -186,15 +221,27 @@ def _rewrite_lockfile(config: pytest.Config) -> None:
             category=DittoWarning,
             stacklevel=1,
         )
-        existing = None
-    targets = dict(existing.targets) if existing is not None else {}
+        write_lockfile(path, _rebuilt_lock({}, grouped, state.collection))
+        # The old entries couldn't be read, so how many changed is unknown.
+        return LockOutcome("written", added=None, removed=None)
+    targets = existing.targets if existing is not None else {}
+    return _write_if_changed(
+        path, existing, _rebuilt_lock(targets, grouped, state.collection)
+    )
+
+
+def _rebuilt_lock(
+    targets: dict[str, LockTarget],
+    grouped: dict[tuple[str, str], list[LockEntry]],
+    collection: CollectionRecord,
+) -> LockFile:
+    """`targets` with each exercised target rebuilt from this run's entries."""
+    rebuilt = dict(targets)
     for (target_id, scheme), entries in grouped.items():
-        targets[target_id] = _rebuilt_target(
-            targets.get(target_id), scheme, entries, state.collection
+        rebuilt[target_id] = _rebuilt_target(
+            rebuilt.get(target_id), scheme, entries, collection
         )
-    lock = LockFile(version=LOCKFILE_VERSION, targets=targets)
-    if lock != existing:
-        write_lockfile(path, lock)
+    return LockFile(version=LOCKFILE_VERSION, targets=rebuilt)
 
 
 def warn_if_lockfile_ignored(config: pytest.Config) -> None:
@@ -248,8 +295,8 @@ def _fail_run(session: pytest.Session, message: str) -> None:
     fail_session(session)
 
 
-def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
-    """Apply `action` to `ditto.lock` for a single-process run.
+def write_session_lockfile(session: pytest.Session, action: LockAction) -> LockOutcome:
+    """Apply `action` to `ditto.lock` for a single-process run; return what happened.
 
     Never raises. A refused rebuild fails the run, and so does a rebuild
     (`--ditto-lock`, or `--ditto-update` on a full run) that can't write the
@@ -259,20 +306,20 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
     """
     match action:
         case LockAction.KEEP:
-            return
+            return LockOutcome("unchanged")
         case LockAction.REFUSE:
             _fail_run(
                 session,
                 "--ditto-lock requires a full run (no -k/-m/--lf, no path/nodeid "
                 f"args, and no failures); leaving {LOCKFILE_NAME} unchanged.",
             )
-            return
+            return LockOutcome("refused", reason=_refusal_reason(session))
         case LockAction.APPEND:
             write = _append_lockfile
         case LockAction.REBUILD:
             write = _rewrite_lockfile
     try:
-        write(session.config)
+        return write(session.config)
     except Exception as exc:  # never crash a run over a lock-file write
         if action is LockAction.REBUILD:
             _fail_run(session, f"failed to write {LOCKFILE_NAME}: {exc}")
@@ -282,3 +329,4 @@ def write_session_lockfile(session: pytest.Session, action: LockAction) -> None:
                 category=DittoWarning,
                 stacklevel=1,
             )
+        return LockOutcome("failed", reason=type(exc).__name__)
