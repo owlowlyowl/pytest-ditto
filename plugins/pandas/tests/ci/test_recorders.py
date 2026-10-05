@@ -62,6 +62,35 @@ def test_round_trips_a_dataframe(name: str) -> None:
     pd.testing.assert_frame_equal(actual, df)
 
 
+@pytest.mark.parametrize(
+    "df",
+    [
+        pd.DataFrame(np.arange(6.0).reshape(3, 2)),
+        pd.DataFrame({"a": [1.0], 0: [2.0], 1.5: [3.0], True: [4.0]}),
+    ],
+    ids=["integer", "mixed"],
+)
+def test_json_round_trips_a_dataframe_with_non_string_column_names(
+    df: pd.DataFrame,
+) -> None:
+    """JSON loads columns named by an int, float or bool back with their values."""
+    recorder = recorders.get("pandas.json")
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    pd.testing.assert_frame_equal(actual, df)
+
+
+def test_json_round_trips_a_dataframe_with_a_non_string_index_name() -> None:
+    """JSON loads an index named by an int back with its name and values."""
+    df = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.Index([5, 6], name=0))
+    recorder = recorders.get("pandas.json")
+
+    actual = recorder.loads(recorder.dumps(df))
+
+    pd.testing.assert_frame_equal(actual, df)
+
+
 def test_csv_round_trips_a_dataframe_except_for_the_index_type() -> None:
     """CSV loads back the saved values, with the RangeIndex read back as Int64.
 

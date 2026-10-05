@@ -169,9 +169,19 @@ def _json_dumps(data: Frame) -> bytes:
 
 
 def _json_loads(raw: bytes) -> Frame:
-    text = raw.decode("utf-8")
-    frame = pd.read_json(io.StringIO(text), orient="table")
-    return _join(frame, _json.loads(text).get(_MARKER_KEY))
+    payload = _json.loads(raw)
+    schema = payload["schema"]
+    # A JSON object key is always a string, so the rows hold a column named 0
+    # under "0" while the schema keeps 0, and read_json fills that column with
+    # NaN. Give the schema the rows' names, then put the original names back.
+    names = {str(field["name"]): field["name"] for field in schema["fields"]}
+    for field in schema["fields"]:
+        field["name"] = str(field["name"])
+    schema["primaryKey"] = [str(key) for key in schema["primaryKey"]]
+    frame = pd.read_json(io.StringIO(_json.dumps(payload)), orient="table")
+    frame = frame.rename(columns=names)
+    frame.index.names = [names.get(name, name) for name in frame.index.names]
+    return _join(frame, payload.get(_MARKER_KEY))
 
 
 json: Recorder[Frame] = Recorder(dumps=_json_dumps, loads=_json_loads)
