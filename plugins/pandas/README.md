@@ -107,8 +107,8 @@ Series first.
 
 Only parquet round-trips a DataFrame's or Series' values and dtypes exactly.
 JSON and CSV change some values or types on the way through, and a snapshot
-comparison then fails even though the code under test didn't change. A Series follows the same index and
-dtype rules as a DataFrame in each format.
+comparison then fails even though the code under test didn't change. A Series
+follows the same index and dtype rules as a DataFrame in each format.
 
 | Format | Index | Values and dtypes |
 |--------|-------|-------------------|
