@@ -10,9 +10,9 @@ Use the following marks for their associated recorder:
 Each mark is shorthand for `@ditto.record("pandas.<format>")`.
 
 **Use `@ditto.pandas.parquet` unless you need a snapshot you can read as text.**
-It's the only format that keeps every dtype and value exactly. JSON and CSV are
-readable, but they change some data on the way through; see
-[Format notes](#format-notes).
+It's the only format that keeps every dtype and value exactly, though it turns
+some non-string column and index names into strings. JSON and CSV are readable,
+but they change some data on the way through; see [Format notes](#format-notes).
 
 ## Installation
 ```bash
@@ -105,16 +105,30 @@ Series first.
 
 ### Format notes
 
-Only parquet round-trips a DataFrame or Series exactly. JSON and CSV change some
-values or types on the way through, and a snapshot comparison then fails even
-though the code under test didn't change. A Series follows the same index and
-dtype rules as a DataFrame in each format.
+Only parquet round-trips a DataFrame's or Series' values and dtypes exactly.
+JSON and CSV change some values or types on the way through, and a snapshot
+comparison then fails even though the code under test didn't change. A Series
+follows the same index and dtype rules as a DataFrame in each format.
 
 | Format | Index | Values and dtypes |
 |--------|-------|-------------------|
-| parquet | preserved | preserved |
+| parquet | preserved, except a non-string name | preserved |
 | json | preserved, except as listed below | changed in several cases, listed below |
 | csv | single-level only; values re-parsed | re-parsed from text |
+
+**Parquet** keeps every value and dtype, but changes two kinds of name, as
+pandas' own `to_parquet` does (it warns that they won't round-trip):
+
+- Column names of mixed types come back as strings: `["a", 0, 1.5]` is read back
+  as `["a", "0", "1.5"]`. Column names that are all `int`, all `float` or all
+  `bool` keep their type.
+- An index name that isn't a string comes back as one: an index named `0` is
+  read back named `"0"`.
+
+`pd.testing.assert_frame_equal` then fails on the first run with
+`DataFrame.columns are different` or `DataFrame.index are different`. Rename the
+columns or the index to strings before recording. A Series name isn't affected.
+See [#228](https://github.com/owlowlyowl/pytest-ditto/issues/228).
 
 **JSON** (`to_json(orient="table")`) suits simple frames: `int64`, `bool`,
 strings, categoricals, and floats where approximate values are fine. It changes
