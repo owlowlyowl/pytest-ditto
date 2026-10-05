@@ -28,7 +28,7 @@ from ._display import (
     pass_console,
     render_stats,
 )
-from ._summary import gather_stats
+from ._summary import gather_stats, oldest_and_newest
 
 
 _live_option = click.option(
@@ -148,7 +148,14 @@ def cmd_status(console: Console, path: Path, live: bool):
         _print_inventory_notes(path, entries, live=live, console=console)
         sys.exit(1)
 
-    render_stats(gather_stats(entries, _ext_map(_load_recorder_infos())), console)
+    em = _ext_map(_load_recorder_infos())
+    render_stats(
+        gather_stats(entries, em),
+        oldest_and_newest(manifest),
+        lock_identities(path),
+        em,
+        console,
+    )
     _print_inventory_notes(path, entries, live=live, console=console)
     _exit_if_incomplete(manifest, console)
 

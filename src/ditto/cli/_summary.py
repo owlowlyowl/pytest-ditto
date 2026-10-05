@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-from .._manifest import ManifestEntry
+from .._manifest import Manifest, ManifestEntry
 from ._data import RecorderInfo, _human_size, _parse_snapshot_name, _recorder_name
 
 
@@ -26,8 +26,26 @@ class SnapshotStats:
     total_count: int
     total_size: SizeSummary
     by_recorder: Mapping[str, RecorderStats]
-    oldest: tuple[float, str] | None
-    newest: tuple[float, str] | None
+
+
+@dataclass(frozen=True)
+class LocatedEntry:
+    """A stored snapshot and the target it's in.
+
+    The same storage name can sit under two targets, and the lock records a
+    different test for each, so naming a snapshot needs both.
+    """
+
+    location: str
+    entry: ManifestEntry
+
+
+@dataclass(frozen=True)
+class Extremes:
+    """The snapshots with the earliest and latest modified time."""
+
+    oldest: LocatedEntry
+    newest: LocatedEntry
 
 
 def _add_size(summary: SizeSummary, size_bytes: int | None) -> SizeSummary:
@@ -62,8 +80,6 @@ def gather_stats(
     """Aggregate snapshot statistics from a list of ManifestEntry items."""
     total_size = SizeSummary()
     by_recorder: dict[str, RecorderStats] = {}
-    oldest: tuple[float, str] | None = None
-    newest: tuple[float, str] | None = None
 
     for entry in entries:
         total_size = _add_size(total_size, entry.size_bytes)
@@ -78,16 +94,26 @@ def gather_stats(
             size=_add_size(current.size, entry.size_bytes),
         )
 
-        if entry.modified is not None:
-            if oldest is None or entry.modified < oldest[0]:
-                oldest = (entry.modified, entry.storage_key)
-            if newest is None or entry.modified > newest[0]:
-                newest = (entry.modified, entry.storage_key)
-
     return SnapshotStats(
         total_count=len(entries),
         total_size=total_size,
         by_recorder=by_recorder,
-        oldest=oldest,
-        newest=newest,
     )
+
+
+def oldest_and_newest(manifest: Manifest) -> Extremes | None:
+    """The earliest and latest modified snapshots, or None if none has a time.
+
+    Snapshots read from the lock have no modified time, so they never count.
+    """
+    dated = [
+        (entry.modified, LocatedEntry(backend.location, entry))
+        for backend in manifest
+        for entry in backend.entries
+        if entry.modified is not None
+    ]
+    if not dated:
+        return None
+    oldest = min(dated, key=lambda item: item[0])[1]
+    newest = max(dated, key=lambda item: item[0])[1]
+    return Extremes(oldest=oldest, newest=newest)
