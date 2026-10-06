@@ -205,13 +205,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # be fragmented and interleaved with xdist's own output.
         return
 
-    tracker = session_state(config).tracker
     render_session_report(
-        created=tracker.created,
-        updated=tracker.updated,
+        writes=session_state(config).tracker.writes,
         pruned=pruned,
         would_prune=would_prune,
-        write_failed=tracker.write_failed,
         prune_failed=prune_failed,
         lock=lock,
     )

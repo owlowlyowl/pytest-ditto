@@ -1,4 +1,5 @@
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from rich.console import Console
@@ -14,15 +15,25 @@ from ._theme import (
     WOULD_PRUNE,
     PRUNED,
     TITLE,
+    HEADER,
     MUTED,
+    TEXT,
 )
-from .snapshot import SnapshotKey
+from .snapshot import SnapshotKey, SnapshotWrite
 
 
 __all__ = ("PrunedSnapshot", "render_session_report")
 
-# Wide enough for the longest row label, "not written".
+# Wide enough for the longest row label, "would prune".
 _LABEL_WIDTH = 13
+
+# How each write outcome is labelled, in the order the summary counts them.
+_WRITE_LABELS: Mapping[str, tuple[str, str]] = {
+    "created": ("created", CREATED),
+    "rewritten": ("rewritten", UPDATED),
+    "write_failed": ("not written", FAILED),
+}
+_WRITE_LABEL_WIDTH = max(len(label) for label, _ in _WRITE_LABELS.values())
 
 
 @dataclass(frozen=True)
@@ -47,25 +58,73 @@ def _pruned_by_target(
     return [(target_id, sorted(target_keys)) for target_id, target_keys in keys.items()]
 
 
-def _label_block(
-    items: list[SnapshotKey] | list[str],
-    colour: str,
-    label: str,
-    suffix: str = "",
-) -> Text:
-    """One labelled row (wrapping to additional lines) for the report panel."""
+def _file_and_test(key: SnapshotKey) -> tuple[str, str]:
+    """The test file and the test in it, from the node id when there is one.
+
+    A `Snapshot` built outside the fixture has no node id, so its key's module
+    and group name stand in.
+    """
+    if not key.nodeid:
+        return key.module, key.group_name
+    file, _, test = key.nodeid.partition("::")
+    return file, test
+
+
+def _by_file_and_test(
+    writes: Iterable[SnapshotWrite],
+) -> dict[str, dict[str, list[SnapshotWrite]]]:
+    """Group writes by test file, then test, each in the order first written."""
+    grouped: dict[str, dict[str, list[SnapshotWrite]]] = {}
+    for write in writes:
+        file, test = _file_and_test(write.key)
+        grouped.setdefault(file, {}).setdefault(test, []).append(write)
+    return grouped
+
+
+def _write_counts(writes: Sequence[SnapshotWrite]) -> Text:
+    """One line counting each write outcome: '2 created · 1 rewritten'."""
+    counts = Counter(write.outcome for write in writes)
+    parts = [
+        (f"{counts[outcome]} {label}", f"bold {colour}")
+        for outcome, (label, colour) in _WRITE_LABELS.items()
+        if counts[outcome]
+    ]
     text = Text()
-    text.append(f"  {label:<{_LABEL_WIDTH}}", style=f"bold {colour}")
-    text.append(f"{len(items):<5}", style=colour)
-    if items:
-        first = items[0].display_name if isinstance(items[0], SnapshotKey) else items[0]
-        text.append(first, style=colour)
-        if suffix:
-            text.append(f"  {suffix}", style=MUTED)
-        for item in items[1:]:
-            name = item.display_name if isinstance(item, SnapshotKey) else item
-            text.append(f"\n  {'':<{_LABEL_WIDTH + 5}}{name}", style=colour)
+    for i, part in enumerate(parts):
+        if i:
+            text.append(" · ", style=MUTED)
+        text.append(*part)
     return text
+
+
+def _write_row(write: SnapshotWrite, key_width: int) -> Text:
+    """One write: its outcome, then the snapshot's key and recorder."""
+    label, colour = _WRITE_LABELS[write.outcome]
+    return Text.assemble(
+        "    ",
+        (f"{label:<{_WRITE_LABEL_WIDTH}}", f"bold {colour}"),
+        "  ",
+        (f"{write.key.key:<{key_width}}", TEXT),
+        "  ",
+        (write.key.identifier, MUTED),
+    )
+
+
+def _writes_block(writes: Sequence[SnapshotWrite]) -> Text:
+    """The counts, then every write grouped under its test file and test.
+
+    Each snapshot is named by its key and recorder under its test, the
+    identity `ditto.lock` and `ditto list` use, rather than a storage name.
+    """
+    lines = [_write_counts(writes)]
+    for file, tests in _by_file_and_test(writes).items():
+        lines.append(Text())
+        lines.append(Text(file, style=f"bold {HEADER}"))
+        for test, test_writes in tests.items():
+            lines.append(Text(f"  {test}", style=TEXT))
+            key_width = max(len(write.key.key) for write in test_writes)
+            lines.extend(_write_row(write, key_width) for write in test_writes)
+    return Text("\n").join(lines)
 
 
 def _pruned_block(
@@ -108,12 +167,10 @@ def _lock_block(lock: LockOutcome) -> Text:
 
 
 def render_session_report(
-    created: list[SnapshotKey],
-    updated: list[SnapshotKey],
-    pruned: list[PrunedSnapshot],
-    would_prune: list[PrunedSnapshot],
-    write_failed: list[SnapshotKey] | None = None,
-    prune_failed: list[PrunedSnapshot] | None = None,
+    writes: Sequence[SnapshotWrite] = (),
+    pruned: Sequence[PrunedSnapshot] = (),
+    would_prune: Sequence[PrunedSnapshot] = (),
+    prune_failed: Sequence[PrunedSnapshot] = (),
     lock: LockOutcome | None = None,
     console: Console | None = None,
 ) -> None:
@@ -123,30 +180,23 @@ def render_session_report(
 
     Parameters
     ----------
-    created : list[SnapshotKey]
-        Snapshots written for the first time this session.
-    updated : list[SnapshotKey]
-        Existing snapshots overwritten via `--ditto-update`.
-    pruned : list[PrunedSnapshot]
+    writes : Sequence[SnapshotWrite]
+        Every snapshot write this session, created, rewritten or failed.
+    pruned : Sequence[PrunedSnapshot]
         Snapshots deleted via `--ditto-prune`, with the target each was in.
-    would_prune : list[PrunedSnapshot]
+    would_prune : Sequence[PrunedSnapshot]
         Snapshots a `--ditto-prune` run would delete (shown under
         `--ditto-prune-dry-run`), with the target each is in.
-    write_failed : list[SnapshotKey], optional
-        Snapshots whose write to the backend raised.
-    prune_failed : list[PrunedSnapshot], optional
+    prune_failed : Sequence[PrunedSnapshot]
         Snapshots `--ditto-prune` tried and failed to delete.
     lock : LockOutcome, optional
         What the session did to `ditto.lock`; an unchanged lock isn't shown.
     console : Console, optional
         Rich Console to write to. Defaults to stderr.
     """
-    write_failed = write_failed or []
-    prune_failed = prune_failed or []
     lock = lock or LockOutcome()
     lock_changed = lock.status != "unchanged"
-    snapshot_rows = [created, updated, write_failed, pruned, prune_failed, would_prune]
-    if not any(snapshot_rows) and not lock_changed:
+    if not any((writes, pruned, prune_failed, would_prune)) and not lock_changed:
         return
 
     if console is None:
@@ -155,31 +205,28 @@ def render_session_report(
     console.print()
     console.print()
 
-    lines: list[Text] = []
-
-    if created:
-        lines.append(_label_block(created, CREATED, "created"))
-    if updated:
-        lines.append(_label_block(updated, UPDATED, "updated"))
-    if write_failed:
-        lines.append(_label_block(write_failed, FAILED, "not written"))
+    rows: list[Text] = []
     if pruned:
-        lines.append(_pruned_block(pruned, PRUNED, "pruned"))
+        rows.append(_pruned_block(list(pruned), PRUNED, "pruned"))
     if prune_failed:
-        lines.append(_pruned_block(prune_failed, FAILED, "not pruned"))
+        rows.append(_pruned_block(list(prune_failed), FAILED, "not pruned"))
     if would_prune:
-        lines.append(
+        rows.append(
             _pruned_block(
-                would_prune,
+                list(would_prune),
                 WOULD_PRUNE,
                 "would prune",
                 suffix="(use --ditto-prune to delete)",
             )
         )
     if lock_changed:
-        lines.append(_lock_block(lock))
+        rows.append(_lock_block(lock))
 
-    body = Text("\n").join(lines)
+    sections = [_writes_block(writes)] if writes else []
+    if rows:
+        sections.append(Text("\n").join(rows))
+
+    body = Text("\n\n").join(sections)
     panel = Panel(
         body,
         title=f"[bold {TITLE}]ditto snapshot report[/bold {TITLE}]",
