@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ditto._lockfile import LOCKFILE_NAME
+from ditto._lockfile import LOCKFILE_NAME, LockOutcome
 from ditto._report import PrunedSnapshot, render_session_report
 from ditto.exceptions import DittoWarning
 from ditto.recorders import RECORDER_REGISTRY
@@ -138,7 +138,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     config = session.config
     options = run_options(config)
     pruned: list[PrunedSnapshot] = []
+    prune_failed: list[PrunedSnapshot] = []
     would_prune: list[PrunedSnapshot] = []
+    lock = LockOutcome("unchanged")
 
     if not is_xdist_worker(config) and not options.introspect_path:
         if xdist_is_distributing(config):
@@ -160,7 +162,9 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             return
         warn_if_lockfile_ignored(config)
         authoritative = is_authoritative_run(session, exitstatus)
-        write_session_lockfile(session, choose_lock_action(options, authoritative))
+        lock = write_session_lockfile(
+            session, choose_lock_action(options, authoritative)
+        )
         match options.prune:
             case PruneMode.DELETE:
                 orphans = find_orphans(session)
@@ -177,6 +181,10 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                 pruned = [
                     PrunedSnapshot(orphan.target_id, orphan.key)
                     for orphan in result.deleted
+                ]
+                prune_failed = [
+                    PrunedSnapshot(failure.orphan.target_id, failure.orphan.key)
+                    for failure in result.failed
                 ]
             case PruneMode.DRY_RUN:
                 would_prune = [
@@ -197,11 +205,15 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # be fragmented and interleaved with xdist's own output.
         return
 
+    tracker = session_state(config).tracker
     render_session_report(
-        created=session_state(config).tracker.created,
-        updated=session_state(config).tracker.updated,
+        created=tracker.created,
+        updated=tracker.updated,
         pruned=pruned,
         would_prune=would_prune,
+        write_failed=tracker.write_failed,
+        prune_failed=prune_failed,
+        lock=lock,
     )
 
 
