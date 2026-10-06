@@ -30,7 +30,8 @@ Displays:
 - Total snapshot count
 - Total size on disk
 - Breakdown by recorder type (count and size)
-- Oldest and newest snapshot dates
+- The oldest and newest snapshots by modified date, each named by its test, key
+  and recorder as `ditto list` names it
 
 ## Data source
 

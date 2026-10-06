@@ -15,6 +15,9 @@ from ditto.cli import cli
 from ditto.cli._data import RecorderInfo, _ext_map, _human_size, _parse_snapshot_name
 from ditto.cli._display import _RECORDER_PALETTE, _build_colour_map
 from ditto.cli._summary import (
+    Extremes,
+    LocatedEntry,
+    oldest_and_newest,
     RecorderStats,
     SizeSummary,
     _format_size_summary,
@@ -294,29 +297,33 @@ def test_buckets_entry_with_no_extension_under_empty_string() -> None:
     assert "" in stats.by_recorder
 
 
-def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
-    """oldest and newest are the entries with the min/max modified timestamp."""
-    entries = [
-        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=100.0),
-        ManifestEntry("test_b@y~0000000000000000.yaml", size_bytes=20, modified=999.0),
-    ]
+def test_oldest_and_newest_are_the_entries_with_the_earliest_and_latest_mtime() -> None:
+    """The oldest and newest snapshots are picked by modified time across targets."""
+    first = ManifestEntry(
+        "test_a@x~0000000000000000.yaml", size_bytes=10, modified=100.0
+    )
+    last = ManifestEntry(
+        "test_b@y~0000000000000000.yaml", size_bytes=20, modified=999.0
+    )
+    manifest = [BackendManifest("one", [first]), BackendManifest("two", [last])]
 
-    stats = gather_stats(entries, ext_map={})
+    actual = oldest_and_newest(manifest)
 
-    assert stats.oldest[0] == 100.0
-    assert stats.newest[0] == 999.0
+    expected = Extremes(
+        oldest=LocatedEntry("one", first), newest=LocatedEntry("two", last)
+    )
+    assert actual == expected
 
 
-def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
-    """Remote entries (modified=None) leave oldest/newest as None."""
-    entries = [
-        ManifestEntry("test_a@x~0000000000000000.yaml", size_bytes=10, modified=None)
-    ]
+def test_oldest_and_newest_is_none_when_no_entry_has_an_mtime() -> None:
+    """Remote entries read from the lock (modified=None) have no oldest or newest."""
+    entry = ManifestEntry(
+        "test_a@x~0000000000000000.yaml", size_bytes=10, modified=None
+    )
 
-    stats = gather_stats(entries, ext_map={})
+    actual = oldest_and_newest([BackendManifest("one", [entry])])
 
-    assert stats.oldest is None
-    assert stats.newest is None
+    assert actual is None
 
 
 def test_sums_count_and_size_across_entries_of_one_recorder() -> None:

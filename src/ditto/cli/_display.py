@@ -40,7 +40,13 @@ from ._data import (
     _recorder_name,
 )
 from ._diagnostics import CheckResult, LintIssue
-from ._summary import SnapshotStats, _format_size_summary, _sum_sizes
+from ._summary import (
+    Extremes,
+    LocatedEntry,
+    SnapshotStats,
+    _format_size_summary,
+    _sum_sizes,
+)
 
 
 # Passes a command the Console given as Click's context object, creating one
@@ -106,8 +112,10 @@ def _render_snapshots(
         header_style=f"bold {HEADER}",
         show_header=True,
     )
-    table.add_column("Test", style=TEXT)
-    table.add_column("Key", style=SUBTEXT1)
+    # Fold rather than cut a long test or key: the end of a node id is the part
+    # that tells two parametrized cases apart.
+    table.add_column("Test", style=TEXT, overflow="fold")
+    table.add_column("Key", style=SUBTEXT1, overflow="fold")
     table.add_column("Recorder")
     table.add_column("Size", justify="right", style=MUTED)
     table.add_column("Modified", style=MUTED)
@@ -133,8 +141,35 @@ def _render_snapshots(
     console.print(table)
 
 
-def render_stats(stats: SnapshotStats, console: Console) -> None:
-    """Render a SnapshotStats value as a Rich panel."""
+def _named(
+    located: LocatedEntry,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    ext_map: Mapping[str, RecorderInfo],
+) -> Text:
+    """A snapshot named as `ditto list` names it: test, key and recorder."""
+    _, _, ext = _parse_snapshot_name(located.entry.storage_key)
+    test, key = _test_and_key(located.location, located.entry.storage_key, identities)
+    key.stylize(SUBTEXT1)
+    return Text.assemble(
+        test, "  ", key, "  ", (_recorder_name(ext, ext_map), MUTED), style=TEXT
+    )
+
+
+def _date(located: LocatedEntry) -> str:
+    modified = located.entry.modified
+    if modified is None:
+        return "—"
+    return datetime.fromtimestamp(modified).strftime("%Y-%m-%d")
+
+
+def render_stats(
+    stats: SnapshotStats,
+    extremes: Extremes | None,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    ext_map: Mapping[str, RecorderInfo],
+    console: Console,
+) -> None:
+    """Render a SnapshotStats value, and the oldest and newest snapshots, as a panel."""
     colour_map = _build_colour_map(stats.by_recorder.keys())
 
     lines = Text()
@@ -158,16 +193,13 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
             style=MUTED,
         )
 
-    if stats.oldest and stats.newest:
+    if extremes is not None:
         lines.append("\n")
-        oldest_date = datetime.fromtimestamp(stats.oldest[0]).strftime("%Y-%m-%d")
-        newest_date = datetime.fromtimestamp(stats.newest[0]).strftime("%Y-%m-%d")
-        lines.append("  Oldest  ", style=MUTED)
-        lines.append(f"{stats.oldest[1]}  ", style=PATH)
-        lines.append(f"{oldest_date}\n", style=MUTED)
-        lines.append("  Newest  ", style=MUTED)
-        lines.append(f"{stats.newest[1]}  ", style=PATH)
-        lines.append(f"{newest_date}", style=MUTED)
+        lines.append(f"  Oldest  {_date(extremes.oldest)}  ", style=MUTED)
+        lines.append_text(_named(extremes.oldest, identities, ext_map))
+        lines.append("\n")
+        lines.append(f"  Newest  {_date(extremes.newest)}  ", style=MUTED)
+        lines.append_text(_named(extremes.newest, identities, ext_map))
 
     console.print(
         Panel(
@@ -182,27 +214,25 @@ def render_stats(stats: SnapshotStats, console: Console) -> None:
 def _render_recorders(infos: list[RecorderInfo], console: Console) -> None:
     """Build and print the registered recorders panel."""
     colour_map = _build_colour_map(info.name for info in infos)
-    name_w = max(len("Name"), max(len(i.name) for i in infos))
-    mark_w = max(len("Mark"), max(len(_mark_for(i.name)) for i in infos))
-    ext_w = max(len("Identifier"), max(len(i.identifier) for i in infos))
 
-    lines = Text()
-    lines.append("\n")
-    lines.append(
-        f"  {'Name':<{name_w}}  {'Mark':<{mark_w}}  {'Identifier':<{ext_w}}  Source\n",
-        style=f"bold {HEADER}",
-    )
+    # A table sizes and folds its columns to the width it's given, so one long
+    # name can't push the other rows' columns onto a second line.
+    table = Table(box=None, header_style=f"bold {HEADER}", padding=(0, 2, 0, 1))
+    table.add_column("Name", overflow="fold")
+    table.add_column("Mark", style=TEXT, overflow="fold")
+    table.add_column("Identifier", style=TEXT, overflow="fold")
+    table.add_column("Source", style=MUTED, overflow="fold")
     for info in sorted(infos, key=lambda i: i.name):
-        lines.append(
-            f"  {info.name:<{name_w}}  ", style=colour_map.get(info.name, MUTED)
+        table.add_row(
+            Text(info.name, style=colour_map.get(info.name, MUTED)),
+            Text(_mark_for(info.name)),
+            Text(info.identifier),
+            Text(info.package),
         )
-        lines.append(f"{_mark_for(info.name):<{mark_w}}  ", style=TEXT)
-        lines.append(f"{info.identifier:<{ext_w}}  ", style=TEXT)
-        lines.append(f"{info.package}\n", style=MUTED)
 
     console.print(
         Panel(
-            lines,
+            table,
             title=f"[bold {TITLE}]registered recorders[/bold {TITLE}]",
             border_style=TITLE,
             expand=False,
