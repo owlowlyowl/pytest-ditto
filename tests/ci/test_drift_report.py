@@ -87,8 +87,6 @@ def test_report_groups_pruned_keys_under_the_target_they_came_from() -> None:
     shared_key = "tests.test_a@a~0123456789abcdef.json"
 
     render_session_report(
-        created=[],
-        updated=[],
         pruned=[
             PrunedSnapshot(".ditto", shared_key),
             PrunedSnapshot("s3://b/d", shared_key),
@@ -106,8 +104,6 @@ def test_report_names_each_target_above_its_own_pruned_keys() -> None:
     stream = StringIO()
 
     render_session_report(
-        created=[],
-        updated=[],
         pruned=[
             PrunedSnapshot("s3://b/d", "second@k~1111111111111111.json"),
             PrunedSnapshot(".ditto", "first@k~2222222222222222.json"),

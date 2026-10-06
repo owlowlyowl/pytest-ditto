@@ -70,14 +70,14 @@ class SnapshotKey:
     def __str__(self) -> str:
         """Readable identity: 'module/group@key.ext'.
 
-        Shown in session reports. Not a storage key: stored names replace
-        unsafe characters and add a hash (see `_flat_key`).
+        Not a storage key: stored names replace unsafe characters and add a
+        hash (see `_flat_key`).
         """
         return f"{self.module}/{self.group_name}@{self.key}.{self.identifier}"
 
     @property
     def display_name(self) -> str:
-        """Human-readable label for the session report: 'module/group@key.ext'."""
+        """Human-readable label: 'module/group@key.ext'."""
         return str(self)
 
 
