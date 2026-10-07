@@ -210,3 +210,34 @@ def test_ditto_verify_cli_fails_on_drift(pytester, monkeypatch):
 
     assert result.returncode != 0
     assert b"drift" in result.stdout  # a verify-specific failure, not a generic error
+
+
+def test_verify_names_the_targets_it_checked_when_there_is_no_drift(pytester):
+    """A clean verify says which targets agree with the lock, not nothing at all."""
+    _seed_lock(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines(["ditto verify: no drift in 1 target: .ditto"])
+
+
+def test_verify_says_nothing_was_checked_when_no_target_was_used(pytester):
+    """A run that used no snapshot target can't pass for a clean verify."""
+    _seed_lock(pytester)
+    pytester.makepyfile(test_mod="def test_plain():\n    assert True\n")
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "ditto verify: no snapshot target was used, so nothing was checked*"
+    ])
+
+
+def test_verify_starts_its_report_on_a_line_of_its_own(pytester):
+    """The report doesn't trail pytest's progress output on the same line."""
+    _seed_lock(pytester)
+    next(p for p in (pytester.path / ".ditto").iterdir() if "alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify", "-q")
+
+    result.stdout.fnmatch_lines(["ditto verify: lock drift detected"])

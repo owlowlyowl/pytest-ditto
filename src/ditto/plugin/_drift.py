@@ -125,14 +125,43 @@ def _session_target_maps(
     return modules_by_target, created_by_target
 
 
-def _verify_report_error(message: str) -> None:
-    print(f"ditto verify: {message}")
+def _verify_say(session: pytest.Session, lines: list[str]) -> None:
+    """Print verify's report on lines of its own, after pytest's progress output."""
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        print("\n".join(lines))
+        return
+    # pytest leaves its progress line (`..  [100%]`) open until after this hook;
+    # `ensure_newline` only closes it in verbose mode. Not printed from
+    # `pytest_terminal_summary`, which `--no-summary` would silence.
+    if reporter._tw.width_of_current_line:
+        reporter._tw.line()
+    for line in lines:
+        reporter.write_line(line)
 
 
+def _verify_report_error(session: pytest.Session, message: str) -> None:
+    _verify_say(session, [f"ditto verify: {message}"])
+
+
+# Each drift kind: its heading, and how to fix the keys listed under it.
 _DRIFT_LABELS = (
-    ("missing", "missing (recorded in lock, absent from backend)"),
-    ("orphan", "orphan (in backend, not in lock)"),
-    ("unsynced", "unsynced (produced this run, not in lock; run `ditto lock`)"),
+    (
+        "missing",
+        "missing (recorded in lock, absent from backend)",
+        "`ditto run` records them again; `ditto lock` drops them if their "
+        "tests are gone",
+    ),
+    (
+        "orphan",
+        "orphan (in backend, not in lock)",
+        "`ditto prune` deletes them (`ditto prune --check` to preview)",
+    ),
+    (
+        "unsynced",
+        "unsynced (produced this run, not in lock)",
+        "`ditto lock` records them",
+    ),
 )
 
 
@@ -165,22 +194,39 @@ def _drift_key_label(key: str, identities: Mapping[str, LockEntry]) -> str:
 def _drift_lines(drift: TargetDrift, identities: Mapping[str, LockEntry]) -> list[str]:
     """The report lines for one target's drift, indented under the target's id."""
     lines = [f"  {drift.target_id}:"]
-    for field, label in _DRIFT_LABELS:
+    for field, label, fix in _DRIFT_LABELS:
         keys = sorted(getattr(drift, field))
         if keys:
             lines.append(f"    {label}:")
             lines.extend(f"      {_drift_key_label(k, identities)}" for k in keys)
+            lines.append(f"      fix: {fix}")
     return lines
 
 
-def _verify_report_drift(drift: list[TargetDrift], lock: LockFile) -> None:
+def _verify_report_drift(
+    session: pytest.Session, drift: list[TargetDrift], lock: LockFile
+) -> None:
     """Print each target's drift, grouped by the target that holds it."""
-    print("ditto verify: lock drift detected")
+    lines = ["ditto verify: lock drift detected"]
     for target_drift in drift:
         identities = _target_identities(
             lock, target_drift.target_id, target_drift.scheme
         )
-        print("\n".join(_drift_lines(target_drift, identities)))
+        lines.extend(_drift_lines(target_drift, identities))
+    _verify_say(session, lines)
+
+
+def _no_drift_line(target_ids: list[str]) -> str:
+    """What a verify without drift checked: its targets, or that there were none."""
+    if not target_ids:
+        return (
+            "ditto verify: no snapshot target was used, so nothing was checked "
+            "against ditto.lock."
+        )
+    plural = "s" if len(target_ids) != 1 else ""
+    return f"ditto verify: no drift in {len(target_ids)} target{plural}: " + ", ".join(
+        sorted(target_ids)
+    )
 
 
 def run_verify(session: pytest.Session) -> None:
@@ -189,12 +235,13 @@ def run_verify(session: pytest.Session) -> None:
     try:
         lock = read_lockfile(config.rootpath / LOCKFILE_NAME)
     except DittoLockFileError as exc:
-        _verify_report_error(str(exc))
+        _verify_report_error(session, str(exc))
         fail_session(session)
         return
     if lock is None:
         _verify_report_error(
-            f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one."
+            session,
+            f"no {LOCKFILE_NAME} to verify against; run `ditto lock` to create one.",
         )
         fail_session(session)
         return
@@ -213,6 +260,7 @@ def run_verify(session: pytest.Session) -> None:
         )
 
     drift: list[TargetDrift] = []
+    unreadable = False
     for target_id, target in tracker.target_backends.items():
         try:
             target_drift = _classify_target(
@@ -224,15 +272,22 @@ def run_verify(session: pytest.Session) -> None:
                 created_by_target.get(target_id, set()),
             )
         except Exception as exc:  # backend unreachable, etc.
-            _verify_report_error(f"could not verify {target_id!r}: {exc}")
+            _verify_report_error(
+                session,
+                f"could not read {target_id!r}, so its snapshots weren't checked: "
+                f"{exc}",
+            )
             fail_session(session)
+            unreadable = True
             continue
         drift.append(target_drift)
 
     drifted = [d for d in drift if d.missing or d.orphan or d.unsynced]
     if drifted:
-        _verify_report_drift(drifted, lock)
+        _verify_report_drift(session, drifted, lock)
         fail_session(session)
+    elif not unreadable:
+        _verify_say(session, [_no_drift_line([d.target_id for d in drift])])
 
 
 def _prune_report_error(message: str) -> None:

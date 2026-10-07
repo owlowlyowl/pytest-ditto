@@ -38,6 +38,8 @@ def test_names_a_missing_key_by_the_test_the_lock_records_it_for() -> None:
         "    missing (recorded in lock, absent from backend):",
         "      tests/test_a.py::test_numbers[1]  value  "
         "tests.test_a.test_numbers[1]@value~e51845259fe080be.json",
+        "      fix: `ditto run` records them again; `ditto lock` drops them if "
+        "their tests are gone",
     ]
     assert actual == expected
 
@@ -53,6 +55,7 @@ def test_names_an_orphan_by_its_storage_name_alone() -> None:
         "  .ditto:",
         "    orphan (in backend, not in lock):",
         "      tests.test_x@k~0123456789abcdef.json",
+        "      fix: `ditto prune` deletes them (`ditto prune --check` to preview)",
     ]
 
 
@@ -66,8 +69,9 @@ def test_omits_a_drift_kind_the_target_has_none_of() -> None:
 
     assert actual == [
         "  .ditto:",
-        "    unsynced (produced this run, not in lock; run `ditto lock`):",
+        "    unsynced (produced this run, not in lock):",
         "      tests.test_y@k~0123456789abcdef.json",
+        "      fix: `ditto lock` records them",
     ]
 
 

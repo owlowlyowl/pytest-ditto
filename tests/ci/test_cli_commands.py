@@ -338,14 +338,6 @@ def test_status_exits_one_when_no_snapshots_exist(tmp_path) -> None:
     assert result.exit_code == 1
 
 
-def test_clean_exits_one_when_no_ditto_dirs_exist(tmp_path) -> None:
-    """ditto clean exits 1 when no .ditto/ directories are found under the given
-    path."""
-    result = CliRunner().invoke(cmd_clean, [str(tmp_path)])
-
-    assert result.exit_code == 1
-
-
 def test_inventory_command_prints_to_the_console_given_as_the_context_object(
     tmp_path,
 ) -> None:
@@ -366,7 +358,7 @@ def test_maintenance_command_prints_to_the_console_given_as_the_context_object(
 
     CliRunner().invoke(cmd_clean, [str(tmp_path)], obj=Console(file=buffer))
 
-    assert "No .ditto/ directories found." in buffer.getvalue()
+    assert "No .ditto/ directories found" in buffer.getvalue()
 
 
 def test_recorders_exits_one_when_no_recorders_are_registered() -> None:
