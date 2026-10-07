@@ -35,7 +35,8 @@ def test_json_snapshot_matches_the_recorded_frame(snapshot) -> None:
 def test_csv_snapshot_matches_the_recorded_frame(snapshot) -> None:
     """A DataFrame snapshotted as CSV equals the recorded snapshot.
 
-    check_index_type=False: CSV does not preserve index type — see README.
+    check_index_type=False: CSV does not preserve index type — see the format
+    notes in docs/src/plugins/pandas.md.
     """
     df = make_frame()
 
@@ -76,7 +77,8 @@ def test_json_snapshot_matches_the_recorded_series(snapshot) -> None:
 def test_csv_snapshot_matches_the_recorded_series(snapshot) -> None:
     """A Series snapshotted as CSV equals the recorded snapshot.
 
-    check_index_type=False: CSV does not preserve index type — see README.
+    check_index_type=False: CSV does not preserve index type — see the format
+    notes in docs/src/plugins/pandas.md.
     """
     series = make_series()
 
