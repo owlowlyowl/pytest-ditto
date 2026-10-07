@@ -44,20 +44,21 @@ def test_fn_with_parquet_dataframe_snapshot(snapshot):
 
 ## Format notes
 
-Prefer `@ditto.polars.parquet`. It round-trips a DataFrame's values and dtypes.
-The other formats are available when you need them, with these limits:
-
-| Format | Values and dtypes |
-|--------|-------------------|
+| Format | Types and values |
+|--------|------------------|
 | parquet | preserved |
-| ipc | preserved; Polars marks `write_ipc` unstable, so snapshots can break across Polars versions |
-| csv | re-inferred from text |
-| ndjson | re-inferred from JSON |
+| ipc | preserved |
+| csv | re-inferred from text; see below |
+| ndjson | re-inferred from JSON; see below |
 
-**IPC** uses Polars' Arrow IPC writer. Polars documents `write_ipc` as
-unstable, so a snapshot recorded on one Polars version may fail to load or
-compare on another even if the DataFrame under test did not change.
+Prefer `@ditto.polars.parquet` or `@ditto.polars.ipc`, which load back each
+column's type and values.
 
-**CSV** and **NDJSON** keep no type metadata, so dtypes are inferred again on
-load. Frames of ints, floats and strings round-trip. Don't use these formats
-for categoricals, enums, nested or temporal columns.
+**CSV** and **NDJSON** keep no type information, so each column's type is
+inferred again on load:
+
+- Narrow numeric types are widened: `Int8` comes back as `Int64`, and
+  `Float32` as `Float64`.
+- In CSV, strings that look like numbers become numbers: `"001"` comes back as
+  `1`. NDJSON quotes strings, so it keeps them.
+- Don't use either for categoricals, enums, nested or temporal columns.

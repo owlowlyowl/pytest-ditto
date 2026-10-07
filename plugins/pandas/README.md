@@ -21,7 +21,8 @@ It needs pandas 2.2 or later and pyarrow 16.1.0 or later.
 Each mark is shorthand for `@ditto.record("<name>")`.
 
 **Use `@ditto.pandas.parquet` unless you need a snapshot you can read as text.**
-It's the only format that keeps every dtype and value exactly. JSON and CSV
+It's the only format that keeps dtypes and values exactly, for data Arrow can
+represent. JSON and CSV
 change some data on the way through, including rounding floats without failing
 the test; see the format notes in the documentation.
 

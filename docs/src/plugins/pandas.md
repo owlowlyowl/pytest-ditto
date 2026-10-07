@@ -15,8 +15,9 @@ It needs pandas 2.2 or later and pyarrow 16.1.0 or later.
 | `@ditto.pandas.csv` | `pandas.csv` | CSV, through `DataFrame.to_csv` |
 
 !!! tip "Use `@ditto.pandas.parquet` unless you need a snapshot you can read as text"
-    It's the only format that keeps every dtype and value exactly, though it
-    turns some non-string column and index names into strings. JSON and CSV
+    It's the only format that keeps dtypes and values exactly, for data Arrow
+    can represent, though it turns some non-string column and index names into
+    strings. JSON and CSV
     are readable, but they change some data on the way through; see
     [Format notes](#format-notes).
 
@@ -108,7 +109,8 @@ Series first.
 
 ## Format notes
 
-Only parquet round-trips a DataFrame's or Series' values and dtypes exactly.
+Only parquet round-trips a DataFrame's or Series' values and dtypes exactly,
+and only for data Arrow can represent.
 JSON and CSV change some values or types on the way through, and a snapshot
 comparison then fails even though the code under test didn't change. A Series
 follows the same index and dtype rules as a DataFrame in each format.
@@ -119,8 +121,11 @@ follows the same index and dtype rules as a DataFrame in each format.
 | json | preserved, except as listed below | changed in several cases, listed below |
 | csv | single-level only; values re-parsed | re-parsed from text |
 
-**Parquet** keeps every value and dtype, but changes two kinds of name, as
-pandas' own `to_parquet` does (it warns that they won't round-trip):
+**Parquet** keeps every value and dtype Arrow can represent. It can't write a
+complex column or an object column of mixed types, which raise when recorded,
+and it loads a cell holding a tuple back as a NumPy array. It also changes two
+kinds of name, as pandas' own `to_parquet` does (it warns that they won't
+round-trip):
 
 - Column names of mixed types come back as strings: `["a", 0, 1.5]` is read back
   as `["a", "0", "1.5"]`. Column names that are all `int`, all `float` or all
