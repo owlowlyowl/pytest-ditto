@@ -1,6 +1,8 @@
 # ditto.exceptions
 
-Every error pytest-ditto raises subclasses `DittoException`. Advisory warnings use the `DittoWarning` category.
+pytest-ditto's own exceptions subclass `DittoException`. Some misuse raises a
+standard `TypeError` or `ValueError` instead, and errors from recorders and
+backends propagate unchanged. Advisory warnings use the `DittoWarning` category.
 
 ::: ditto.exceptions
     options:

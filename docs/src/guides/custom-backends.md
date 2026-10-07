@@ -229,8 +229,9 @@ nothing to test runs that don't use it.
 
 ### From code
 
-`ditto.backends.BACKEND_REGISTRY` maps every scheme ditto knows to its
-factory. It is read-only. To register a factory in code, set it on
+`ditto.backends.BACKEND_REGISTRY` maps each registered scheme to its factory;
+`file` and the fsspec protocols are handled separately and aren't in it. It is
+read-only. To register a factory in code, set it on
 `BACKEND_REGISTRY.overrides`, which behaves like a `dict`:
 
 ```python
