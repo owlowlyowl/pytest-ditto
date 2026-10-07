@@ -93,6 +93,12 @@ def test_raises_when_mark_carries_no_args() -> None:
         resolve_recorder([_mark()])
 
 
+def test_error_shows_how_to_name_the_recorder_when_mark_carries_no_args() -> None:
+    """The error for a bare record mark shows how to name the default recorder."""
+    with pytest.raises(DittoMarkHasNoIOType, match=r"@ditto\.json\(target=\.\.\.\)"):
+        resolve_recorder([_mark()])
+
+
 def test_raises_when_mark_names_unregistered_recorder() -> None:
     """An unrecognised recorder name raises a generic unknown-recorder error."""
     with pytest.raises(

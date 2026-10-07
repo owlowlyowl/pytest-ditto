@@ -62,12 +62,11 @@ class DittoMarkHasNoIOType(DittoException):
     """
 
     def __init__(self) -> None:
-        _msg = (
-            "The ditto record mark has no associated IO type. "
-            "This is most likely an implementation issue with the mark being used. "
-            "The IO type is assumed to be the first argument of the `mark.args`."
+        super().__init__(
+            "A record mark must name its recorder as its first argument, such as "
+            '@ditto.record("yaml"). To set only a target, name the default '
+            "recorder: @ditto.json(target=...)."
         )
-        super().__init__(_msg)
 
 
 class DittoUnknownRecorderError(DittoException):
