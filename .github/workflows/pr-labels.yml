@@ -12,19 +12,27 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+# No concurrency group: "Kind label" is a required check, and a cancelled run of
+# it (a PR opened with several labels starts one run per label) can leave the
+# merge box waiting for it even after a later run passed. Each run is a few
+# seconds, so they run side by side instead.
 
 jobs:
   kind-label:
     name: Kind label
     runs-on: ubuntu-26.04
+    permissions:
+      pull-requests: read
     steps:
-      # Labels are read from the event file, not interpolated into the script.
+      # Labels are read from the API rather than the event, so a run started by
+      # an earlier event still sees the labels the PR has now and can't fail
+      # after a later run passed. They're never interpolated into the script.
       - name: Require a kind label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          labels=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
+          labels=$(gh pr view "$PR_URL" --json labels --jq '.labels[].name')
           if grep -qx 'release: skip' <<< "$labels"; then
             echo "Labelled 'release: skip'; no kind label needed."
             exit 0
