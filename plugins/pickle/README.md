@@ -17,7 +17,7 @@ you accept the risk above.
 ## Installation
 
 ```bash
-pip install pytest-ditto pytest-ditto-pickle
+pip install pytest-ditto-pickle
 ```
 
 pytest-ditto has no `pickle` extra: install this package by name, deliberately.

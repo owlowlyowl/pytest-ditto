@@ -12,7 +12,7 @@ a value can't be represented in JSON, YAML or one of the other recorders, and
 you accept the risk above.
 
 ```bash
-pip install pytest-ditto pytest-ditto-pickle
+pip install pytest-ditto-pickle
 ```
 
 pytest-ditto has no `pickle` extra: install this package by name, deliberately.
