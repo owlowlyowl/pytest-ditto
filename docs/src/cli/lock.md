@@ -74,7 +74,9 @@ or a skipping collector above it applied. For tests still present, a passing run
 replaces their entries with the snapshots they actually accessed.
 
 A target the run did not exercise is left as it was, so a suite that only
-reaches some of its backends does not lose the others. An existing lock file
+reaches some of its backends does not lose the others. To remove a target no test
+uses any more, see
+[Retire a target](../guides/maintaining.md#retire-a-target). An existing lock file
 that cannot be parsed is replaced rather than being treated as fatal: a rebuild
 is authoritative, and the entries for unexercised targets in a corrupt file are
 unrecoverable either way.
