@@ -63,10 +63,9 @@ def project_workspace(
 
 @pytest.fixture
 def redis_service() -> Iterator[RedisService]:
-    try:
-        service = start_redis_service()
-    except RuntimeError as exc:
-        pytest.skip(str(exc))
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is required for docker-marked integration tests")
+    service = start_redis_service()
 
     print(f"[integration:redis] container={service.container_name}")
     print(f"[integration:redis] target={service.target}")
@@ -78,10 +77,9 @@ def redis_service() -> Iterator[RedisService]:
 
 @pytest.fixture
 def postgres_service() -> Iterator[PostgresService]:
-    try:
-        service = start_postgres_service()
-    except RuntimeError as exc:
-        pytest.skip(str(exc))
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is required for docker-marked integration tests")
+    service = start_postgres_service()
 
     print(
         "[integration:postgresql] "

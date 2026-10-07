@@ -29,6 +29,8 @@ jobs:
           - { environment: pickle-py312, task: verify-pickle }
           - { environment: polars-py312, task: verify-polars }
           - { environment: pyarrow-py312, task: verify-pyarrow }
+          # The CLI against real local, DuckDB, Redis and Postgres backends.
+          - { environment: integration, task: test-integration }
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,7 +47,19 @@ jobs:
           cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Run ${{ matrix.task }}
+        env:
+          DITTO_INTEGRATION_ARTIFACTS_DIR: .pytest/integration-artifacts
         run: pixi run -e ${{ matrix.environment }} ${{ matrix.task }}
+
+      - name: Upload integration failure evidence
+        if: ${{ always() && matrix.environment == 'integration' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-artifacts
+          path: |
+            .pytest/test-results.xml
+            .pytest/integration-artifacts
+          retention-days: 30
 
   publish:
     name: Publish

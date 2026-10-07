@@ -107,10 +107,15 @@ together.
 ## Standalone integration tests
 
 `tests/integration/` runs the real `ditto` CLI against small test-owned projects
-using local, DuckDB, Redis and Postgres backends: record and replay, `list`,
-`status` and `stats`, then `lock`, `verify` (clean, and with a snapshot deleted)
-and recovery with `update`. Redis and Postgres run in Docker. It stays separate
-from `examples/`.
+using local, DuckDB, Redis and Postgres backends. Each backend covers record and
+replay with exact lock and stored-value assertions, inventory counts and sizes,
+missing-snapshot recovery, a changed value that fails until `update`, and orphan
+pruning. Remote targets must refuse pruning until `--shared` is supplied. Redis
+and Postgres run in Docker. It stays separate from `examples/`.
+
+The PR integration check is advisory. The release and manual pre-release
+workflows require the full suite; a Docker startup or image-pull failure fails
+the check instead of skipping the remote scenarios.
 
 ```bash
 pixi run -e integration test-integration-local   # local and DuckDB only, no Docker

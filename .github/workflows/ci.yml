@@ -264,9 +264,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/release-artifacts.yml
 
-  # The one CI check to require on main, so the ruleset doesn't list every matrix
-  # job. It fails unless every job it needs succeeded; add new jobs to `needs`
-  # (tests/ci/test_workflows.py checks that).
+  # Advisory on PRs; the release workflows require this suite before publishing.
   integration:
     name: Integration
     runs-on: ubuntu-26.04
@@ -288,7 +286,9 @@ jobs:
           cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       # Runs the real `ditto` CLI against local, DuckDB, Redis and Postgres
-      # projects; Redis and Postgres run in Docker.
+      # projects; Redis and Postgres run in Docker. Not in the CI job's `needs`:
+      # it pulls Docker images, so a registry outage shouldn't block a PR. The
+      # release workflows run it as a required step.
       - name: Run standalone integration suite
         env:
           DITTO_INTEGRATION_ARTIFACTS_DIR: .pytest/integration-artifacts
@@ -310,6 +310,8 @@ jobs:
           path: .pytest/integration-artifacts
           retention-days: 30
 
+  # The one CI check to require on main. Integration is deliberately excluded;
+  # tests/ci/test_workflows.py checks the required jobs and release gates.
   ci:
     name: CI
     if: always()
@@ -323,7 +325,6 @@ jobs:
       - lock-file
       - coverage
       - artifacts
-      - integration
     runs-on: ubuntu-26.04
     permissions: {}
     steps:
