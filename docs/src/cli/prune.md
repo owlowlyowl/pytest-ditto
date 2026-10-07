@@ -56,10 +56,12 @@ ditto prune --shared
   **shared**, because prune only deletes them with `--shared`; with
   `ditto prune --check --shared` they're listed under **would prune** too.
 
-!!! warning
-    Using `-k` for a partial run may falsely classify snapshots for un-run
-    tests as unused. Only use prune with a full test run to avoid accidental
-    deletion.
+!!! note "Pruning with `-k` or `-m`"
+    A filtered run doesn't delete the snapshots of the tests it deselects:
+    `ditto.lock` records them, so they aren't orphans. The filter only narrows
+    which targets prune examines, to those at least one selected test uses,
+    and prune warns that it was partial. In each target it examines, it deletes
+    every orphan, including those left by deselected tests.
 
 !!! note
     Prune needs a single process. Under pytest-xdist distribution (`-n N`, or

@@ -13,26 +13,58 @@ def test_fn(snapshot) -> None:
 
 The `snapshot` callable takes two arguments:
 
-- **`data`** — the value to snapshot (any serialisable object)
-- **`key`** — a unique identifier within this test
+- **`data`**: the value to snapshot. It must be a value the test's
+  [recorder](recorders.md) accepts; the default, strict JSON, rejects tuples,
+  sets, dates and other values outside its data model.
+- **`key`**: a string naming this snapshot, unique within the test. A key that
+  isn't a `str` raises `TypeError`.
+
+`snapshot()` returns the value for the test to compare against. That value is
+always what the recorder reads back, never `data` itself, so a test sees on its
+first run exactly what every later run will see.
 
 ## How It Works
 
+What `snapshot()` does depends on the run's mode and on whether the snapshot is
+already stored:
+
 ```mermaid
-graph LR
-    A[First Run] --> B{Snapshot exists?}
-    B -->|No| C[Save data, return data]
-    B -->|Yes| D[Load stored data, return it]
-    C --> E[Test passes]
-    D --> F[assert result == stored]
+graph TD
+    A["snapshot(data, key)"] --> B{Mode}
+    B -->|"record (default)"| C{Stored?}
+    C -->|Yes| D[Return the stored value]
+    C -->|No| E[Store data, return it as read back]
+    B -->|"update (--ditto-update)"| F[Store data, return it as read back]
+    B -->|"verify (--ditto-verify)"| G{Stored?}
+    G -->|Yes| H[Return the stored value]
+    G -->|No| I[Store nothing, return data as read back]
 ```
 
-1. **First run (recording):** No stored snapshot exists. The fixture saves `data`
-   to the configured backend and returns it. Since `assert data == data`, the
-   test passes.
+| Mode | Snapshot stored | Snapshot missing |
+|---|---|---|
+| **record**: a plain `pytest` run | Returns the stored value. | Stores `data`, then returns it as read back. |
+| **update**: `ditto update`, `--ditto-update` | Overwrites it with `data`, then returns `data` as read back. | Stores `data`, then returns it as read back. |
+| **verify**: `ditto verify`, `--ditto-verify` | Returns the stored value. | Stores nothing and returns `data` as read back; the run then fails, reporting the snapshot. |
 
-2. **Subsequent runs (replay):** The stored snapshot is loaded and returned.
-   The test asserts that the current result matches the stored value.
+"As read back" means `data` is serialised and deserialised before it is
+returned, and nothing is stored if the recorder can't read its own output. So a
+value the recorder doesn't store exactly fails on the run that records it,
+rather than on the next one. The YAML recorder, for example, reads a tuple back
+as a list:
+
+```python
+@ditto.yaml
+def test_pair(snapshot):
+    assert (1, 2) == snapshot((1, 2), key="pair")  # fails: (1, 2) != [1, 2]
+```
+
+Snapshot a list instead, or choose a recorder that keeps the distinction.
+
+!!! warning "A missing snapshot passes in record mode"
+    In record mode a missing snapshot is stored and the test passes, so a
+    deleted or renamed snapshot is silently re-recorded from the code's current
+    output. In CI, run [`ditto verify`](../cli/verify.md): it never writes, and
+    it fails on any missing snapshot.
 
 ## Multiple Snapshots Per Test
 
@@ -107,14 +139,14 @@ ditto update
 
 ## Pruning Stale Snapshots
 
-Remove snapshots that are no longer used by any test:
+Removing or renaming a test or a snapshot key leaves its old snapshot in
+storage. Rebuild the lock so it stops recording the old snapshot, then delete
+every stored snapshot the lock doesn't record:
 
 ```bash
-pytest --ditto-prune
-# or
+ditto lock
 ditto prune
 ```
 
-!!! warning
-    Using `-k` for a partial test run may falsely classify snapshots for
-    un-run tests as unused.
+`ditto prune --check` lists what would be deleted without deleting anything.
+See [ditto prune](../cli/prune.md) and [The Lock File](lock-file.md).

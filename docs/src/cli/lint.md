@@ -6,7 +6,7 @@ files. Exits non-zero if any issues are found.
 ## Usage
 
 ```
-ditto lint [PATH]
+ditto lint [PATH] [--live]
 ```
 
 ## Examples

@@ -22,7 +22,10 @@ Use this upgrade workflow:
    converted or compared with pickle.
 4. Run the complete suite again.
 5. Run `ditto lock` only after accepting the new baselines.
-6. Remove old `.pkl` snapshots manually or through the ordinary prune workflow.
+6. Delete the old `.pkl` files by hand, for example with
+   `find . -path '*/.ditto/*.pkl' -delete`. `ditto prune` doesn't remove them:
+   1.x names don't start with the test module, so prune never treats them as
+   belonging to your suite.
 
 If pickle is deliberately required, install `pytest-ditto-pickle` and select
 its recorder explicitly. Loading pickle data can execute arbitrary code, so
@@ -30,8 +33,10 @@ only load trusted snapshots. Core provides no pickle warning, guard, migration
 command, or convenience extra.
 
 `pytest-ditto-pickle` names its snapshot files after the recorder, so they end
-in `.pickle`, not `.pkl`. A 1.x `.pkl` file must already be renamed to its 2.0
-key to be found; give the renamed file the `.pickle` ending. If you used
+in `.pickle`, not `.pkl`. It doesn't find 1.x `.pkl` files either: 2.0 names
+include the test module and a hash, so a 1.x snapshot can't be renamed into
+place by hand. Re-record it with the pickle recorder and review the result as
+in the workflow above. If you used
 `pytest-ditto-pickle` 2.0.0b1, which still wrote `.pkl`, rename those snapshots
 to end in `.pickle` and run `ditto lock`.
 

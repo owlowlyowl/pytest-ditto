@@ -7,7 +7,7 @@ directory or a remote URI, with its snapshot count and size. Complements
 ## Usage
 
 ```
-ditto stats [PATH]
+ditto stats [PATH] [--live]
 ```
 
 ## Examples
