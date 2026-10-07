@@ -13,7 +13,7 @@ ditto's errors.
 | [`ditto`](ditto.md) | `Snapshot`, `SnapshotMode`, the `record`, `json` and `yaml` marks, and `version` |
 | [`ditto.recorders`](recorders.md) | The `Recorder` type and the recorder registry; see [Writing a Recorder](../guides/custom-recorders.md) |
 | [`ditto.backends`](backends.md) | Backend helpers and the backend registry; see [Writing a Backend](../guides/custom-backends.md) |
-| [`ditto.exceptions`](exceptions.md) | Every error ditto raises, all subclasses of `DittoException`, and the `DittoWarning` category |
+| [`ditto.exceptions`](exceptions.md) | ditto's own exceptions, all subclasses of `DittoException`, and the `DittoWarning` category |
 
 For settings, fixtures and command-line options, see
 [Configuration](configuration.md); for the `ditto` command, the
