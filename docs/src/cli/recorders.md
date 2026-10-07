@@ -1,16 +1,12 @@
-# ditto recorders
+::: mkdocs-click
+    :module: ditto.cli._maintenance
+    :command: cmd_recorders
+    :prog_name: ditto recorders
+    :style: plain
 
-Lists all registered recorder plugins, showing their name, the mark derived
-from it, their identifier, and the source package they come from. It reads
-installed package metadata only and imports no plugin. If any
+It reads installed package metadata only and imports no plugin. If any
 registrations break the plugin contract, it says how many and points to
-`ditto doctor`.
-
-## Usage
-
-```
-ditto recorders
-```
+[`ditto doctor`](doctor.md).
 
 ## Screenshot
 

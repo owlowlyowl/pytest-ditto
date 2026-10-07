@@ -1,13 +1,8 @@
-# ditto run
-
-Runs pytest and reports snapshot activity via the ditto session report. Any
-extra arguments are forwarded directly to pytest.
-
-## Usage
-
-```
-ditto run [PATH] [PYTEST_ARGS...]
-```
+::: mkdocs-click
+    :module: ditto.cli._pytest
+    :command: cmd_run
+    :prog_name: ditto run
+    :style: plain
 
 ## Examples
 

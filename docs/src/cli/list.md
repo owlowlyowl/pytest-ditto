@@ -1,13 +1,8 @@
-# ditto list
-
-Lists all snapshot files found under a path in a table showing test name,
-key, recorder, file size, and last-modified date.
-
-## Usage
-
-```
-ditto list [PATH] [--test NODEID]... [--live]
-```
+::: mkdocs-click
+    :module: ditto.cli._inventory
+    :command: cmd_list
+    :prog_name: ditto list
+    :style: plain
 
 ## Examples
 

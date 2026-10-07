@@ -1,14 +1,8 @@
-# ditto doctor
-
-Runs health checks: verifies pytest is available, the ditto pytest plugin is
-registered, and all registered recorder and backend plugins load
-successfully.
-
-## Usage
-
-```
-ditto doctor
-```
+::: mkdocs-click
+    :module: ditto.cli._maintenance
+    :command: cmd_doctor
+    :prog_name: ditto doctor
+    :style: plain
 
 ## Behaviour
 

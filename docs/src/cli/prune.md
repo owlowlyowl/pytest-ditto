@@ -1,18 +1,8 @@
-# ditto prune
-
-Removes stale snapshots by running pytest with `--ditto-prune`: snapshots in the
-backend that `ditto.lock` doesn't record are deleted.
-
-## Usage
-
-```
-ditto prune [--check] [--shared] [PATH] [PYTEST_ARGS...]
-```
-
-| Option | Effect |
-|---|---|
-| `--check` | Report what would be deleted without deleting it (`--ditto-prune-dry-run`). |
-| `--shared` | Also delete from targets that might be shared (`--ditto-prune-shared`). |
+::: mkdocs-click
+    :module: ditto.cli._pytest
+    :command: cmd_prune
+    :prog_name: ditto prune
+    :style: plain
 
 ## Examples
 

@@ -1,13 +1,8 @@
-# ditto update
-
-Regenerates snapshots by running pytest with `--ditto-update`. All snapshot
-files touched by the run will be overwritten with current values.
-
-## Usage
-
-```
-ditto update [PATH] [PYTEST_ARGS...]
-```
+::: mkdocs-click
+    :module: ditto.cli._pytest
+    :command: cmd_update
+    :prog_name: ditto update
+    :style: plain
 
 ## Examples
 
