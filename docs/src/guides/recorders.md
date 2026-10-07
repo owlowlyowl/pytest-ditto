@@ -16,6 +16,7 @@ pytest-ditto ships two built-in recorders:
 
 ### Strict JSON (default)
 
+<!-- test: passes -->
 ```python
 def test_api_response(snapshot):
     result = {"status": "ok", "data": [1, 2, 3]}
@@ -47,6 +48,7 @@ JSON from older releases remains readable and is reformatted only when updated.
 
 ### YAML
 
+<!-- test: passes -->
 ```python
 import ditto
 
