@@ -4,8 +4,10 @@
 snapshots your test suite legitimately owns. It is the source of truth behind
 `ditto verify`, `ditto prune`, and the credential-free CLI inventory.
 
-It is modelled on `package-lock.json`, `Cargo.lock`, and `poetry.lock`: never
-hand-edited, deterministic, merge-friendly, and reviewed as part of the diff.
+It is modelled on `package-lock.json`, `Cargo.lock`, and `poetry.lock`:
+generated rather than hand-edited, deterministic, merge-friendly, and reviewed
+as part of the diff. The one exception is
+[retiring a target](../guides/maintaining.md#retire-a-target).
 
 ## Why a committed file
 
@@ -15,8 +17,10 @@ throwaway cache cannot survive a fresh CI checkout. `ditto.lock` persists it: it
 is committed, so a clean checkout — or a partial, failed, or parallel run — still
 knows the full, authoritative set.
 
-Commit `ditto.lock`. Do **not** add it to `.gitignore`; ditto warns when it is
-ignored.
+`ditto.lock` lives in pytest's rootdir, usually the project root. Commit it.
+Do **not** add it to `.gitignore`; ditto warns when `.gitignore` in the rootdir
+has a `ditto.lock` or `/ditto.lock` line (it doesn't detect broader patterns
+such as `*.lock`).
 
 ## What it records
 
@@ -27,7 +31,7 @@ actually used — including per-test `record(target=…)` marks — because it i
 written by real runs. It never stores `storage_options`, but it does store each
 target URI verbatim, so ditto refuses a target URI that contains a password or
 a secret query parameter; pass credentials as
-[storage options](backends.md#credentials-and-connection-settings-ditto_storage_options),
+[storage options](../guides/backends.md#credentials-and-connection-settings-ditto_storage_options),
 or in a profile's `storage_options`, instead.
 
 ## How it is produced and maintained
@@ -51,18 +55,35 @@ a snapshot that another machine still runs.
 
 ### Sharing a target
 
-`ditto verify` and `ditto prune` only look at keys under the test modules your
-suite owns, so another suite with different module paths on the same backend is
-left alone. What they can't tell apart is anyone else with the same module
-paths: another branch of the same project, or another project that also has
-`tests/test_api.py`. On a target they both write to, a snapshot that only the
-other has recorded looks like an orphan. `ditto verify` reports it as drift,
-and `ditto prune` would delete it.
+A target holds one set of snapshots. Every checkout that uses it, whether
+another branch of the project, another project with the same test paths, CI or
+a developer's machine, reads and writes that same set:
 
-So give each project, and each branch whose tests can differ, its own target
-path, for example `s3://bucket/<project>/<branch>/`. In CI, you can pass it
-on the command line with the branch name filled in:
-`pytest -o "ditto_target=s3://bucket/my-project/$BRANCH/"`.
+- **Writes are shared.** Recording a snapshot, or running `ditto update`, on
+  one branch changes what every other branch compares against.
+- **Orphans are ambiguous.** `ditto verify` and `ditto prune` only look at keys
+  under the test modules your suite owns, so another suite with different
+  module paths is left alone. But a snapshot that only another branch, or
+  another project with the same test paths, has recorded looks like an orphan:
+  `ditto verify` reports it as drift, and `ditto prune --shared` would delete
+  it.
+
+So:
+
+- Give each project its own target path, such as `s3://bucket/<project>/`.
+- If branches change snapshots independently, keep the snapshots in the
+  repository, in the default `.ditto` directories. Git then keeps each
+  branch's snapshots and lock together, and merges them like any other file.
+- Use a remote target for snapshots that change through one branch, such as
+  baselines updated only on the main branch.
+
+A separate remote path per branch doesn't work yet. The lock records a remote
+target by its URI, so on a branch whose path differs, `ditto verify` finds no
+entries for it and fails, even after the snapshots are copied there. Recording
+the lock under the branch's path instead puts that path into the lock, which
+the merge then carries into the main branch.
+[Issue #251](https://github.com/owlowlyowl/pytest-ditto/issues/251) tracks
+making this possible.
 
 Because ditto can't check that a target is used by one checkout only, `ditto
 prune` deletes nothing from one that might be shared unless you pass
@@ -83,34 +104,9 @@ what would be deleted either way.
 - **CLI inventory** (`list`/`status`/`stats`/`lint`) — reads the lock for a fast,
   credential-free remote inventory (below).
 
-## Running under pytest-xdist
-
-Snapshot tests run under pytest-xdist distribution (`-n N`, or `--dist` with
-`--tx`): each worker records and compares its own tests' snapshots. What doesn't
-work is anything that has to see the whole run in one process, because the tests
-run in the workers and no single process sees them all:
-
-| Under distribution | Behaviour |
-|---|---|
-| `pytest` / `ditto update` | Snapshots are recorded and compared as usual. `ditto.lock` is not updated; ditto warns. |
-| `ditto verify` (`--ditto-verify`) | Refused. |
-| `ditto lock` (`--ditto-lock`) | Refused. |
-| `ditto prune` (`--ditto-prune`, `--ditto-prune-dry-run`) | Refused. |
-| Snapshot report | Not printed. |
-
-A refused mode is a usage error (exit code 4) raised before any test runs, so it
-writes no snapshots, leaves the lock as it was, and deletes nothing.
-
-A typical CI setup runs the tests in parallel, then checks the lock in a
-separate single-process run:
-
-```bash
-pytest -n auto
-ditto verify
-```
-
-If your pytest configuration adds `-n` through `addopts`, pass `-n 0` to the
-single-process commands, for example `ditto verify -n 0`.
+Under pytest-xdist distribution (`-n`) the lock isn't updated, and verify,
+lock and prune are refused; see
+[Running in CI](../guides/ci.md#running-tests-in-parallel).
 
 ## Declared vs physical state (and the inventory trade-off)
 

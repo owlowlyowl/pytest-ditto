@@ -39,6 +39,6 @@ with the error and exits 1, so a partial inventory never passes for a complete
 one.
 
 Remote snapshots read from the lock have no physical size or modified date (shown
-as `—`); use `--live` for those. See [The Lock File](../guides/lock-file.md).
+as `—`); use `--live` for those. See [The Lock File](../concepts/lock-file.md).
 
 `ditto clean` remains local-only and never touches remote snapshots.

@@ -68,4 +68,4 @@ Pass `--live` to read the live backends instead, via an internal
 `pytest --setup-only` pass — authoritative physical state for every target, at the
 cost of importing your tests and needing their credentials.
 
-See [The Lock File](../guides/lock-file.md#declared-vs-physical-state-and-the-inventory-trade-off).
+See [The Lock File](../concepts/lock-file.md#declared-vs-physical-state-and-the-inventory-trade-off).

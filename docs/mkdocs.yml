@@ -32,37 +32,43 @@ theme:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Concepts:
+    - How Snapshots Work: concepts/snapshots.md
+    - Snapshot Names: concepts/naming.md
+    - The Lock File: concepts/lock-file.md
   - Guides:
-    - Snapshot Fixture: guides/snapshot-fixture.md
     - Recorders: guides/recorders.md
-    - Custom Recorders: guides/custom-recorders.md
     - Storage Backends: guides/backends.md
-    - Custom Backends: guides/custom-backends.md
-    - The Lock File: guides/lock-file.md
-    - Upgrading: guides/upgrading.md
-  - CLI Reference:
-    - Overview: cli/index.md
-    - ditto run: cli/run.md
-    - ditto update: cli/update.md
-    - ditto prune: cli/prune.md
-    - ditto verify: cli/verify.md
-    - ditto lock: cli/lock.md
-    - ditto list: cli/list.md
-    - ditto status: cli/status.md
-    - ditto clean: cli/clean.md
-    - ditto recorders: cli/recorders.md
-    - ditto doctor: cli/doctor.md
-    - ditto lint: cli/lint.md
-    - ditto stats: cli/stats.md
-  - API Reference:
-    - Overview: reference/index.md
-    - ditto (top-level): reference/ditto.md
-    - ditto.snapshot: reference/snapshot.md
-    - ditto.recorders: reference/recorders.md
-    - ditto.backends: reference/backends.md
-    - ditto.plugin: reference/plugin.md
-    - ditto.exceptions: reference/exceptions.md
-    - ditto.cli: reference/cli.md
+    - Running in CI: guides/ci.md
+    - Maintaining Snapshots: guides/maintaining.md
+    - Writing a Recorder: guides/custom-recorders.md
+    - Writing a Backend: guides/custom-backends.md
+  - Upgrading to 2.0: upgrading.md
+  - Reference:
+    - Configuration: reference/configuration.md
+    - CLI:
+      - Overview: cli/index.md
+      - ditto run: cli/run.md
+      - ditto update: cli/update.md
+      - ditto prune: cli/prune.md
+      - ditto verify: cli/verify.md
+      - ditto lock: cli/lock.md
+      - ditto list: cli/list.md
+      - ditto status: cli/status.md
+      - ditto clean: cli/clean.md
+      - ditto recorders: cli/recorders.md
+      - ditto doctor: cli/doctor.md
+      - ditto lint: cli/lint.md
+      - ditto stats: cli/stats.md
+    - Python API:
+      - Overview: reference/index.md
+      - ditto (top-level): reference/ditto.md
+      - ditto.snapshot: reference/snapshot.md
+      - ditto.recorders: reference/recorders.md
+      - ditto.backends: reference/backends.md
+      - ditto.plugin: reference/plugin.md
+      - ditto.exceptions: reference/exceptions.md
+      - ditto.cli: reference/cli.md
 
 plugins:
   - search

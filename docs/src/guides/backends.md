@@ -56,39 +56,11 @@ A `file://` target names a directory. Count the slashes:
 The default, `file://.ditto`, is a relative path, which is why each test
 directory gets its own `.ditto/`.
 
-Each snapshot is one file, named after the test module, the test, the
-snapshot key, a short hash and the recorder. The module path's slashes become
-dots, so every file sits directly in the directory. For example, with the project root as pytest's
-rootdir, a test `test_create` in `tests/api/test_users.py` that calls
-`snapshot(value, key="response")` with the `json` recorder writes:
-
-```
-tests/api/.ditto/tests.api.test_users.test_create@response~90e755f5c20755bd.json
-                 └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
-                     test module         test       key         hash     recorder
-```
-
-The module part is the test file's path relative to the rootdir, without its
-extension.
-
-The test and key are there to be read, not decoded, so they're made safe for
-every file system: characters other than ASCII letters, digits and
-`. _ - [ ] = , +` become `_`, and the test is shortened to 80 characters and the
-key to 40. If the module path is long, they're shortened further so the whole
-file name fits in 255 bytes; a module path too long to leave room for them is an
-error.
-The hash is the first 16 hex characters of a SHA-256 of the test's exact pytest
-node ID, the key and the recorder. It keeps apart snapshots that would otherwise
-share a name, such as parametrize IDs that differ only in case (`[A]` and `[a]`,
-which are the same file name on Windows and macOS) or only in replaced
-characters (`[12:00]` and `[12_00]`). `ditto.lock` records each snapshot's exact
-test and key, and `ditto list` shows them.
-
-A snapshot is written to a temporary file next to it, then renamed into place,
-so a write that fails partway through (a full disk, an interrupted run) leaves
-the previous snapshot intact. An overwritten snapshot keeps its permissions. A
-process killed mid-write can leave the temporary file behind: `.ditto-tmp-`,
-then 32 hex characters, then `.tmp`. ditto ignores it, and it's safe to delete.
+Each snapshot is one file in the directory, such as
+`tests/api/.ditto/tests.api.test_users.test_create@response~90e755f5c20755bd.json`.
+A file is written to a temporary file and renamed into place, so a failed
+write leaves the previous snapshot intact. See
+[Snapshot Names](../concepts/naming.md) for how names are built.
 
 ### fsspec: cloud storage and memory
 
@@ -98,17 +70,10 @@ storage needs an extra package; the table above lists the common ones, and
 has the rest. Without the package, tests that use the target fail with an
 error that names it, such as `ImportError: Install s3fs to access S3`.
 
-Snapshots are stored under the URI's path, one object per snapshot. The name
-has the same parts as a local file's, but the module path keeps its slashes, and
-the name isn't a file name, so it has no 255-byte limit: the test and key are
-only shortened to 80 and 40 characters.
-The same test as above, with `target="s3://my-bucket/snapshots/"`, writes:
-
-```
-s3://my-bucket/snapshots/tests/api/test_users/test_create@response~90e755f5c20755bd.json
-                         └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
-                             test module         test       key         hash     recorder
-```
+Snapshots are stored under the URI's path, one object per snapshot. The snapshot
+above, with `target="s3://my-bucket/snapshots/"`, is stored as
+`s3://my-bucket/snapshots/tests/api/test_users/test_create@response~90e755f5c20755bd.json`:
+the module path keeps its slashes. See [Snapshot Names](../concepts/naming.md).
 
 `memory://` stores snapshots in the current Python process. A fresh process
 starts empty, so it can't keep a baseline between ordinary command-line runs,
@@ -151,12 +116,14 @@ Every test without its own `target=` or `target_profile=` then uses this
 target. A relative `file://` path here is still resolved against each test
 file's directory.
 
-!!! warning "Give each project and branch its own remote path"
-    Snapshots are named after test modules, so two branches of a project, or
-    two projects with the same test paths, sharing one target can't tell each
-    other's snapshots from their own stale ones. Use a path per project and
-    branch, such as `s3://my-bucket/<project>/<branch>/`. See
-    [Sharing a target](lock-file.md#sharing-a-target).
+!!! warning "Every branch shares a remote target's snapshots"
+    Snapshots are named after test modules, so every checkout using a target,
+    whether another branch or another project with the same test paths, reads
+    and writes the same snapshots, and can't tell another's from its own stale
+    ones. Give each project its own path, such as `s3://my-bucket/<project>/`,
+    and keep snapshots in the repository when branches change them
+    independently. See
+    [Sharing a target](../concepts/lock-file.md#sharing-a-target).
 
 ## Credentials and connection settings: `ditto_storage_options`
 

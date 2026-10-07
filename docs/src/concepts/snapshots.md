@@ -1,9 +1,10 @@
-# The Snapshot Fixture
+# How Snapshots Work
 
-The `snapshot` fixture is the core of pytest-ditto. It records and replays
-test outputs for regression testing.
+The `snapshot` fixture is the core of pytest-ditto. It stores a test's output
+the first time the test runs, and gives it back on every later run so the test
+can check that the output hasn't changed.
 
-## Basic Usage
+## The `snapshot` fixture
 
 ```python
 def test_fn(snapshot) -> None:
@@ -14,8 +15,8 @@ def test_fn(snapshot) -> None:
 The `snapshot` callable takes two arguments:
 
 - **`data`**: the value to snapshot. It must be a value the test's
-  [recorder](recorders.md) accepts; the default, strict JSON, rejects tuples,
-  sets, dates and other values outside its data model.
+  [recorder](../guides/recorders.md) accepts; the default, strict JSON,
+  rejects tuples, sets, dates and other values outside its data model.
 - **`key`**: a string naming this snapshot, unique within the test. A key that
   isn't a `str` raises `TypeError`.
 
@@ -23,7 +24,7 @@ The `snapshot` callable takes two arguments:
 always what the recorder reads back, never `data` itself, so a test sees on its
 first run exactly what every later run will see.
 
-## How It Works
+## Record, update and verify
 
 What `snapshot()` does depends on the run's mode and on whether the snapshot is
 already stored:
@@ -66,23 +67,20 @@ Snapshot a list instead, or choose a recorder that keeps the distinction.
     output. In CI, run [`ditto verify`](../cli/verify.md): it never writes, and
     it fails on any missing snapshot.
 
-## Multiple Snapshots Per Test
+## Several snapshots in one test
 
-Use distinct keys for each snapshot within a test:
+Give each snapshot its own key:
 
 ```python
 def test_pipeline(snapshot):
     raw = fetch_data()
     processed = transform(raw)
-    
+
     assert raw == snapshot(raw, key="raw_input")
     assert processed == snapshot(processed, key="transformed")
 ```
 
-## Duplicate Key Detection
-
-Using the same key twice in a single test raises
-`DuplicateSnapshotKeyError`:
+Using the same key twice in one test raises `DuplicateSnapshotKeyError`:
 
 ```python
 def test_bad(snapshot):
@@ -90,63 +88,49 @@ def test_bad(snapshot):
     snapshot(2, key="x")  # raises DuplicateSnapshotKeyError
 ```
 
-## Snapshot Storage Location
+## Choosing a recorder and a target
 
-By default, snapshots are stored in a `.ditto/` directory adjacent to the
-test file. The filename format is:
-
-```
-.ditto/<module>.<test>@<key>~<hash>.<recorder>
-```
-
-For example, with the project root as pytest's rootdir, a test in
-`tests/test_api.py`:
+A test's snapshots use the strict JSON recorder and are stored in a `.ditto/`
+directory next to the test file, unless a `record` mark says otherwise. The
+mark names a [recorder](../guides/recorders.md), and can also name a
+[target](../guides/backends.md), the place snapshots are stored:
 
 ```python
-@ditto.json
-def test_response(snapshot):
-    data = get_response()
-    assert data == snapshot(data, key="body")
+import ditto
+
+
+@ditto.yaml
+def test_config(snapshot): ...
+
+
+@ditto.record("json", target="s3://my-bucket/snapshots/")
+def test_remote(snapshot): ...
 ```
 
-Stores to: `tests/.ditto/tests.test_api.test_response@body~234c7156f10c6aa4.json`
+`@ditto.yaml` is shorthand for `@ditto.record("yaml")`, and takes the same
+keyword arguments: `@ditto.yaml(target="s3://my-bucket/snapshots/")`. A target
+always comes with a recorder: `@ditto.record(target=...)` on its own is an
+error, so use `@ditto.json(target=...)` for the default format.
 
-A key can be any string, and the test name includes any parametrize ID, so
-either can hold characters a file name can't. In the file name, characters other
-than ASCII letters, digits and `. _ - [ ] = , +` become `_`. The hash, from the
-test's exact node ID, the key and the recorder, keeps names apart that would
-otherwise match:
+A mark applies to a test function, or to every test in a class or module when
+set there, for example with `pytestmark = ditto.yaml`. A test can have only
+one `record` mark: a function mark on top of a class or module mark raises
+`AdditionalMarkError` rather than overriding it.
 
-| Test | File |
-|---|---|
-| `test_at[12:00]` | `tests.test_api.test_at[12_00]@body~6617c5399a6ba420.json` |
-| `test_at[12_00]` | `tests.test_api.test_at[12_00]@body~105d78e147145d58.json` |
-| `test_at[A]` | `tests.test_api.test_at[A]@body~46cccc8d4a59c1ef.json` |
-| `test_at[a]` | `tests.test_api.test_at[a]@body~a99f8460327efdf4.json` |
+## Where snapshots are stored
 
-`ditto.lock` records the exact test and key, and `ditto list` shows them. See
-[Storage Backends](backends.md#local-files-file) for the full naming rules.
+Each snapshot is stored under a name built from its test module, test, key and
+recorder, such as
+`tests/.ditto/tests.test_api.test_response@body~234c7156f10c6aa4.json`. See
+[Snapshot Names](naming.md).
 
-## Updating Snapshots
+A snapshot test must live under pytest's rootdir, because its name starts with
+the test file's path relative to the rootdir. A test outside it fails with an
+error that says so.
 
-When your code intentionally changes behaviour, regenerate snapshots:
+## Keeping snapshots current
 
-```bash
-pytest --ditto-update
-# or
-ditto update
-```
-
-## Pruning Stale Snapshots
-
-Removing or renaming a test or a snapshot key leaves its old snapshot in
-storage. Rebuild the lock so it stops recording the old snapshot, then delete
-every stored snapshot the lock doesn't record:
-
-```bash
-ditto lock
-ditto prune
-```
-
-`ditto prune --check` lists what would be deleted without deleting anything.
-See [ditto prune](../cli/prune.md) and [The Lock File](lock-file.md).
+When your code's output changes on purpose, re-record its snapshots with
+`ditto update`. When you remove or rename tests, rebuild the lock with
+`ditto lock` and delete the snapshots nothing uses with `ditto prune`. See
+[Maintaining Snapshots](../guides/maintaining.md).

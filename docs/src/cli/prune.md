@@ -23,7 +23,7 @@ ditto prune
 # List what would be pruned
 ditto prune --check
 
-# Prune a remote target that this project and branch use alone
+# Also prune a remote target that no other branch or project writes to
 ditto prune --shared
 ```
 
@@ -48,9 +48,9 @@ ditto prune --shared
   or a `file://` path outside the project, after following symlinks) unless
   you pass `--shared`. Without
   it, the run fails and says how many snapshots it left there. Pass `--shared`
-  only when each project and branch has its own target path: another branch's
-  snapshots look like orphans. See
-  [Sharing a target](../guides/lock-file.md#sharing-a-target).
+  only when no other branch or project writes to the target: their snapshots
+  look like orphans. See
+  [Sharing a target](../concepts/lock-file.md#sharing-a-target).
 - `--check` previews exactly what `ditto prune` would delete, grouped by target
   under **would prune**. Orphans in a shared target are listed apart, under
   **shared**, because prune only deletes them with `--shared`; with
@@ -67,4 +67,4 @@ ditto prune --shared
     Prune needs a single process. Under pytest-xdist distribution (`-n N`, or
     `--dist` with `--tx`) it stops with a usage error before running any tests
     and deletes nothing; if your `addopts` sets `-n`, run `ditto prune -n 0`.
-    See [Running under pytest-xdist](../guides/lock-file.md#running-under-pytest-xdist).
+    See [Running tests in parallel](../guides/ci.md#running-tests-in-parallel).
