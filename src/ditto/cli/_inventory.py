@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import click
@@ -13,12 +15,14 @@ from .._cli_introspect import IntrospectError
 from .._inventory import (
     InventoryError,
     build_inventory,
+    location_key,
     lock_identities,
     lock_present,
 )
+from .._lockfile import LockEntry
 from .._manifest import BackendManifest, Manifest, ManifestEntry
 from .._theme import MUTED, PRUNED
-from ._data import _ext_map, _load_recorder_infos
+from ._data import _ext_map, _load_recorder_infos, nodeid_selected
 from ._diagnostics import _find_lint_issues
 from ._display import (
     _render_lint_issues,
@@ -92,33 +96,92 @@ def _exit_if_incomplete(manifest: Manifest, console: Console) -> None:
         sys.exit(1)
 
 
+def _select_tests(
+    manifest: Manifest,
+    identities: Mapping[tuple[str, str], LockEntry] | None,
+    selectors: Sequence[str],
+) -> tuple[Manifest, int]:
+    """Keep the entries whose test the selectors select; count unlocked ones.
+
+    Only the lock knows a snapshot's node id, so an entry it doesn't record
+    can't be matched. It's left out and counted, so the caller can say so.
+    """
+    identities = identities or {}
+    kept: Manifest = []
+    unlocked = 0
+    for backend in manifest:
+        entries = []
+        for entry in backend.entries:
+            identity = identities.get((
+                location_key(backend.location),
+                entry.storage_key,
+            ))
+            if identity is None:
+                unlocked += 1
+            elif nodeid_selected(identity.nodeid, selectors):
+                entries.append(entry)
+        kept.append(replace(backend, entries=entries))
+    return kept, unlocked
+
+
+def _print_unlocked_note(unlocked: int, console: Console) -> None:
+    if not unlocked:
+        return
+    plural = "s" if unlocked != 1 else ""
+    console.print(
+        Text(
+            f"Left out {unlocked} snapshot{plural} that ditto.lock doesn't record: "
+            "--test matches the lock's node ids.",
+            style=MUTED,
+        )
+    )
+
+
 @click.command(name="list")
 @_live_option
+@click.option(
+    "--test",
+    "tests",
+    multiple=True,
+    metavar="NODEID",
+    help="Only snapshots of this test: an exact node id, or a prefix ending at "
+    "`/`, `::` or `[`. Repeatable.",
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
 @pass_console
-def cmd_list(console: Console, path: Path, live: bool):
+def cmd_list(console: Console, path: Path, live: bool, tests: tuple[str, ...]):
     """List all snapshot files under PATH (default: current directory).
 
     By default reads local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
 
+    --test keeps the snapshots of the tests it names, matched by the node id
+    ditto.lock records for them. Node ids are relative to the rootdir.
+
     \b
     Examples:
       ditto list
       ditto list tests/ci/
+      ditto list --test tests/ci/test_api.py::test_totals
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
+    identities = lock_identities(path)
+    unlocked = 0
+    if tests:
+        manifest, unlocked = _select_tests(manifest, identities, tests)
     entries = _entries(manifest)
     if not entries:
         _exit_if_incomplete(manifest, console)
         console.print(f"[{MUTED}]No snapshot files found.[/{MUTED}]")
+        _print_unlocked_note(unlocked, console)
         _print_inventory_notes(path, entries, live=live, console=console)
         sys.exit(1)
 
     infos = _load_recorder_infos()
-    _render_snapshots(manifest, lock_identities(path), infos, console)
+    _render_snapshots(manifest, identities, infos, console)
+    _print_unlocked_note(unlocked, console)
     _print_inventory_notes(path, entries, live=live, console=console)
     _exit_if_incomplete(manifest, console)
 

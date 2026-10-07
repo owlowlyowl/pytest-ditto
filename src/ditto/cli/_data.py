@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from ..recorders._contract import NAME_PATTERN
@@ -83,3 +83,29 @@ def _human_size(n: int | None) -> str:
 def _mark_for(name: str) -> str:
     """Return the mark a recorder name derives, or "-" for an invalid name."""
     return f"@ditto.{name}" if NAME_PATTERN.fullmatch(name) else "-"
+
+
+# Where a node id can continue past a selector that names its parent: a path
+# separator (directory), `::` (a test in a file or class) or `[` (a case of a
+# parametrized test).
+_NODEID_BOUNDARIES = ("/", "::", "[")
+
+
+def _selects(selector: str, nodeid: str) -> bool:
+    if nodeid == selector:
+        return True
+    if not selector or not nodeid.startswith(selector):
+        return False
+    if selector.endswith(("/", "::")):
+        return True
+    return nodeid[len(selector) :].startswith(_NODEID_BOUNDARIES)
+
+
+def nodeid_selected(nodeid: str, selectors: Iterable[str]) -> bool:
+    """Whether any selector is `nodeid` itself or a prefix ending at a boundary.
+
+    `tests/ci`, `tests/ci/test_a.py`, `tests/ci/test_a.py::TestX` and
+    `tests/ci/test_a.py::test_t` (for `test_t[case]`) all select; a prefix that
+    stops mid-name, such as `tests/c` or `test_t` for `test_total`, never does.
+    """
+    return any(_selects(selector, nodeid) for selector in selectors)
