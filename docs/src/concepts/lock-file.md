@@ -4,8 +4,10 @@
 snapshots your test suite legitimately owns. It is the source of truth behind
 `ditto verify`, `ditto prune`, and the credential-free CLI inventory.
 
-It is modelled on `package-lock.json`, `Cargo.lock`, and `poetry.lock`: never
-hand-edited, deterministic, merge-friendly, and reviewed as part of the diff.
+It is modelled on `package-lock.json`, `Cargo.lock`, and `poetry.lock`:
+generated rather than hand-edited, deterministic, merge-friendly, and reviewed
+as part of the diff. The one exception is
+[retiring a target](../guides/maintaining.md#retire-a-target).
 
 ## Why a committed file
 
