@@ -3,7 +3,7 @@
 Checks the live backend against the committed `ditto.lock` and fails when they
 have drifted. Read-only — it never writes snapshots or the lock. Intended for CI.
 
-See [The Lock File](../guides/lock-file.md) for the model.
+See [The Lock File](../concepts/lock-file.md) for the model.
 
 ## Usage
 
@@ -29,7 +29,7 @@ ditto verify tests/ci/
 | Drift | Meaning | Fix |
 |---|---|---|
 | missing | Recorded in `ditto.lock` but absent from the backend. | `ditto run` records it again; `ditto lock` drops it if its test is gone. |
-| orphan | Present in the backend (under an owned prefix) but not in the lock. On a target another branch or project also writes to, its snapshots are reported here too; see [Sharing a target](../guides/lock-file.md#sharing-a-target). | `ditto prune` deletes it (`ditto prune --check` to preview). |
+| orphan | Present in the backend (under an owned prefix) but not in the lock. On a target another branch or project also writes to, its snapshots are reported here too; see [Sharing a target](../concepts/lock-file.md#sharing-a-target). | `ditto prune` deletes it (`ditto prune --check` to preview). |
 | unsynced | Produced this run but not yet in the lock. | `ditto lock` records it. |
 
 Drift is grouped by the target that holds it, so a suite with several backends
@@ -55,4 +55,4 @@ exercised targets. `--ditto-verify` cannot be combined with the write flags
 `ditto verify` needs a single process. Under pytest-xdist distribution
 (`-n N`, or `--dist` with `--tx`) it stops with a usage error before running any
 tests; if your `addopts` sets `-n`, run `ditto verify -n 0`.
-See [Running under pytest-xdist](../guides/lock-file.md#running-under-pytest-xdist).
+See [Running tests in parallel](../guides/ci.md#running-tests-in-parallel).

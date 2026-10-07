@@ -14,62 +14,51 @@ Snapshot testing with minimal ceremony and flexible recorders.
 
 - :material-cloud-upload: **Remote Backends**
 
-    Store snapshots locally, on S3, in PostgreSQL, Redis, DuckDB — anywhere.
+    Store snapshots locally, on S3 or anywhere fsspec reaches, or in your own
+    backend for a database such as Redis.
 
 - :material-console: **CLI Tools**
 
     Manage snapshots from the command line: list, update, prune, lint, and more.
 
+- :material-lock-check: **Checked in CI**
+
+    A committed lock file records every snapshot, so CI fails on missing or
+    stale ones.
+
 </div>
 
 ## Quick Example
-
-```python
-import ditto
-
-
-def fn(x: int) -> int:
-    return x + 1
-
-
-def test_fn(snapshot) -> None:
-    result = fn(1)
-    assert result == snapshot(result, key="fn")
-```
-
-The first run records the result. Subsequent runs assert it hasn't changed.
-
-## How It Works
-
-1. **Request the `snapshot` fixture** in your test function
-2. **Call `snapshot(value, key="name")`** — the value is persisted on first run,
-   and every run returns it as the recorder reads it back
-3. **Assert equality** — subsequent runs compare against the stored snapshot
-4. **Choose a recorder** — use `@ditto.yaml`, `@ditto.json`, or any registered format
-
-```python
-import ditto
-
-
-@ditto.yaml
-def test_config(snapshot):
-    config = load_config()
-    assert config == snapshot(config, key="config")
-```
-
-## Installation
 
 ```bash
 pip install pytest-ditto
 ```
 
-With optional recorder plugins:
+```python
+def summarise(prices):
+    return {"count": len(prices), "total": sum(prices)}
 
-```bash
-pip install pytest-ditto[pandas]    # pandas DataFrames
-pip install pytest-ditto[polars]    # polars DataFrames
-pip install pytest-ditto[pyarrow]   # PyArrow Tables
+
+def test_summarise(snapshot):
+    result = summarise([3, 4.5])
+    assert result == snapshot(result, key="summary")
 ```
+
+The first run stores the result as a snapshot. Every later run compares the
+result with it, and fails if it has changed.
+
+## Where to start
+
+- **New to pytest-ditto?** Follow [Getting Started](getting-started.md), from
+  a first snapshot to checking it in CI.
+- **Want to understand it?** Read [How Snapshots Work](concepts/snapshots.md)
+  and [The Lock File](concepts/lock-file.md).
+- **Have a task in mind?** See the guides: [recorders](guides/recorders.md),
+  [remote storage](guides/backends.md), [CI](guides/ci.md) and
+  [maintaining snapshots](guides/maintaining.md).
+- **Upgrading from 1.x?** Read [Upgrading to 2.0](upgrading.md) first.
+- **Looking something up?** See the [configuration](reference/configuration.md),
+  [CLI](cli/index.md) and [API](reference/index.md) references.
 
 [Get Started](getting-started.md){ .md-button .md-button--primary }
 [CLI Reference](cli/index.md){ .md-button }

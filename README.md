@@ -10,11 +10,14 @@ Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
 
 ## Features
 
-- **Snapshot fixture** — record test outputs once, assert they don't change
-- **Flexible recorders** — strict JSON by default, built-in YAML, and external recorders for specialised data
-- **Remote backends** — store snapshots locally, on S3, in PostgreSQL, Redis, DuckDB, or anywhere via fsspec
-- **Named profiles** — reusable, named backend targets with isolated credentials
-- **CLI tools** — list, update, prune, lint, and manage snapshots from the command line
+- **Snapshot fixture**: record a test's output once, then fail when it changes
+- **Recorders**: strict JSON by default, built-in YAML, and plugins for pandas,
+  polars, PyArrow and pickle
+- **Storage backends**: keep snapshots next to your tests, on S3 or anywhere
+  fsspec reaches, or in your own backend for a database such as Redis
+- **Lock file**: a committed `ditto.lock` records every snapshot, so CI fails on
+  missing or stale ones
+- **CLI**: update, verify, prune, list and inspect snapshots
 
 ## Quick Start
 
@@ -23,44 +26,35 @@ pip install pytest-ditto
 ```
 
 ```python
-import ditto
+def summarise(prices):
+    return {"count": len(prices), "total": sum(prices)}
 
 
-def fn(x: int) -> int:
-    return x + 1
-
-
-def test_fn(snapshot) -> None:
-    result = fn(1)
-    assert result == snapshot(result, key="fn")
+def test_summarise(snapshot):
+    result = summarise([3, 4.5])
+    assert result == snapshot(result, key="summary")
 ```
 
-First run records the result. Subsequent runs assert it hasn't changed.
+The first run stores the result as a snapshot. Every later run compares the
+result with it, and fails if it has changed. Run `ditto verify` in CI so a
+missing snapshot fails instead of being recorded again.
 
-## Recorders
-
-| Mark | Format | Extension |
-|------|--------|-----------|
-| no mark / `@ditto.json` | strict JSON (default) | `.json` |
-| `@ditto.yaml` | YAML | `.yaml` |
-| `@ditto.pandas.parquet` | pandas DataFrame | `.pandas.parquet` |
-| `@ditto.polars.parquet` | polars DataFrame | `.polars.parquet` |
-| `@ditto.pyarrow.parquet` | PyArrow Table | `.pyarrow.parquet` |
-
-Strict JSON accepts only exact built-in `None`, `bool`, `int`, finite `float`,
-`str`, `list`, and string-keyed `dict` values, recursively. Install external
-recorders explicitly for other data models. See the recorder and upgrading
-guides before migrating snapshots from pytest-ditto 1.x.
+Upgrading from 1.x? Read
+[Upgrading to 2.0](https://owlowlyowl.github.io/pytest-ditto/upgrading/) first:
+2.0 doesn't find snapshots recorded by 1.x.
 
 ## Documentation
 
-Full documentation is available at **[owlowlyowl.github.io/pytest-ditto](https://owlowlyowl.github.io/pytest-ditto/)**, including:
+Full documentation is at
+**[owlowlyowl.github.io/pytest-ditto](https://owlowlyowl.github.io/pytest-ditto/)**:
 
 - [Getting Started](https://owlowlyowl.github.io/pytest-ditto/getting-started/)
-- [Guides](https://owlowlyowl.github.io/pytest-ditto/guides/snapshot-fixture/) (recorders, backends, custom plugins)
+- [Recorders](https://owlowlyowl.github.io/pytest-ditto/guides/recorders/)
+- [Running in CI](https://owlowlyowl.github.io/pytest-ditto/guides/ci/)
+- [Configuration](https://owlowlyowl.github.io/pytest-ditto/reference/configuration/)
 - [CLI Reference](https://owlowlyowl.github.io/pytest-ditto/cli/)
-- [API Reference](https://owlowlyowl.github.io/pytest-ditto/reference/)
 
 ## Examples
 
-See [examples/](examples/README.md) for self-contained local, PostgreSQL, Redis, and DuckDB examples.
+See [examples/](https://github.com/owlowlyowl/pytest-ditto/tree/main/examples)
+for self-contained local, PostgreSQL, Redis and DuckDB backends.

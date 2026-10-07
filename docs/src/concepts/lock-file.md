@@ -15,8 +15,10 @@ throwaway cache cannot survive a fresh CI checkout. `ditto.lock` persists it: it
 is committed, so a clean checkout — or a partial, failed, or parallel run — still
 knows the full, authoritative set.
 
-Commit `ditto.lock`. Do **not** add it to `.gitignore`; ditto warns when it is
-ignored.
+`ditto.lock` lives in pytest's rootdir, usually the project root. Commit it.
+Do **not** add it to `.gitignore`; ditto warns when `.gitignore` in the rootdir
+has a `ditto.lock` or `/ditto.lock` line (it doesn't detect broader patterns
+such as `*.lock`).
 
 ## What it records
 
@@ -27,7 +29,7 @@ actually used — including per-test `record(target=…)` marks — because it i
 written by real runs. It never stores `storage_options`, but it does store each
 target URI verbatim, so ditto refuses a target URI that contains a password or
 a secret query parameter; pass credentials as
-[storage options](backends.md#credentials-and-connection-settings-ditto_storage_options),
+[storage options](../guides/backends.md#credentials-and-connection-settings-ditto_storage_options),
 or in a profile's `storage_options`, instead.
 
 ## How it is produced and maintained
@@ -83,34 +85,9 @@ what would be deleted either way.
 - **CLI inventory** (`list`/`status`/`stats`/`lint`) — reads the lock for a fast,
   credential-free remote inventory (below).
 
-## Running under pytest-xdist
-
-Snapshot tests run under pytest-xdist distribution (`-n N`, or `--dist` with
-`--tx`): each worker records and compares its own tests' snapshots. What doesn't
-work is anything that has to see the whole run in one process, because the tests
-run in the workers and no single process sees them all:
-
-| Under distribution | Behaviour |
-|---|---|
-| `pytest` / `ditto update` | Snapshots are recorded and compared as usual. `ditto.lock` is not updated; ditto warns. |
-| `ditto verify` (`--ditto-verify`) | Refused. |
-| `ditto lock` (`--ditto-lock`) | Refused. |
-| `ditto prune` (`--ditto-prune`, `--ditto-prune-dry-run`) | Refused. |
-| Snapshot report | Not printed. |
-
-A refused mode is a usage error (exit code 4) raised before any test runs, so it
-writes no snapshots, leaves the lock as it was, and deletes nothing.
-
-A typical CI setup runs the tests in parallel, then checks the lock in a
-separate single-process run:
-
-```bash
-pytest -n auto
-ditto verify
-```
-
-If your pytest configuration adds `-n` through `addopts`, pass `-n 0` to the
-single-process commands, for example `ditto verify -n 0`.
+Under pytest-xdist distribution (`-n`) the lock isn't updated, and verify,
+lock and prune are refused; see
+[Running in CI](../guides/ci.md#running-tests-in-parallel).
 
 ## Declared vs physical state (and the inventory trade-off)
 

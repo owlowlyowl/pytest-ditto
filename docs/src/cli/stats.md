@@ -48,4 +48,4 @@ cost of importing your tests and needing their credentials.
 Totals cover only snapshots with a known size; remote (lock-derived) snapshots are
 reported separately as "size unknown (use --live)".
 
-See [The Lock File](../guides/lock-file.md#declared-vs-physical-state-and-the-inventory-trade-off).
+See [The Lock File](../concepts/lock-file.md#declared-vs-physical-state-and-the-inventory-trade-off).

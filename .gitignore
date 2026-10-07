@@ -1,5 +1,5 @@
 # tests/ci/.ditto and the root ditto.lock are pytest-ditto's own committed,
-# PR-reviewed baseline (see docs/src/guides/lock-file.md), and each first-party
+# PR-reviewed baseline (see docs/src/concepts/lock-file.md), and each first-party
 # plugin has its own under plugins/<name>/ — everywhere else .ditto/ditto.lock
 # are ephemeral local test-run artifacts.
 .ditto

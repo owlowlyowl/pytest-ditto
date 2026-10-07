@@ -4,7 +4,7 @@ Rebuilds `ditto.lock` from the snapshots your suite currently holds. Run it
 after adding, renaming or removing a snapshot, and after changing a test's node
 ID, so the lock records the identities your suite actually produces.
 
-See [The Lock File](../guides/lock-file.md) for the model behind the file.
+See [The Lock File](../concepts/lock-file.md) for the model behind the file.
 
 ## Usage
 

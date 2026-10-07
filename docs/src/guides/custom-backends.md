@@ -1,4 +1,4 @@
-# Custom Backends
+# Writing a Backend
 
 A backend is where ditto keeps snapshot data. Out of the box, ditto can store
 snapshots on the local filesystem and anywhere [fsspec](https://filesystem-spec.readthedocs.io/)

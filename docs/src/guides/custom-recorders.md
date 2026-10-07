@@ -1,4 +1,4 @@
-# Custom Recorders
+# Writing a Recorder
 
 Create your own recorder to support any serialisation format.
 
