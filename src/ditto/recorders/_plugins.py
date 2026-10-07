@@ -186,3 +186,8 @@ def _path_based_hint(exc: Exception) -> str:
 
 
 RECORDER_REGISTRY: RecorderRegistry = RecorderRegistry()
+"""Every installed recorder, keyed by name.
+
+Names come from the `ditto_recorders` entry-point group, and each recorder is
+imported the first time it is looked up. Add one in code with `register`.
+"""

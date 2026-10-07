@@ -2,7 +2,7 @@ from typing import Any
 
 from pytest import MarkDecorator
 
-from ditto._version import __version__ as version
+from ditto._version import __version__
 from ditto.snapshot import Snapshot, SnapshotMode
 from .exceptions import DuplicateSnapshotKeyError
 
@@ -10,6 +10,10 @@ from .exceptions import DuplicateSnapshotKeyError
 from ._marks import record
 from ._marks import yaml, json
 from .recorders import _plugins
+
+
+version: str = __version__
+"""The installed pytest-ditto version, such as `"2.0.0"`."""
 
 
 __all__ = (
