@@ -35,8 +35,8 @@ or in a profile's `storage_options`, instead.
 | Command | Effect on `ditto.lock` |
 |---|---|
 | `pytest` (normal run) | Appends entries for any snapshots recorded this run. If it can't write the lock, it warns and the run still passes. |
-| `ditto lock` (`pytest --ditto-lock`) | Rebuilds the lock from a full run (authoritative; drops stale entries). Refuses on a partial/filtered run. If it can't write the lock, the run fails. |
-| `ditto update` (`pytest --ditto-update`) | On a full run, reconciles the lock (drops entries for deleted tests), and the run fails if it can't write the lock; on a filtered run, appends only. |
+| `ditto lock` (`pytest --ditto-lock`) | Rebuilds the lock from a full, passing run: in each target the run used, drops entries for tests and keys that no longer exist. Targets the run didn't use are kept as they were. Refuses a filtered, narrowed or failing run. If it can't write the lock, the run fails. |
+| `ditto update` (`pytest --ditto-update`) | On a full, passing run, rebuilds the lock as `ditto lock` does, and the run fails if it can't write the lock. On a filtered, narrowed or failing run, only appends. |
 | `ditto prune` (`pytest --ditto-prune`) | Does **not** write the lock; deletes backend snapshots absent from it. |
 
 A rebuild works test by test. A test that passed this run has its entries

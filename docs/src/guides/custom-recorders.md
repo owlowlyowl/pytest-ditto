@@ -184,4 +184,7 @@ def test_with_msgpack(snapshot):
     assert data == snapshot(data, key="packed")
 ```
 
-Its snapshots are saved as `<key>.msgpack`.
+Its snapshots end in `.msgpack`, the recorder's name. The test above, in
+`tests/test_api.py`, stores
+`tests/.ditto/tests.test_api.test_with_msgpack@packed~<hash>.msgpack`; see
+[Storage Backends](backends.md#local-files-file) for the naming rules.

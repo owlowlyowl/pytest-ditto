@@ -350,8 +350,9 @@ class Snapshot:
         for all backends. Provides namespace isolation across test files.
     target : str
         URI identifying the storage location. The scheme controls key format:
-        `file://` uses flat dotted keys (`module.group@key.ext`);
-        all other schemes use slash-separated keys (`module/group@key.ext`).
+        `file://` uses flat dotted keys (`module.group@key~hash.ext`);
+        all other schemes use slash-separated keys
+        (`module/group@key~hash.ext`).
         Always use absolute `file://` URIs (e.g. `file:///home/user/proj/tests/.ditto`).
     _backend : MutableMapping[str, bytes]
         Resolved storage backend. Conventionally private — set by the fixture via

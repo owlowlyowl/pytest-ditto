@@ -6,7 +6,7 @@ type, and oldest/newest snapshot dates.
 ## Usage
 
 ```
-ditto status [PATH]
+ditto status [PATH] [--live]
 ```
 
 ## Examples
