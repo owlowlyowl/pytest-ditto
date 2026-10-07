@@ -19,9 +19,8 @@ pip install "pytest-ditto[polars]"
 
 Each mark is shorthand for `@ditto.record("<name>")`.
 
-**Use `@ditto.polars.parquet`**: it round-trips every dtype, and unlike IPC its
-format is stable across polars versions. See the format notes in the
-documentation.
+**Use `@ditto.polars.parquet` or `@ditto.polars.ipc`**: CSV and NDJSON infer
+types again on load. See the format notes in the documentation.
 
 ## Usage
 

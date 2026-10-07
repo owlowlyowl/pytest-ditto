@@ -53,9 +53,24 @@ def test_fn_with_pyarrow_parquet_snapshot(snapshot, table):
 
 ## Format notes
 
-**Parquet** and **Feather** keep a table's types, values and schema metadata,
-including timezones, durations, decimals, dictionary, list and struct columns.
-Prefer one of them.
+| Format | Types and values |
+|--------|------------------|
+| feather | preserved, with schema metadata |
+| parquet | preserved, with schema metadata, except the types below |
+| csv | re-inferred from text; see below |
+
+**Feather** keeps types and values, including timezones, durations,
+decimals and dictionary, list and struct columns. Prefer it when a table uses
+second-resolution times or `date64`.
+
+**Parquet** keeps the same, except types it has no exact equivalent for, which
+load back as their closest Parquet type:
+
+- `time32("s")` loads as `time32("ms")`, and `timestamp("s")` as
+  `timestamp("ms")`
+- `date64` loads as `date32`
+
+`Table.equals` then fails on the run that records the snapshot.
 
 **CSV** keeps no types: every column is inferred again from text on load, and
 schema metadata is dropped. Among the changes:
@@ -68,7 +83,8 @@ schema metadata is dropped. Among the changes:
 - A duration comes back as a plain integer, and a timestamp in nanoseconds.
 - List and struct columns can't be written.
 - In a single-column table, a row whose value is null is written as an empty
-  line, which isn't read back, so the table loses that row.
+  line, which isn't read back, so the table loses that row
+  ([#247](https://github.com/owlowlyowl/pytest-ditto/issues/247)).
 
 Use CSV only for simple tables of ints, floats and non-empty strings that you
 want to read as text.
