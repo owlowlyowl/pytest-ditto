@@ -103,6 +103,6 @@ def _register_postgresql_backend() -> Iterator[None]:
         connection.autocommit = True
         return PostgresMapping(connection)
 
-    BACKEND_REGISTRY["postgresql"] = create_postgresql_backend
+    BACKEND_REGISTRY.overrides["postgresql"] = create_postgresql_backend
     yield
-    BACKEND_REGISTRY.pop("postgresql", None)
+    BACKEND_REGISTRY.overrides.pop("postgresql", None)

@@ -53,6 +53,6 @@ def _register_redis_backend() -> Iterator[None]:
         client = redis.Redis.from_url(uri, **storage_options)
         return PrefixedMapping(RedisMapping(client), prefix="ditto:")
 
-    BACKEND_REGISTRY["redis"] = create_redis_backend
+    BACKEND_REGISTRY.overrides["redis"] = create_redis_backend
     yield
-    BACKEND_REGISTRY.pop("redis", None)
+    BACKEND_REGISTRY.overrides.pop("redis", None)

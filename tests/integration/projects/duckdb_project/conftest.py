@@ -93,6 +93,6 @@ def _register_duckdb_backend() -> Iterator[None]:
         )
         return DuckDBMapping(connection)
 
-    BACKEND_REGISTRY["duckdb"] = create_duckdb_backend
+    BACKEND_REGISTRY.overrides["duckdb"] = create_duckdb_backend
     yield
-    BACKEND_REGISTRY.pop("duckdb", None)
+    BACKEND_REGISTRY.overrides.pop("duckdb", None)

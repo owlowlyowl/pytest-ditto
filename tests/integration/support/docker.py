@@ -36,24 +36,22 @@ def start_redis_service() -> RedisService:
     target = f"redis://127.0.0.1:{host_port}/0"
 
     try:
-        _run(
-            [
-                "docker",
-                "run",
-                "--detach",
-                "--rm",
-                "--name",
-                container_name,
-                "--publish",
-                f"{host_port}:6379",
-                "redis:7-alpine",
-                "redis-server",
-                "--appendonly",
-                "yes",
-                "--save",
-                "",
-            ]
-        )
+        _run([
+            "docker",
+            "run",
+            "--detach",
+            "--rm",
+            "--name",
+            container_name,
+            "--publish",
+            f"{host_port}:6379",
+            "redis:7-alpine",
+            "redis-server",
+            "--appendonly",
+            "yes",
+            "--save",
+            "",
+        ])
         client = redis.Redis.from_url(target)
         try:
             _wait_for_redis(client)
@@ -80,25 +78,23 @@ def start_postgres_service() -> PostgresService:
     target = f"postgresql://127.0.0.1:{host_port}/{database}"
 
     try:
-        _run(
-            [
-                "docker",
-                "run",
-                "--detach",
-                "--rm",
-                "--name",
-                container_name,
-                "--publish",
-                f"{host_port}:5432",
-                "--env",
-                f"POSTGRES_DB={database}",
-                "--env",
-                f"POSTGRES_USER={user}",
-                "--env",
-                f"POSTGRES_PASSWORD={password}",
-                "postgres:16-alpine",
-            ]
-        )
+        _run([
+            "docker",
+            "run",
+            "--detach",
+            "--rm",
+            "--name",
+            container_name,
+            "--publish",
+            f"{host_port}:5432",
+            "--env",
+            f"POSTGRES_DB={database}",
+            "--env",
+            f"POSTGRES_USER={user}",
+            "--env",
+            f"POSTGRES_PASSWORD={password}",
+            "postgres:16-alpine",
+        ])
         _wait_for_postgres(target, user=user, password=password)
     except Exception:
         stop_container(container_name)
