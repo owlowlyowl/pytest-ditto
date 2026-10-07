@@ -53,7 +53,7 @@ value the recorder doesn't store exactly fails on the run that records it,
 rather than on the next one. The YAML recorder, for example, reads a tuple back
 as a list:
 
-<!-- test: fails -->
+<!-- test: fails assert (1, 2) == [1, 2] -->
 ```python
 import ditto
 
@@ -86,7 +86,7 @@ def test_pipeline(snapshot):
 
 Using the same key twice in one test raises `DuplicateSnapshotKeyError`:
 
-<!-- test: fails -->
+<!-- test: fails DuplicateSnapshotKeyError -->
 ```python
 def test_bad(snapshot):
     snapshot(1, key="x")
