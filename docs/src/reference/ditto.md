@@ -1,6 +1,6 @@
 # ditto
 
-Top-level package exports.
+The names most code imports: `import ditto`.
 
 ::: ditto
     options:

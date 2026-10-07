@@ -310,7 +310,7 @@ def _remote_key(sk: SnapshotKey) -> str:
 
 
 class SnapshotMode(Enum):
-    """How `resolve_snapshot` treats the stored value for a key.
+    """How a `Snapshot` treats the stored value for a key.
 
     Attributes
     ----------
@@ -334,11 +334,12 @@ class SnapshotMode(Enum):
 
 @dataclass(frozen=True)
 class Snapshot:
-    """Immutable configuration for a snapshot: where to store it and how to record it.
+    """Where a test's snapshots are stored and how they are recorded.
 
-    Instances are created by the `snapshot` fixture and hold no I/O state.
-    All persistence is handled by the module-level free functions
-    `save_snapshot`, `load_snapshot`, and `resolve_snapshot`.
+    The `snapshot` fixture builds one for each test, and calling it,
+    `snapshot(data, key)`, stores or loads one snapshot. Construct a
+    `Snapshot` directly only when fixture injection isn't available; it is
+    immutable and holds no open resources.
 
     Parameters
     ----------
@@ -349,14 +350,13 @@ class Snapshot:
         Rootdir-relative test file stem (e.g. "tests/bar/test_api"). Required
         for all backends. Provides namespace isolation across test files.
     target : str
-        URI identifying the storage location. The scheme controls key format:
-        `file://` uses flat dotted keys (`module.group@key~hash.ext`);
-        all other schemes use slash-separated keys
-        (`module/group@key~hash.ext`).
-        Always use absolute `file://` URIs (e.g. `file:///home/user/proj/tests/.ditto`).
+        URI of the storage location. Its scheme sets the storage key format:
+        `file://` uses flat dotted keys (`module.group@key~hash.ext`), and every
+        other scheme slash-separated keys (`module/group@key~hash.ext`). The
+        data itself goes to `_backend`.
     _backend : MutableMapping[str, bytes]
-        Resolved storage backend. Conventionally private — set by the fixture via
-        `_resolve_target`. Use `target=` to communicate where data goes.
+        The mapping snapshots are stored in, such as a `dict` or an
+        `FsspecMapping`. The fixture builds it from the test's target.
     recorder : Recorder
         Serialisation strategy. Defaults to strict JSON.
     recorder_name : str
@@ -438,11 +438,20 @@ class Snapshot:
         return _flat_key if urlparse(self.target).scheme == "file" else _remote_key
 
     def __call__(self, data: Any, key: str) -> Any:
-        """Save or load the snapshot for `key`.
+        """Store or load the snapshot for `key`, and return its value.
 
-        Delegates to `resolve_snapshot`: saves `data` on first call and
-        returns the stored value on subsequent calls. Either way the value
-        returned is what the recorder reads back, not `data` itself.
+        What happens depends on `mode` and on whether the snapshot is stored;
+        see `SnapshotMode`. The value returned is always what the recorder
+        reads back, never `data` itself.
+
+        Raises
+        ------
+        TypeError
+            When `key` isn't a `str`.
+        DuplicateSnapshotKeyError
+            When this test has already used `key`.
+        DittoSnapshotNameCollisionError
+            When another snapshot this session has the same storage name.
         """
         return resolve_snapshot(self, data, key)
 

@@ -1,6 +1,6 @@
 # ditto.backends
 
-Storage backend implementations and registry.
+The backend registry and helpers for writing a backend.
 
 ::: ditto.backends
     options:

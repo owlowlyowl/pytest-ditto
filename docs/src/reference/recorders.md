@@ -1,6 +1,6 @@
 # ditto.recorders
 
-Recorder protocol, registry, and built-in recorders.
+The `Recorder` type, the recorder registry, and helpers for writing a recorder.
 
 `RECORDER_REGISTRY` discovers names from installed entry-point metadata and loads
 each recorder on its first successful lookup. A recorder's name is also its

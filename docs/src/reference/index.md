@@ -1,15 +1,20 @@
-# API Reference
+# Python API
 
-Auto-generated documentation from source code docstrings.
+The public Python API: the names each module lists in `__all__`. Everything
+else in the `ditto` package is internal and can change without notice.
 
-## Modules
+Most projects only need the `snapshot` fixture and the marks; see
+[How Snapshots Work](../concepts/snapshots.md). The API matters when you
+construct a `Snapshot` directly, write a recorder or a backend, or handle
+ditto's errors.
 
-| Module | Description |
-|--------|-------------|
-| [`ditto`](ditto.md) | Top-level exports and public API |
-| [`ditto.snapshot`](snapshot.md) | Snapshot fixture and key types |
-| [`ditto.recorders`](recorders.md) | Recorder protocol and registry |
-| [`ditto.backends`](backends.md) | Storage backend implementations |
-| [`ditto.plugin`](plugin.md) | pytest plugin hooks |
-| [`ditto.exceptions`](exceptions.md) | Exception hierarchy |
-| [`ditto.cli`](cli.md) | CLI command implementations |
+| Module | Contents |
+|--------|----------|
+| [`ditto`](ditto.md) | `Snapshot`, `SnapshotMode`, the `record`, `json` and `yaml` marks, and `version` |
+| [`ditto.recorders`](recorders.md) | The `Recorder` type and the recorder registry; see [Writing a Recorder](../guides/custom-recorders.md) |
+| [`ditto.backends`](backends.md) | Backend helpers and the backend registry; see [Writing a Backend](../guides/custom-backends.md) |
+| [`ditto.exceptions`](exceptions.md) | Every error ditto raises, all subclasses of `DittoException`, and the `DittoWarning` category |
+
+For settings, fixtures and command-line options, see
+[Configuration](configuration.md); for the `ditto` command, the
+[CLI reference](../cli/index.md).

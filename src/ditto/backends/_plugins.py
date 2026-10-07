@@ -19,6 +19,12 @@ __all__ = ("BACKEND_REGISTRY", "BackendFactory", "BackendOverrides", "BackendReg
 
 
 BackendFactory = Callable[..., MutableMapping[str, bytes]]
+"""A function that builds the storage for one target.
+
+It is called as `factory(uri, **storage_options)` and returns the mapping of
+snapshot names to bytes that ditto reads and writes. See the Writing a Backend
+guide.
+"""
 
 # Stands in for a distribution in contract messages about schemes set on
 # `BackendRegistry.overrides`.
@@ -163,3 +169,8 @@ def _load_error(
 
 
 BACKEND_REGISTRY: BackendRegistry = BackendRegistry()
+"""Every URI scheme ditto knows, mapped to its backend factory.
+
+Read-only. Installed backends come from the `ditto_backends` entry-point group;
+set a factory in code on `BACKEND_REGISTRY.overrides`.
+"""

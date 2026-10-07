@@ -1,6 +1,6 @@
 # ditto.exceptions
 
-Exception hierarchy for pytest-ditto errors.
+Every error pytest-ditto raises subclasses `DittoException`. Advisory warnings use the `DittoWarning` category.
 
 ::: ditto.exceptions
     options:

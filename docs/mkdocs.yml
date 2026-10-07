@@ -62,13 +62,10 @@ nav:
       - ditto stats: cli/stats.md
     - Python API:
       - Overview: reference/index.md
-      - ditto (top-level): reference/ditto.md
-      - ditto.snapshot: reference/snapshot.md
+      - ditto: reference/ditto.md
       - ditto.recorders: reference/recorders.md
       - ditto.backends: reference/backends.md
-      - ditto.plugin: reference/plugin.md
       - ditto.exceptions: reference/exceptions.md
-      - ditto.cli: reference/cli.md
 
 plugins:
   - search
@@ -84,6 +81,7 @@ plugins:
             merge_init_into_class: true
             members_order: source
             show_if_no_docstring: false
+            filters: public
 
 markdown_extensions:
   - mkdocs-click

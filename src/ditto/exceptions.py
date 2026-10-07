@@ -33,15 +33,32 @@ class DittoWarning(UserWarning):
 
 
 class DittoException(Exception):
-    pass
+    """Base class for every error pytest-ditto raises.
+
+    Catch it to handle any ditto error. Most are raised during a test run and
+    reported by pytest as a test error or a usage error.
+    """
 
 
 class AdditionalMarkError(DittoException):
+    """Raised when a test has more than one `record` mark.
+
+    Marks on the test's function, class and module all count, so a function
+    mark doesn't override a class or module mark: use one or the other.
+    """
+
     def __init__(self) -> None:
         super().__init__("Only one record mark is allowed per test.")
 
 
 class DittoMarkHasNoIOType(DittoException):
+    """Raised when a `record` mark doesn't name a recorder.
+
+    The recorder name is the mark's first argument, and is required even when
+    the mark only sets a target: write `@ditto.json(target=...)` rather than
+    `@ditto.record(target=...)`.
+    """
+
     def __init__(self) -> None:
         _msg = (
             "The ditto record mark has no associated IO type. "
@@ -130,6 +147,8 @@ class DittoJSONSerializationError(DittoException):
 
 
 class DuplicateSnapshotKeyError(DittoException):
+    """Raised when a test calls `snapshot()` twice with the same key."""
+
     def __init__(self, key: str) -> None:
         super().__init__(
             f"Snapshot key '{key}' has already been used in this test. "
@@ -166,11 +185,22 @@ class DittoSnapshotNameTooLongError(DittoException):
 
 
 class DittoAmbiguousTargetError(DittoException):
+    """Raised when a test's target is set in two conflicting ways.
+
+    A mark can't set both `target=` and `target_profile=`, and the
+    `ditto_target` and `ditto_target_profile` ini options can't both be set.
+    """
+
     def __init__(self, context: str) -> None:
         super().__init__(context)
 
 
 class DittoUnknownProfileError(DittoException):
+    """Raised when a test selects a target profile that isn't defined.
+
+    The message lists the profiles that are defined.
+    """
+
     def __init__(self, name: str, available: list[str]) -> None:
         available_str = ", ".join(sorted(available)) if available else "(none)"
         super().__init__(
@@ -180,12 +210,25 @@ class DittoUnknownProfileError(DittoException):
 
 
 class DittoInvalidProfileError(DittoException):
+    """Raised when a target profile isn't a URI string or a valid table.
+
+    A table needs a string `uri` and may have a `storage_options` mapping; any
+    other key is an error.
+    """
+
     def __init__(self, name: str, detail: str | None = None) -> None:
         message = detail or "expected a URI string or mapping with a 'uri' field."
         super().__init__(f"Invalid ditto target profile {name!r}: {message}")
 
 
 class DittoDuplicateProfileError(DittoException):
+    """Raised when a profile name is defined in both places profiles come from.
+
+    Profiles come from the `ditto_target_profiles` fixture and the
+    `[tool.pytest-ditto.target_profiles]` table in `pyproject.toml`; neither
+    takes precedence, so a name defined in both is an error.
+    """
+
     def __init__(self, names: list[str]) -> None:
         duplicates = ", ".join(sorted(names))
         super().__init__(
@@ -195,11 +238,23 @@ class DittoDuplicateProfileError(DittoException):
 
 
 class DittoLockFileError(DittoException):
+    """Raised when `ditto.lock` can't be read.
+
+    `--ditto-verify` and `--ditto-prune` report it and fail the run, and an
+    ordinary run only warns. A `--ditto-lock` rebuild replaces the unreadable
+    lock instead.
+    """
+
     def __init__(self, detail: str) -> None:
         super().__init__(f"Could not read ditto.lock: {detail}")
 
 
 class DittoLockFileVersionError(DittoLockFileError):
+    """Raised when `ditto.lock` has a format version this pytest-ditto can't read.
+
+    Usually a newer pytest-ditto wrote the lock; upgrade to read it.
+    """
+
     def __init__(self, expected: int, got: object) -> None:
         super().__init__(
             f"unsupported lock-file version {got!r}; expected {expected}. "
