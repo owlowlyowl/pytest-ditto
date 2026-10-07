@@ -107,11 +107,16 @@ together.
 ## Standalone integration tests
 
 `tests/integration/` runs the real `ditto` CLI against small test-owned projects
-using local, DuckDB, Redis and Postgres backends. Each backend covers record and
-replay with exact lock and stored-value assertions, inventory counts and sizes,
-missing-snapshot recovery, a changed value that fails until `update`, and orphan
-pruning. Remote targets must refuse pruning until `--shared` is supplied. Redis
-and Postgres run in Docker. It stays separate from `examples/`.
+using local, DuckDB, Redis and Postgres backends. Tests are grouped by behavior
+and parameterized across backends: recording, lock rebuilding, replay, inventory,
+verification and pruning. They assert exact locks, stored payloads, counts and
+sizes; changed values fail until `update`, and remote pruning requires
+`--shared`. Redis and Postgres run in Docker. It stays separate from `examples/`.
+
+`tests/integration/harness/` contains command execution, storage access, project
+setup and diagnostic artifacts. Scenario steps and assertions live in the test
+modules so pytest can show detailed assertion differences. The demo projects use
+the same payload values to keep backend configuration separate from test inputs.
 
 The PR integration check is advisory. The release and manual pre-release
 workflows require the full suite; a Docker startup or image-pull failure fails

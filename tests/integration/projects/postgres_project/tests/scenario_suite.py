@@ -11,7 +11,7 @@ def _payload(name: str) -> dict[str, object]:
     return {
         "backend": "postgresql",
         "name": name,
-        "values": [10, 11, 12],
+        "values": [1, 2, 3],
     }
 
 

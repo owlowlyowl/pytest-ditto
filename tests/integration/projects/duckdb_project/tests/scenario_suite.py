@@ -11,7 +11,7 @@ def _payload(name: str) -> dict[str, object]:
     return {
         "backend": "duckdb",
         "name": name,
-        "values": [4, 5, 6],
+        "values": [1, 2, 3],
     }
 
 

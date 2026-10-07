@@ -11,7 +11,7 @@ def _payload(name: str) -> dict[str, object]:
     return {
         "backend": "redis",
         "name": name,
-        "values": [7, 8, 9],
+        "values": [1, 2, 3],
     }
 
 
