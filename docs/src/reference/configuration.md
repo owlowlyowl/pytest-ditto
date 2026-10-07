@@ -40,7 +40,7 @@ for `--live`.
 
 Set these in any pytest configuration file (`pyproject.toml`, `pytest.ini`,
 `tox.ini` or `setup.cfg`), or for one run with `-o`, such as
-`pytest -o "ditto_target=s3://my-bucket/$BRANCH/"`.
+`pytest -o "ditto_target=s3://my-bucket/snapshots/"`.
 
 | Option | Default | Effect |
 |---|---|---|
