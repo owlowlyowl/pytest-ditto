@@ -24,7 +24,7 @@ ditto clean tests/ci/ --yes
 
 ## Screenshot
 
-![ditto clean](../img/ditto-clean.png)
+![ditto clean](../img/ditto-clean.svg)
 
 ## Behaviour
 

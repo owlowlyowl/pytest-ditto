@@ -45,6 +45,44 @@ def _run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd, env=environment, check=True)
 
 
+def _output(command: list[str], *, cwd: Path) -> str:
+    """Run `command` like `_run`, returning its stdout."""
+    print(f"+ {' '.join(command)}", flush=True)
+    environment = os.environ.copy()
+    environment.pop("PYTHONHOME", None)
+    environment.pop("PYTHONPATH", None)
+    # Wide enough that a table keeps each node id on one line to search for.
+    environment["COLUMNS"] = "200"
+    result = subprocess.run(
+        command, cwd=cwd, env=environment, check=True, capture_output=True, text=True
+    )
+    print(result.stdout, end="", flush=True)
+    return result.stdout
+
+
+def _verify_installed_cli(ditto: Path, smoke: Path) -> None:
+    """Drive the installed `ditto` script over the snapshots the smoke run wrote.
+
+    Each command must exit 0 on a healthy project; `list` must name a test by
+    the node id the lock records, with and without `--test`.
+    """
+    nodeid = "test_installed.py::test_no_mark_json_round_trip"
+    _run([str(ditto), "--version"], cwd=smoke)
+    if nodeid not in _output([str(ditto), "list"], cwd=smoke):
+        raise RuntimeError(f"`ditto list` did not show {nodeid}.")
+    selected = _output([str(ditto), "list", "--test", nodeid], cwd=smoke)
+    if nodeid not in selected or "test_external" in selected:
+        raise RuntimeError(f"`ditto list --test {nodeid}` did not select only it.")
+    _run([str(ditto), "status"], cwd=smoke)
+    _run([str(ditto), "stats"], cwd=smoke)
+    _run([str(ditto), "recorders"], cwd=smoke)
+    _run([str(ditto), "verify", "-q"], cwd=smoke)
+    _run([str(ditto), "prune", "--check", "-q"], cwd=smoke)
+    _run([str(ditto), "clean", "--yes"], cwd=smoke)
+    if (smoke / ".ditto").exists():
+        raise RuntimeError("`ditto clean --yes` did not remove .ditto/.")
+
+
 def _one_artifact(directory: Path, pattern: str) -> Path:
     matches = sorted(directory.glob(pattern))
     if len(matches) != 1:
@@ -215,6 +253,7 @@ def test_external_recorder_and_namespaced_mark(snapshot):
         raise RuntimeError("Namespaced external recorder did not persist its snapshot.")
 
     _run(pytest_command, cwd=smoke)
+    _verify_installed_cli(_venv_script(venv, "ditto"), smoke)
 
 
 def _wheel_metadata(wheel: Path) -> Message:

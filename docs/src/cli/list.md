@@ -42,7 +42,7 @@ finds no snapshots.
 
 ## Screenshot
 
-![ditto list](../img/ditto-list.png)
+![ditto list](../img/ditto-list.svg)
 
 ## Output
 
@@ -50,7 +50,7 @@ Displays a table with columns:
 
 | Column | Description |
 |--------|-------------|
-| Test | Test function name |
+| Test | The test's node ID from `ditto.lock`; for a snapshot the lock doesn't record, the label from its stored name, marked `not in lock` |
 | Key | Snapshot key |
 | Recorder | Format used (json, yaml, external formats, etc.) |
 | Size | File size |

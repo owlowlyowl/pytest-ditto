@@ -24,7 +24,7 @@ ditto update tests/ci/ -k test_foo
 
 ## Screenshot
 
-![ditto update](../img/ditto-update.png)
+![ditto update](../img/ditto-update.svg)
 
 ## Behaviour
 
