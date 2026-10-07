@@ -40,6 +40,7 @@ pixi manages multiple isolated environments for different tasks:
 | `docs` | Documentation | zensical, mkdocstrings-python |
 | `build` | Package building | uv |
 | `examples` | Run backend examples | duckdb, redis, psycopg2 |
+| `integration` | Standalone CLI and backend integration tests | duckdb, redis, psycopg2 |
 
 Install a specific environment:
 
@@ -102,6 +103,36 @@ dependencies listed under `[tool.hatch.metadata.hooks.custom]` in its
 `pyproject.toml`. Don't declare `pytest-ditto` there. All plugin `hatch_build.py`
 files are identical copies, so each ships in its plugin's sdist; change them
 together.
+
+## Standalone integration tests
+
+`tests/integration/` runs the real `ditto` CLI against small test-owned projects
+using local, DuckDB, Redis and Postgres backends. Tests are grouped by behavior
+and parameterized across backends: recording, lock rebuilding, replay, inventory,
+verification and pruning. They assert exact locks, stored payloads, counts and
+sizes; changed values fail until `update`, and remote pruning requires
+`--shared`. Redis and Postgres run in Docker. It stays separate from `examples/`.
+
+`tests/integration/harness/` contains command execution, storage access, project
+setup and diagnostic artifacts. Scenario steps and assertions live in the test
+modules so pytest can show detailed assertion differences. The demo projects use
+the same payload values to keep backend configuration separate from test inputs.
+
+The PR integration check is advisory. The release and manual pre-release
+workflows require the full suite; a Docker startup or image-pull failure fails
+the check instead of skipping the remote scenarios.
+
+```bash
+pixi run -e integration test-integration-local   # local and DuckDB only, no Docker
+pixi run -e integration test-integration         # everything
+```
+
+Set `DITTO_INTEGRATION_ARTIFACTS_DIR` to keep each command's output, the lock
+files and the backend state in a stable directory:
+
+```bash
+DITTO_INTEGRATION_ARTIFACTS_DIR=.pytest/integration-artifacts pixi run -e integration test-integration
+```
 
 ## Linting & Type Checking
 
