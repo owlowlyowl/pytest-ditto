@@ -32,6 +32,7 @@ from ._display import (
     pass_console,
     render_stats,
 )
+from ._help import examples
 from ._summary import gather_stats, oldest_and_newest
 
 
@@ -137,7 +138,14 @@ def _print_unlocked_note(unlocked: int, console: Console) -> None:
     )
 
 
-@click.command(name="list")
+@click.command(
+    name="list",
+    epilog=examples(
+        "ditto list",
+        "ditto list tests/ci/",
+        "ditto list --test tests/ci/test_api.py::test_totals",
+    ),
+)
 @_live_option
 @click.option(
     "--test",
@@ -159,12 +167,6 @@ def cmd_list(console: Console, path: Path, live: bool, tests: tuple[str, ...]):
 
     --test keeps the snapshots of the tests it names, matched by the node id
     ditto.lock records for them. Node ids are relative to the rootdir.
-
-    \b
-    Examples:
-      ditto list
-      ditto list tests/ci/
-      ditto list --test tests/ci/test_api.py::test_totals
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
     identities = lock_identities(path)
@@ -186,7 +188,7 @@ def cmd_list(console: Console, path: Path, live: bool, tests: tuple[str, ...]):
     _exit_if_incomplete(manifest, console)
 
 
-@click.command(name="status")
+@click.command(name="status", epilog=examples("ditto status", "ditto status tests/ci/"))
 @_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
@@ -197,11 +199,6 @@ def cmd_status(console: Console, path: Path, live: bool):
 
     By default aggregates local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
-
-    \b
-    Examples:
-      ditto status
-      ditto status tests/ci/
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
     entries = _entries(manifest)
@@ -223,7 +220,7 @@ def cmd_status(console: Console, path: Path, live: bool):
     _exit_if_incomplete(manifest, console)
 
 
-@click.command(name="lint")
+@click.command(name="lint", epilog=examples("ditto lint", "ditto lint tests/ci/"))
 @_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
@@ -234,11 +231,6 @@ def cmd_lint(console: Console, path: Path, live: bool):
 
     By default lints local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
-
-    \b
-    Examples:
-      ditto lint
-      ditto lint tests/ci/
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
     entries = _entries(manifest)
@@ -253,22 +245,17 @@ def cmd_lint(console: Console, path: Path, live: bool):
         sys.exit(1)
 
 
-@click.command(name="stats")
+@click.command(name="stats", epilog=examples("ditto stats", "ditto stats tests/ci/"))
 @_live_option
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
 @pass_console
 def cmd_stats(console: Console, path: Path, live: bool):
-    """Show per-directory snapshot usage breakdown.
+    """Show the snapshot count, size and recorders of each target under PATH.
 
-    By default breaks down local snapshots from disk and remote snapshots from
+    By default reads local snapshots from disk and remote snapshots from
     ditto.lock (credential-free); pass --live to read live backends.
-
-    \b
-    Examples:
-      ditto stats
-      ditto stats tests/ci/
     """
     manifest = _inventory_or_exit(path, live=live, console=console)
     if not manifest:

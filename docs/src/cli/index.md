@@ -6,18 +6,23 @@ The `ditto` command provides snapshot management tools independent of a test run
 
 | Command | Description |
 |---------|-------------|
-| [`ditto run`](run.md) | Run pytest with snapshot reporting |
-| [`ditto update`](update.md) | Regenerate all snapshots |
-| [`ditto prune`](prune.md) | Remove stale snapshots |
-| [`ditto verify`](verify.md) | Fail if the backend drifted from `ditto.lock` |
-| [`ditto lock`](lock.md) | Rebuild `ditto.lock` from current snapshots |
-| [`ditto list`](list.md) | List all snapshot files |
-| [`ditto status`](status.md) | Show aggregate statistics |
-| [`ditto clean`](clean.md) | Delete all `.ditto/` directories |
-| [`ditto recorders`](recorders.md) | List registered recorder plugins |
-| [`ditto doctor`](doctor.md) | Run health checks |
-| [`ditto lint`](lint.md) | Check snapshots for issues |
-| [`ditto stats`](stats.md) | Snapshot count and size per target |
+| [`ditto run`](run.md) | Run pytest, passing every argument through |
+| [`ditto update`](update.md) | Re-record snapshots from current output |
+| [`ditto verify`](verify.md) | Run the suite read-only and fail if storage and `ditto.lock` disagree |
+| [`ditto lock`](lock.md) | Rebuild `ditto.lock` from a full run |
+| [`ditto prune`](prune.md) | Delete stored snapshots `ditto.lock` doesn't record |
+| [`ditto list`](list.md) | List snapshots with their test, key, recorder, size and date |
+| [`ditto status`](status.md) | Show totals, broken down by recorder |
+| [`ditto stats`](stats.md) | Show snapshot count, size and recorders per target |
+| [`ditto lint`](lint.md) | Check for malformed names, unknown recorders and empty files |
+| [`ditto recorders`](recorders.md) | List installed recorders and their marks |
+| [`ditto doctor`](doctor.md) | Check that ditto and its plugins are installed correctly |
+| [`ditto clean`](clean.md) | Delete `.ditto/` directories |
+
+The commands that run tests (`run`, `update`, `verify`, `lock`, `prune`) pass
+any other arguments through to pytest, so `-k`, `-x` and paths work as usual.
+Each page's usage and options are generated from the command itself, and match
+`ditto <command> --help`.
 
 Run `ditto --version` to print the installed pytest-ditto version (include it
 in bug reports).

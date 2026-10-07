@@ -17,6 +17,7 @@ from ..recorders._plugins import RecorderRegistry
 from ._data import _load_recorder_infos
 from ._diagnostics import _doctor_checks
 from ._display import _render_doctor, _render_recorders, pass_console
+from ._help import examples
 
 
 def _find_ditto_dirs(root: Path) -> tuple[list[Path], list[Path]]:
@@ -64,7 +65,10 @@ def _confirmed() -> bool:
         return False
 
 
-@click.command(name="clean")
+@click.command(
+    name="clean",
+    epilog=examples("ditto clean", "ditto clean --yes", "ditto clean tests/ci/ --yes"),
+)
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
@@ -77,12 +81,6 @@ def cmd_clean(console: Console, path: Path, yes: bool):
     it will delete and asks for confirmation unless --yes is passed. It only
     asks at a terminal; without one, pass --yes. Symlinked .ditto/
     directories are skipped, never followed.
-
-    \b
-    Examples:
-      ditto clean
-      ditto clean --yes
-      ditto clean tests/ci/ --yes
     """
     if path.is_symlink():
         raise click.ClickException("Clean PATH must not be a directory symlink.")
@@ -168,14 +166,12 @@ def cmd_clean(console: Console, path: Path, yes: bool):
         sys.exit(1)
 
 
-@click.command(name="recorders")
+@click.command(name="recorders", epilog=examples("ditto recorders"))
 @pass_console
 def cmd_recorders(console: Console):
-    """List all registered recorder plugins.
+    """List the installed recorders, their marks and where they come from.
 
-    \b
-    Examples:
-      ditto recorders
+    Reads installed package metadata only, so no recorder plugin is imported.
     """
     infos = _load_recorder_infos()
     if not infos:
@@ -190,14 +186,14 @@ def cmd_recorders(console: Console):
         )
 
 
-@click.command(name="doctor")
+@click.command(name="doctor", epilog=examples("ditto doctor"))
 @pass_console
 def cmd_doctor(console: Console):
-    """Run health checks: plugin loading, pytest availability.
+    """Check that ditto and its plugins are installed correctly.
 
-    \b
-    Examples:
-      ditto doctor
+    Checks that pytest and the ditto pytest plugin load, that every installed
+    recorder and backend plugin imports, and that their registrations follow
+    the plugin contract. Exits non-zero if any check fails.
     """
     checks = _doctor_checks()
     _render_doctor(checks, console)

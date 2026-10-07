@@ -1,18 +1,13 @@
-# ditto verify
+::: mkdocs-click
+    :module: ditto.cli._pytest
+    :command: cmd_verify
+    :prog_name: ditto verify
+    :style: plain
 
-Checks the live backend against the committed `ditto.lock` and fails when they
-have drifted. Read-only — it never writes snapshots or the lock. Intended for CI.
-
-See [The Lock File](../concepts/lock-file.md) for the model.
-
-## Usage
-
-```
-ditto verify [PYTEST_ARGS]
-```
+## How it runs
 
 `ditto verify` re-runs your suite with `--ditto-verify`; extra arguments are
-passed through to pytest.
+passed through to pytest. See [The Lock File](../concepts/lock-file.md) for the model.
 
 ## Examples
 

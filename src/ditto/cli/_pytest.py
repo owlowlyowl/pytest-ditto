@@ -7,22 +7,22 @@ import sys
 
 import click
 
+from ._help import examples
+
 
 @click.command(
     name="run",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    epilog=examples(
+        "ditto run", "ditto run tests/ci/", "ditto run tests/ci/ -k test_foo"
+    ),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_run(pytest_args):
-    """Run pytest, reporting any snapshot activity at the end.
+    """Run pytest, passing every argument through to it.
 
-    Any extra arguments are passed directly to pytest.
-
-    \b
-    Examples:
-      ditto run
-      ditto run tests/ci/
-      ditto run tests/ci/ -k test_foo
+    This is the same as running pytest directly: ditto's pytest plugin prints
+    the snapshot report at the end of every run.
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", *pytest_args],
@@ -34,18 +34,17 @@ def cmd_run(pytest_args):
 @click.command(
     name="update",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    epilog=examples(
+        "ditto update", "ditto update tests/ci/", "ditto update tests/ci/ -k test_foo"
+    ),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_update(pytest_args):
-    """Re-run pytest with --ditto-update to regenerate snapshots.
+    """Re-run pytest with --ditto-update to re-record snapshots.
 
-    Any extra arguments are passed directly to pytest.
-
-    \b
-    Examples:
-      ditto update
-      ditto update tests/ci/
-      ditto update tests/ci/ -k test_foo
+    Every snapshot the run reaches is overwritten with the current value. A
+    full, passing run also rebuilds ditto.lock. Any extra arguments are passed
+    directly to pytest.
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--ditto-update", *pytest_args],
@@ -57,6 +56,12 @@ def cmd_update(pytest_args):
 @click.command(
     name="prune",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    epilog=examples(
+        "ditto prune",
+        "ditto prune --check",
+        "ditto prune --shared",
+        "ditto prune tests/ci/",
+    ),
 )
 @click.option(
     "--check",
@@ -82,13 +87,6 @@ def cmd_prune(check, shared, pytest_args):
     target outside the project (a remote URI, or a file:// path outside it) is
     only pruned with --shared; --check lists its orphans apart, as shared. Any
     extra arguments are passed directly to pytest.
-
-    \b
-    Examples:
-      ditto prune
-      ditto prune --check
-      ditto prune --shared
-      ditto prune tests/ci/
     """
     flags = ["--ditto-prune-dry-run" if check else "--ditto-prune"]
     if shared:
@@ -103,19 +101,17 @@ def cmd_prune(check, shared, pytest_args):
 @click.command(
     name="lock",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    epilog=examples("ditto lock"),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_lock(pytest_args):
-    """Rebuild ditto.lock from current snapshots (full run; values unchanged).
+    """Rebuild ditto.lock from a full run of the suite.
 
-    Must run the whole suite: passing positional path/nodeid args narrows the run
-    and is refused, because a narrowed rebuild can truncate entries for files it
-    did not collect. Configure the suite's scope via `testpaths` in pyproject/ini
-    instead.
-
-    \b
-    Examples:
-      ditto lock
+    Runs the whole suite, creating missing snapshots but leaving existing
+    values unchanged, then rewrites the lock from the snapshots the tests used.
+    A run that is filtered (-k, -m, --lf, --ff), narrowed to paths or node ids,
+    or failing is refused and leaves the lock unchanged. Set the suite's scope
+    with testpaths in your pytest configuration instead.
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--ditto-lock", *pytest_args],
@@ -127,6 +123,7 @@ def cmd_lock(pytest_args):
 @click.command(
     name="verify",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    epilog=examples("ditto verify", "ditto verify tests/ci/"),
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_verify(pytest_args):
@@ -137,11 +134,6 @@ def cmd_verify(pytest_args):
     snapshots the lock doesn't record (orphan) and snapshots the run produced
     that the lock doesn't record (unsynced). It doesn't compare snapshot values
     (your tests do that), and it writes nothing.
-
-    \b
-    Examples:
-      ditto verify
-      ditto verify tests/ci/
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--ditto-verify", *pytest_args],

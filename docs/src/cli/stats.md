@@ -1,14 +1,8 @@
-# ditto stats
-
-Shows where snapshots are stored: one row per target, a local `.ditto/`
-directory or a remote URI, with its snapshot count and size. Complements
-`ditto status`, which totals snapshots by recorder.
-
-## Usage
-
-```
-ditto stats [PATH] [--live]
-```
+::: mkdocs-click
+    :module: ditto.cli._inventory
+    :command: cmd_stats
+    :prog_name: ditto stats
+    :style: plain
 
 ## Examples
 

@@ -1,13 +1,8 @@
-# ditto status
-
-Shows aggregate statistics: total count, total size, breakdown by recorder
-type, and oldest/newest snapshot dates.
-
-## Usage
-
-```
-ditto status [PATH] [--live]
-```
+::: mkdocs-click
+    :module: ditto.cli._inventory
+    :command: cmd_status
+    :prog_name: ditto status
+    :style: plain
 
 ## Examples
 

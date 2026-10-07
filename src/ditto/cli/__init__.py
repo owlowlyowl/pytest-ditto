@@ -3,18 +3,18 @@ ditto CLI — snapshot management for pytest-ditto.
 
 Subcommands
 -----------
-run         Run pytest, reporting any snapshot activity at the end.
-update      Re-run pytest with --ditto-update to regenerate snapshots.
-prune       Re-run pytest with --ditto-prune to remove stale snapshots.
-lock        Rebuild ditto.lock from current snapshots.
-verify      Fail if the backend has drifted from ditto.lock (read-only).
+run         Run pytest, passing every argument through to it.
+update      Re-run pytest with --ditto-update to re-record snapshots.
+prune       Re-run pytest to delete snapshots not in ditto.lock.
+lock        Rebuild ditto.lock from a full run of the suite.
+verify      Fail if stored snapshots have drifted from ditto.lock (read-only).
 list        List all snapshot files under a path.
 clean       Delete all .ditto/ directories under a path.
 status      Show aggregate statistics for snapshots under a path.
-recorders   List all registered recorder plugins.
-doctor      Run health checks on the ditto installation and plugins.
-lint        Check snapshot files for naming, format, and integrity issues.
-stats       Show per-directory snapshot usage breakdown.
+recorders   List the installed recorders, their marks and where they come from.
+doctor      Check that ditto and its plugins are installed correctly.
+lint        Check snapshot files for naming issues, unknown formats, and empty files.
+stats       Show the snapshot count, size and recorders of each target.
 """
 
 from __future__ import annotations

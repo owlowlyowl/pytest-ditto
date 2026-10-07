@@ -86,6 +86,7 @@ plugins:
             show_if_no_docstring: false
 
 markdown_extensions:
+  - mkdocs-click
   - admonition
   - pymdownx.details
   - pymdownx.superfences:

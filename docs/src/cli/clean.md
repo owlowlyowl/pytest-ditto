@@ -1,13 +1,8 @@
-# ditto clean
-
-Deletes all `.ditto/` directories under a path. Shows a preview and asks for
-confirmation unless `--yes` is passed.
-
-## Usage
-
-```
-ditto clean [PATH] [--yes]
-```
+::: mkdocs-click
+    :module: ditto.cli._maintenance
+    :command: cmd_clean
+    :prog_name: ditto clean
+    :style: plain
 
 ## Examples
 

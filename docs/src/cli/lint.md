@@ -1,13 +1,8 @@
-# ditto lint
-
-Checks snapshot files for naming issues, unknown recorder formats, and empty
-files. Exits non-zero if any issues are found.
-
-## Usage
-
-```
-ditto lint [PATH] [--live]
-```
+::: mkdocs-click
+    :module: ditto.cli._inventory
+    :command: cmd_lint
+    :prog_name: ditto lint
+    :style: plain
 
 ## Examples
 

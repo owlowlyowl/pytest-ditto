@@ -1,16 +1,14 @@
-# ditto lock
+::: mkdocs-click
+    :module: ditto.cli._pytest
+    :command: cmd_lock
+    :prog_name: ditto lock
+    :style: plain
 
-Rebuilds `ditto.lock` from the snapshots your suite currently holds. Run it
-after adding, renaming or removing a snapshot, and after changing a test's node
-ID, so the lock records the identities your suite actually produces.
+## How it runs
 
-See [The Lock File](../concepts/lock-file.md) for the model behind the file.
-
-## Usage
-
-```
-ditto lock [PYTEST_ARGS]
-```
+Run `ditto lock` after adding, renaming or removing a snapshot, and after
+changing a test's node ID, so the lock records the identities your suite
+actually produces.
 
 `ditto lock` re-runs your suite with `--ditto-lock`; extra arguments are passed
 through to pytest.
@@ -25,6 +23,8 @@ After a successful full run, the command rebuilds the lock's snapshot identities
 It does not check backend drift: an orphan can remain without failing this run.
 Use [`ditto verify`](verify.md) for a read-only check of missing, orphan and
 unrecorded snapshots. The lock records identities, not expected snapshot values.
+
+See [The Lock File](../concepts/lock-file.md) for the model behind the file.
 
 ## Examples
 
