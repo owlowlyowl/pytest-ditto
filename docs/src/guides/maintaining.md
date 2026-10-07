@@ -52,6 +52,27 @@ ditto prune          # delete every stored snapshot the lock doesn't record
 [ditto lock](../cli/lock.md) and [ditto prune](../cli/prune.md), including why
 prune leaves a remote target alone unless you pass `--shared`.
 
+## Retire a target
+
+`ditto lock` keeps the entries of every target the run doesn't use, so a suite
+that reaches some backends only on some machines doesn't lose them. The
+flip side is that when you delete the last test using a target, or move all
+its tests to another target, nothing cleans the old one up: `ditto lock`
+keeps its entries, and `ditto prune` and `ditto verify` don't look at it.
+
+To retire a target:
+
+1. Delete its snapshots from storage, for example by deleting its directory or
+   its prefix in the bucket.
+2. Remove the target's block from `ditto.lock`, under `"targets"`. A target
+   inside the project is keyed by its path relative to the rootdir, such as
+   `"tests/legacy/.ditto"`; any other target by its URI.
+3. Run `ditto lock` and `ditto verify` to check the result, and commit the lock.
+
+This is the one case where you edit `ditto.lock` by hand.
+[Issue #249](https://github.com/owlowlyowl/pytest-ditto/issues/249) tracks a
+supported way to do it.
+
 ## Inspect what's stored
 
 These commands read your snapshots without running the tests:
