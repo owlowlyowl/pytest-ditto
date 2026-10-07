@@ -1,6 +1,8 @@
 # pytest-ditto-pickle
 
-Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto) that records snapshots with Python's `pickle`.
+A [pytest-ditto](https://github.com/owlowlyowl/pytest-ditto) plugin that records snapshots with Python's `pickle`.
+
+**[Documentation](https://owlowlyowl.github.io/pytest-ditto/plugins/pickle/)**
 
 > [!WARNING]
 > Loading pickle data can execute arbitrary code. Only load snapshots you
@@ -9,20 +11,21 @@ Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto
 > carefully as changes to code.
 
 pytest-ditto records snapshots as strict JSON by default. Use pickle only when
-a value can't be represented in JSON, or YAML, or one of the other recorders,
-and you accept the risk above.
+a value can't be represented in JSON, YAML or one of the other recorders, and
+you accept the risk above.
 
 ## Installation
+
 ```bash
-pip install pytest-ditto-pickle
+pip install pytest-ditto pytest-ditto-pickle
 ```
 
 pytest-ditto has no `pickle` extra: install this package by name, deliberately.
 
 ## Usage
 
-Select the recorder explicitly on each test, with `@ditto.pickle` or its
-long form, `@ditto.record("pickle")`:
+Select the recorder explicitly on each test, with `@ditto.pickle` or its long
+form, `@ditto.record("pickle")`:
 
 ```python
 import datetime
@@ -36,13 +39,5 @@ def test_schedule(snapshot):
     assert snapshot(schedule, key="schedule") == schedule
 ```
 
-## Snapshots from pytest-ditto 1.x
-
-pytest-ditto 1.x used pickle by default and saved snapshots with the `.pkl`
-extension. This recorder reads and writes the same file format, so a 1.x
-snapshot's contents load unchanged.
-
-pytest-ditto 2.0 names snapshot files differently, though, so 2.0 won't find a
-1.x file where 1.x left it. Rename each file to its 2.0 key, which ends in
-`.pickle` (the recorder's name) instead of `.pkl`. See the pytest-ditto upgrade
-guide for the new names.
+pytest-ditto 2.0 doesn't find snapshots recorded by 1.x, including `.pkl`
+files: re-record them with this recorder. See the documentation.

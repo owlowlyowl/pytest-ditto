@@ -277,7 +277,7 @@ def _index_type_kept(name: str) -> bool:
     """Whether a recorder keeps a DatetimeIndex's unit.
 
     JSON reads datetimes back as nanoseconds, so on pandas 3 a microsecond index
-    changes dtype; see the README's format notes.
+    changes dtype; see the format notes in docs/src/plugins/pandas.md.
     """
     return name != "pandas.json"
 

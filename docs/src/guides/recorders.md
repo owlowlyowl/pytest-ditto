@@ -59,35 +59,17 @@ def test_config(snapshot):
 
 ## Plugin Recorders
 
-Additional recorders are available via plugin packages. Install the package,
-then select its registered convenience mark or use
-`@ditto.record("registry_name")`. Recorder packages are ordinary trusted Python
-plugins and execute package code when imported.
+Install a plugin to snapshot other kinds of data. Each one registers its own
+recorders and marks; `ditto recorders` lists everything installed. Plugins are
+ordinary Python packages and run their code when imported, so install only ones
+you trust.
 
-### Pickle (`pytest-ditto-pickle`)
-
-Users who explicitly need pickle can install its external recorder:
-
-```bash
-pip install pytest-ditto-pickle
-```
-
-Then select it explicitly with `@ditto.pickle` or
-`@ditto.record("pickle")`. Loading pickle data can execute arbitrary code; only
-load snapshots you trust. Pickle implementation and policy are owned by that
-external distribution, not pytest-ditto core.
-
-### pandas (`pytest-ditto-pandas`)
-
-```bash
-pip install pytest-ditto[pandas]
-```
-
-| Mark | Registry Key | Identifier |
-|------|-------------|-----------|
-| `@ditto.pandas.parquet` | `pandas.parquet` | `.pandas.parquet` |
-| `@ditto.pandas.json` | `pandas.json` | `.pandas.json` |
-| `@ditto.pandas.csv` | `pandas.csv` | `.pandas.csv` |
+| Plugin | Install | Records | Marks |
+|--------|---------|---------|-------|
+| [pandas](../plugins/pandas.md) | `pip install "pytest-ditto[pandas]"` | DataFrames and Series | `@ditto.pandas.parquet`, `.json`, `.csv` |
+| [polars](../plugins/polars.md) | `pip install "pytest-ditto[polars]"` | DataFrames | `@ditto.polars.parquet`, `.ipc`, `.csv`, `.ndjson` |
+| [PyArrow](../plugins/pyarrow.md) | `pip install "pytest-ditto[pyarrow]"` | Tables | `@ditto.pyarrow.parquet`, `.feather`, `.csv` |
+| [pickle](../plugins/pickle.md) | `pip install pytest-ditto-pickle` | Any picklable value | `@ditto.pickle` |
 
 ```python
 import pandas as pd
@@ -96,89 +78,17 @@ import ditto
 
 @ditto.pandas.parquet
 def test_dataframe(snapshot):
-    df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-    result = transform(df)
+    result = transform(pd.DataFrame({"a": [1, 2, 3]}))
     pd.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
 ```
 
-The same marks record a `pd.Series`, which loads back as a Series with its name.
-Parquet and JSON also restore a `DatetimeIndex` or `TimedeltaIndex` `freq`,
-which pandas itself drops. Both are recorded in a small `ditto` marker stored
-inside the file: in the Arrow schema metadata for parquet, as a `"ditto"` key
-beside `schema` and `data` for JSON, and as a first `# ditto: {…}` line for a
-CSV Series. A DataFrame with no index `freq` gets no marker, so its file is
-exactly what pandas writes. See the
-[plugin README](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas)
-for what each format keeps.
+Text formats such as JSON and CSV are easy to review, but most change some
+data on the way through: they round floats, re-infer types or drop metadata.
+Each plugin's page lists what its formats keep. Prefer the parquet recorders
+unless you need to read a snapshot as text.
 
-!!! warning "Prefer `pandas.parquet`; `pandas.json` changes some data"
-    Parquet is the only pandas format that keeps every dtype and value exactly.
-    Use `pandas.json` only for simple frames you want to read as text:
-
-    - It rounds floats to 10 decimal places and writes values between about
-      `1e-15` and `1e-10` as `0.0`. `pd.testing.assert_frame_equal` still
-      passes, because the difference is inside its default tolerance, so the
-      snapshot doesn't hold the exact values.
-    - It reads datetimes back in nanoseconds. pandas 3 creates them in
-      microseconds by default, so on pandas 3 any datetime column or index fails
-      the comparison unless it's converted with `.as_unit("ns")` first.
-    - It also truncates datetimes to the millisecond, turns `inf` into `NaN`,
-      widens narrow integers and `float32`, and can't read back timedelta,
-      interval or complex data.
-
-    See the plugin README's
-    [format notes](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas#format-notes)
-    for the full list.
-
-### PyArrow (`pytest-ditto-pyarrow`)
-
-```bash
-pip install pytest-ditto[pyarrow]
-```
-
-| Mark | Registry Key | Identifier |
-|------|-------------|-----------|
-| `@ditto.pyarrow.parquet` | `pyarrow.parquet` | `.pyarrow.parquet` |
-| `@ditto.pyarrow.feather` | `pyarrow.feather` | `.pyarrow.feather` |
-| `@ditto.pyarrow.csv` | `pyarrow.csv` | `.pyarrow.csv` |
-
-```python
-import pyarrow as pa
-import ditto
-
-
-@ditto.pyarrow.parquet
-def test_table(snapshot):
-    table = pa.table({"x": [1, 2, 3]})
-    result = process(table)
-    assert result.equals(snapshot(result, key="processed"))
-```
-
-### Polars (`pytest-ditto-polars`)
-
-```bash
-pip install pytest-ditto[polars]
-```
-
-| Mark | Registry Key | Identifier |
-|------|-------------|-----------|
-| `@ditto.polars.parquet` | `polars.parquet` | `.polars.parquet` |
-| `@ditto.polars.ipc` | `polars.ipc` | `.polars.ipc` |
-| `@ditto.polars.csv` | `polars.csv` | `.polars.csv` |
-| `@ditto.polars.ndjson` | `polars.ndjson` | `.polars.ndjson` |
-
-```python
-import polars as pl
-import polars.testing
-import ditto
-
-
-@ditto.polars.parquet
-def test_dataframe(snapshot):
-    df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-    result = transform(df)
-    pl.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
-```
+!!! danger "Loading pickle data can execute arbitrary code"
+    Only load pickle snapshots you trust. See [pickle](../plugins/pickle.md).
 
 ## The Generic `@ditto.record()` Mark
 
@@ -206,6 +116,7 @@ registry key, including custom ones.
 | Human-readable diffs in version control | `json` or `yaml` |
 | Values outside strict JSON | An explicitly installed suitable recorder |
 | pandas DataFrames or Series | `pandas.parquet` |
-| Polars DataFrames with type fidelity | `polars.parquet` |
+| Polars DataFrames | `polars.parquet` |
+| PyArrow Tables | `pyarrow.parquet` |
 | Large datasets, fast I/O | `parquet` variants |
 | Interop with other tools | `json` or `csv` |

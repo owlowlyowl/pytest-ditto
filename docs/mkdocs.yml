@@ -43,6 +43,11 @@ nav:
     - Maintaining Snapshots: guides/maintaining.md
     - Writing a Recorder: guides/custom-recorders.md
     - Writing a Backend: guides/custom-backends.md
+  - Plugins:
+    - pandas: plugins/pandas.md
+    - polars: plugins/polars.md
+    - PyArrow: plugins/pyarrow.md
+    - pickle: plugins/pickle.md
   - Upgrading to 2.0: upgrading.md
   - Reference:
     - Configuration: reference/configuration.md

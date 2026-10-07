@@ -1,23 +1,27 @@
 # pytest-ditto-pyarrow
 
-Extension plugin for [`pytest-ditto`](https://github.com/owlowlyowl/pytest-ditto) for `pyarrow` table snapshots.
+A [pytest-ditto](https://github.com/owlowlyowl/pytest-ditto) plugin for PyArrow Table snapshots.
 
-Use the following marks for their associated recorder:
+**[Documentation](https://owlowlyowl.github.io/pytest-ditto/plugins/pyarrow/)**
+
+## Installation
+
+```bash
+pip install "pytest-ditto[pyarrow]"
+```
+
+## Marks
+
 - `@ditto.pyarrow.parquet`
 - `@ditto.pyarrow.feather`
 - `@ditto.pyarrow.csv`
 
-## Installation
-```bash
-pip install pytest-ditto[pyarrow]
-```
+Each mark is shorthand for `@ditto.record("<name>")`.
+
+**Use `@ditto.pyarrow.parquet` or `@ditto.pyarrow.feather`**: CSV loses types
+and can drop rows. See the format notes in the documentation.
 
 ## Usage
-The following test example tests the result of `fn` hasn't changed by comparing against a saved snapshot of the result. This snapshot is taken the first time the test is run; hence, the initial run is not a proper test run. Subsequent test runs are compared against the saved result.
-
-- The fixture, `table` is a `pyarrow.Table` and is the argument to the function under test, `fn`.
-- `fn` transforms the data and the test asserts the result of this function in unchanged compared to the initial, hopefully validated, result.
-- The output format of the snapshot is parquet as defined by the `@ditto.pyarrow.parquet` mark.
 
 ```python
 import pyarrow as pa
