@@ -16,6 +16,7 @@ needs. It also installs the `ditto` command, which manages snapshots.
 
 Create `tests/test_prices.py`:
 
+<!-- test: passes -->
 ```python
 def summarise(prices):
     return {"count": len(prices), "total": sum(prices)}

@@ -25,6 +25,7 @@ Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
 pip install pytest-ditto
 ```
 
+<!-- test: passes -->
 ```python
 def summarise(prices):
     return {"count": len(prices), "total": sum(prices)}

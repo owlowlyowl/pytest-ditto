@@ -71,6 +71,10 @@ nav:
       - ditto.recorders: reference/recorders.md
       - ditto.backends: reference/backends.md
       - ditto.exceptions: reference/exceptions.md
+  - Project:
+    - Release notes: https://github.com/owlowlyowl/pytest-ditto/releases
+    - Contributing: https://github.com/owlowlyowl/pytest-ditto/blob/main/DEVELOPMENT.md
+    - Security policy: https://github.com/owlowlyowl/pytest-ditto/blob/main/SECURITY.md
 
 plugins:
   - search
