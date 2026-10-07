@@ -17,7 +17,7 @@ The `ditto` command provides snapshot management tools independent of a test run
 | [`ditto recorders`](recorders.md) | List registered recorder plugins |
 | [`ditto doctor`](doctor.md) | Run health checks |
 | [`ditto lint`](lint.md) | Check snapshots for issues |
-| [`ditto stats`](stats.md) | Per-directory usage breakdown |
+| [`ditto stats`](stats.md) | Snapshot count and size per target |
 
 Run `ditto --version` to print the installed pytest-ditto version (include it
 in bug reports).
