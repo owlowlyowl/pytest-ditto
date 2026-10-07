@@ -7,12 +7,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push to a PR cancels its previous run. Pushes to main share one group,
-# so only one Pages deploy runs at a time.
+# A new push to a PR cancels its previous run. Pushes and manual runs on main
+# share one group, so only one Pages deploy runs at a time.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -46,10 +47,12 @@ jobs:
 
   deploy:
     name: Deploy documentation
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-26.04
-    # Only the deploy job, which runs on pushes to main, may publish to Pages.
+    # Only the deploy job, on main pushes or manual runs, may publish to Pages.
     permissions:
       pages: write
       id-token: write
