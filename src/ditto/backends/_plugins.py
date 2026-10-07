@@ -169,8 +169,10 @@ def _load_error(
 
 
 BACKEND_REGISTRY: BackendRegistry = BackendRegistry()
-"""Every URI scheme ditto knows, mapped to its backend factory.
+"""The registered backends: URI schemes mapped to their backend factories.
 
-Read-only. Installed backends come from the `ditto_backends` entry-point group;
-set a factory in code on `BACKEND_REGISTRY.overrides`.
+Read-only. It holds the backends installed through the `ditto_backends`
+entry-point group and those set in code on `BACKEND_REGISTRY.overrides`. ditto
+handles `file://` targets and fsspec protocols itself, so those schemes aren't
+in it unless a package registers one of the fsspec protocols.
 """
