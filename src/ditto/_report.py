@@ -8,6 +8,7 @@ from rich.text import Text
 
 from ._lockfile import LOCKFILE_NAME, LockOutcome
 from ._theme import (
+    ACCENT,
     CREATED,
     FAILED,
     LOCK,
@@ -133,14 +134,17 @@ def _pruned_block(
     label: str,
     suffix: str = "",
 ) -> Text:
-    """One labelled row naming each pruned snapshot's target above its keys."""
+    """One labelled row naming each pruned snapshot's target above its keys.
+
+    `suffix` goes after the count, once, so a long target id wraps on its own.
+    """
     text = Text()
     text.append(f"  {label:<{_LABEL_WIDTH}}", style=f"bold {colour}")
     text.append(f"{len(items):<5}", style=colour)
+    if suffix:
+        text.append(suffix, style=MUTED)
     for target_id, keys in _pruned_by_target(items):
         text.append(f"\n  {'':<{_LABEL_WIDTH + 5}}{target_id}", style=f"bold {colour}")
-        if suffix:
-            text.append(f"  {suffix}", style=MUTED)
         for key in keys:
             text.append(f"\n  {'':<{_LABEL_WIDTH + 9}}{key}", style=colour)
     return text
@@ -170,6 +174,7 @@ def render_session_report(
     writes: Sequence[SnapshotWrite] = (),
     pruned: Sequence[PrunedSnapshot] = (),
     would_prune: Sequence[PrunedSnapshot] = (),
+    shared_held: Sequence[PrunedSnapshot] = (),
     prune_failed: Sequence[PrunedSnapshot] = (),
     lock: LockOutcome | None = None,
     console: Console | None = None,
@@ -187,6 +192,9 @@ def render_session_report(
     would_prune : Sequence[PrunedSnapshot]
         Snapshots a `--ditto-prune` run would delete (shown under
         `--ditto-prune-dry-run`), with the target each is in.
+    shared_held : Sequence[PrunedSnapshot]
+        Orphans a dry run found in shared targets, which `--ditto-prune` leaves
+        alone unless `--ditto-prune-shared` is passed.
     prune_failed : Sequence[PrunedSnapshot]
         Snapshots `--ditto-prune` tried and failed to delete.
     lock : LockOutcome, optional
@@ -196,7 +204,8 @@ def render_session_report(
     """
     lock = lock or LockOutcome()
     lock_changed = lock.status != "unchanged"
-    if not any((writes, pruned, prune_failed, would_prune)) and not lock_changed:
+    prune_rows = (pruned, prune_failed, would_prune, shared_held)
+    if not writes and not any(prune_rows) and not lock_changed:
         return
 
     if console is None:
@@ -217,6 +226,15 @@ def render_session_report(
                 WOULD_PRUNE,
                 "would prune",
                 suffix="(use --ditto-prune to delete)",
+            )
+        )
+    if shared_held:
+        rows.append(
+            _pruned_block(
+                list(shared_held),
+                ACCENT,
+                "shared",
+                suffix="(shared target: only pruned with --ditto-prune-shared)",
             )
         )
     if lock_changed:

@@ -140,6 +140,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     pruned: list[PrunedSnapshot] = []
     prune_failed: list[PrunedSnapshot] = []
     would_prune: list[PrunedSnapshot] = []
+    shared_held: list[PrunedSnapshot] = []
     lock = LockOutcome("unchanged")
 
     if not is_xdist_worker(config) and not options.introspect_path:
@@ -187,9 +188,19 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     for failure in result.failed
                 ]
             case PruneMode.DRY_RUN:
+                orphans = find_orphans(session)
+                if not options.prune_shared:
+                    local_ids = local_target_ids(
+                        session_state(config).tracker.target_backends,
+                        config.rootpath,
+                    )
+                    orphans, shared = split_shared(orphans, local_ids)
+                    shared_held = [
+                        PrunedSnapshot(orphan.target_id, orphan.key)
+                        for orphan in shared
+                    ]
                 would_prune = [
-                    PrunedSnapshot(orphan.target_id, orphan.key)
-                    for orphan in find_orphans(session)
+                    PrunedSnapshot(orphan.target_id, orphan.key) for orphan in orphans
                 ]
             case PruneMode.OFF:
                 pass
@@ -209,6 +220,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         writes=session_state(config).tracker.writes,
         pruned=pruned,
         would_prune=would_prune,
+        shared_held=shared_held,
         prune_failed=prune_failed,
         lock=lock,
     )

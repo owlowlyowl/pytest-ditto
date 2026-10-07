@@ -212,7 +212,11 @@ def test_dry_run_reports_orphan_redis_key_absent_from_lock(pytester) -> None:
     lock_path.write_text(json.dumps(data))
 
     # Second run with dry-run prune: beta is reported as a would-prune orphan
-    # but left in the backend. In-process so the shared FakeRedis client survives.
-    result = pytester.runpytest("test_write.py", "--ditto-prune-dry-run")
+    # but left in the backend. A Redis target is remote, so prune only deletes
+    # from it with --ditto-prune-shared. In-process so the shared FakeRedis
+    # client survives.
+    result = pytester.runpytest(
+        "test_write.py", "--ditto-prune-dry-run", "--ditto-prune-shared"
+    )
     result.assert_outcomes(passed=2)
     result.stderr.fnmatch_lines(["*would prune*"])
