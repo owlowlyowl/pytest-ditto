@@ -88,16 +88,13 @@ from the environment your CI provides; ditto refuses a target URI that contains
 a password. See
 [Credentials and connection settings](backends.md#credentials-and-connection-settings-ditto_storage_options).
 
-Give each project, and each branch whose tests can differ, its own remote path.
-Otherwise one branch's snapshots look like orphans to another, so `ditto
-verify` reports them and `ditto prune` would delete them. Set the path on the
-command line with the branch name filled in:
-
-```bash
-ditto verify -o "ditto_target=s3://my-bucket/my-project/$BRANCH/"
-```
-
-See [Sharing a target](../concepts/lock-file.md#sharing-a-target).
+Every branch that uses a remote target shares its snapshots: a `ditto update`
+on one branch changes what the others compare against, and a snapshot only one
+branch has recorded fails `ditto verify` on the others. Give each project its
+own remote path, and keep snapshots in the repository when branches change
+them independently. A separate remote path per branch isn't supported yet,
+because `ditto.lock` records the target's URI. See
+[Sharing a target](../concepts/lock-file.md#sharing-a-target).
 
 ## Don't update snapshots in CI
 
