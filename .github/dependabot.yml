@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # Workflows pin every action to a commit SHA, with the version in a comment;
+  # Dependabot updates both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a week after a release before proposing it, so a compromised or broken
+    # release is more likely to be caught upstream first.
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    # Files the PR under Packaging, CI and security in the release notes
+    # (.github/release.yml).
+    labels: ["kind: chore", "area: ci"]

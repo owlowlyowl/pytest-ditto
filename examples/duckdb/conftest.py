@@ -151,6 +151,6 @@ def _register_duckdb_backend() -> Iterator[None]:
     else:
         probe.close()
 
-    BACKEND_REGISTRY["duckdb"] = _make_duckdb_backend(duckdb_module)
+    BACKEND_REGISTRY.overrides["duckdb"] = _make_duckdb_backend(duckdb_module)
     yield
-    BACKEND_REGISTRY.pop("duckdb", None)
+    BACKEND_REGISTRY.overrides.pop("duckdb", None)

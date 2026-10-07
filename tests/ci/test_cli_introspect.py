@@ -32,7 +32,7 @@ def test_returns_entries_for_a_file_profile(tmp_path) -> None:
     manifest = run_introspect(tmp_path)
 
     entries = [e for b in manifest for e in b.entries]
-    recorded = next(e for e in entries if e.storage_key.endswith("test_thing@v.json"))
+    recorded = next(e for e in entries if "test_thing@v~" in e.storage_key)
     assert recorded.size_bytes > 0
     assert recorded.modified is not None  # local fs reports mtime
 

@@ -1,7 +1,21 @@
+# tests/ci/.ditto and the root ditto.lock are pytest-ditto's own committed,
+# PR-reviewed baseline (see docs/src/guides/lock-file.md), and each first-party
+# plugin has its own under plugins/<name>/ — everywhere else .ditto/ditto.lock
+# are ephemeral local test-run artifacts.
 .ditto
+!/tests/ci/.ditto/
+!/plugins/*/tests/ci/.ditto/
+ditto.lock
+!/ditto.lock
+!/plugins/*/ditto.lock
+.tmp/
+tmp.py
+ditto-tui.html
 
 # Python
 __pycache__
+# Written by the hatch-vcs build hook on every build and editable install.
+src/ditto/_version.py
 *.egg-info
 *.pyc
 
@@ -29,6 +43,8 @@ docs/site/
 !.pixi/config.toml
 
 # Dev
+/dev/
 .designs/
 .issues/
 .impl/
+/tests/release/synthetic_plugin/build/

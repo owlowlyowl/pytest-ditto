@@ -3,7 +3,12 @@ from __future__ import annotations
 import posixpath
 from collections.abc import Iterator, Mapping, MutableMapping
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from fsspec.implementations.local import LocalFileSystem
+
+from ditto._atomic import is_temp_name, write_atomically
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
@@ -27,6 +32,15 @@ def _info_mtime(info: Mapping[str, object]) -> float | None:
             return dt.timestamp()
         case _:
             return None
+
+
+def _is_leftover_temp(path: str) -> bool:
+    """True for a temporary file an interrupted local write left behind.
+
+    It isn't a snapshot, so the mapping doesn't list it on the local
+    filesystem, the only one it writes temporary files to.
+    """
+    return is_temp_name(posixpath.basename(path))
 
 
 class FsspecMapping(MutableMapping[str, bytes]):
@@ -56,6 +70,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         # plugin.py's _get_root() uses it to register this backend's root directory
         # so ghost-detection (Pass 2) doesn't flag its own .ditto/ as unused.
         self.root = self._root
+        self._local = isinstance(fs, LocalFileSystem)
 
     def _full_path(self, key: str) -> str:
         if posixpath.isabs(key):
@@ -78,9 +93,19 @@ class FsspecMapping(MutableMapping[str, bytes]):
             raise KeyError(key)
 
     def __setitem__(self, key: str, value: bytes) -> None:
+        """Store `value` under `key`, replacing any previous value whole.
+
+        On the local filesystem, opening the destination for writing would
+        truncate it before any new bytes arrive, so the value is written
+        atomically instead: a failed write leaves the previous value intact.
+        Object stores (S3, GCS, Azure) already replace an object whole.
+        """
         p = self._full_path(key)
         parent = posixpath.dirname(p)
         self._fs.makedirs(parent, exist_ok=True)
+        if self._local:
+            write_atomically(Path(p), value)
+            return
         with self._fs.open(p, "wb") as f:
             f.write(value)  # type: ignore[arg-type]  # fsspec binary mode
 
@@ -102,7 +127,7 @@ class FsspecMapping(MutableMapping[str, bytes]):
         return (
             p[len(prefix) :]
             for p in self._fs.find(self._root, detail=False)
-            if p.startswith(prefix)
+            if p.startswith(prefix) and not (self._local and _is_leftover_temp(p))
         )
 
     def __len__(self) -> int:
@@ -120,6 +145,6 @@ class FsspecMapping(MutableMapping[str, bytes]):
         prefix = self._root + "/"
         entries: dict[str, dict[str, object]] = self._fs.find(self._root, detail=True)  # type: ignore[assignment]
         for path, info in entries.items():
-            if not path.startswith(prefix):
+            if not path.startswith(prefix) or (self._local and _is_leftover_temp(path)):
                 continue
             yield path[len(prefix) :], int(info.get("size") or 0), _info_mtime(info)  # type: ignore[arg-type]

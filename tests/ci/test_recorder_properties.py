@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -12,7 +9,7 @@ from ditto import recorders
 
 # ── Strategies ────────────────────────────────────────────────────────────────
 
-# Primitives supported by JSON, YAML SafeDumper, and pickle.
+# Primitives supported by strict JSON and YAML SafeDumper.
 _primitives = st.one_of(
     st.none(),
     st.booleans(),
@@ -33,32 +30,17 @@ _text_serialisable_values = st.recursive(
     max_leaves=20,
 )
 
-# Pickle can handle everything above plus raw bytes — the key type bytes cannot
-# represent. Including st.binary() here ensures type-preservation is tested too.
-_pickle_values = st.recursive(
-    st.one_of(_primitives, st.binary()),
-    lambda children: st.one_of(
-        st.lists(children, max_size=5),
-        st.dictionaries(st.text(), children, max_size=5),
-    ),
-    max_leaves=20,
-)
-
 _json_recorder = recorders.get("json")
 _yaml_recorder = recorders.get("yaml")
-_pickle_recorder = recorders.get("pickle")
 
 # ── JSON ──────────────────────────────────────────────────────────────────────
 
 
 @given(_text_serialisable_values)
 def test_json_recorder_roundtrip_preserves_value(data) -> None:
-    """The JSON recorder round-trips any JSON-compatible value through save and load
-    without loss."""
-    with tempfile.TemporaryDirectory() as tmp:
-        filepath = Path(tmp) / "snapshot.json"
-        _json_recorder.save(data, filepath)
-        actual = _json_recorder.load(filepath)
+    """The JSON recorder round-trips any JSON-compatible value through
+    dumps and loads without loss."""
+    actual = _json_recorder.loads(_json_recorder.dumps(data))
 
     assert actual == data
 
@@ -68,27 +50,8 @@ def test_json_recorder_roundtrip_preserves_value(data) -> None:
 
 @given(_text_serialisable_values)
 def test_yaml_recorder_roundtrip_preserves_value(data) -> None:
-    """The YAML recorder round-trips any YAML-compatible value through save and load
-    without loss."""
-    with tempfile.TemporaryDirectory() as tmp:
-        filepath = Path(tmp) / "snapshot.yaml"
-        _yaml_recorder.save(data, filepath)
-        actual = _yaml_recorder.load(filepath)
+    """The YAML recorder round-trips any YAML-compatible value through
+    dumps and loads without loss."""
+    actual = _yaml_recorder.loads(_yaml_recorder.dumps(data))
 
     assert actual == data
-
-
-# ── Pickle ────────────────────────────────────────────────────────────────────
-
-
-@given(_pickle_values)
-def test_pickle_recorder_roundtrip_preserves_value(data) -> None:
-    """The pickle recorder round-trips any picklable value without loss, including
-    raw bytes."""
-    with tempfile.TemporaryDirectory() as tmp:
-        filepath = Path(tmp) / "snapshot.pkl"
-        _pickle_recorder.save(data, filepath)
-        actual = _pickle_recorder.load(filepath)
-
-    assert actual == data
-    assert type(actual) is type(data)

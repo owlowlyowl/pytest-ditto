@@ -20,7 +20,7 @@ def test_roundtrips_dict_through_yaml_format(snapshot) -> None:
     assert actual_x == result_x
 
 
-@ditto.pickle
+@ditto.json
 @pytest.mark.parametrize(
     ("a", "b"),
     [
@@ -28,7 +28,7 @@ def test_roundtrips_dict_through_yaml_format(snapshot) -> None:
         pytest.param(3, 4, id="Second"),
     ],
 )
-def test_roundtrips_parametrised_ints_through_pickle(snapshot, a, b) -> None:
+def test_roundtrips_parametrised_ints_through_json(snapshot, a, b) -> None:
     """Each parametrised set stores and retrieves values independently."""
     actual_a = snapshot(a, key="a")
     actual_b = snapshot(b, key="b")

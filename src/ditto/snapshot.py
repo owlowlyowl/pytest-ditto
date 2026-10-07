@@ -1,15 +1,30 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import string
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
-from typing import Any
+from enum import Enum
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urlparse
 
-from .exceptions import DuplicateSnapshotKeyError
+from .exceptions import (
+    DittoSnapshotNameCollisionError,
+    DittoSnapshotNameTooLongError,
+    DuplicateSnapshotKeyError,
+)
 from .recorders import Recorder, default as _default_recorder
 
 
-__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "session_tracker")
+__all__ = ("LockSeen", "Snapshot", "SnapshotKey", "SnapshotMode")
+
+
+# The name of the recorder unmarked tests use.
+DEFAULT_RECORDER_NAME = "json"
+
+# Stands in for a `Snapshot` recorder or recorder name that was not passed.
+_UNSET: Any = object()
 
 
 @dataclass(frozen=True)
@@ -26,36 +41,43 @@ class SnapshotKey:
         the class prefix: "TestClass.test_something".
     key : str
         Per-snapshot identifier within the test.
-    extension : str
-        Recorder file extension, e.g. "pkl", "json".
+    identifier : str
+        Recorder identifier, e.g. "json", "yaml", "pandas.parquet".
+    nodeid : str
+        Full pytest node id of the owning test, exactly as pytest reports it,
+        or "" for a `Snapshot` built outside the fixture. `module` and
+        `group_name` are derived from it and lose detail (the file extension,
+        `::` inside a parametrize ID), so the stored name's hash uses the node
+        id when there is one.
     """
 
     module: str
     group_name: str
     key: str
-    extension: str
+    identifier: str
+    nodeid: str = ""
 
     @property
     def filename(self) -> str:
         """Short key: 'group@key.ext'. Not used as the storage key for any backend.
 
         Kept for reference and user code that inspects `SnapshotKey` objects.
-        File backends use `_flat_key` ('module.group@key.ext') and remote backends
-        use `str(key)` ('module/group@key.ext').
+        File backends store a snapshot under `_flat_key` and remote backends
+        under `_remote_key`.
         """
-        return f"{self.group_name}@{self.key}.{self.extension}"
+        return f"{self.group_name}@{self.key}.{self.identifier}"
 
     def __str__(self) -> str:
-        """Namespaced key for remote backends: 'module/group@key.ext'.
+        """Readable identity: 'module/group@key.ext'.
 
-        Unique across all test files in a shared backend (Redis, S3, etc.).
-        Also used as the human-readable display name in session reports.
+        Not a storage key: stored names replace unsafe characters and add a
+        hash (see `_flat_key`).
         """
-        return f"{self.module}/{self.group_name}@{self.key}.{self.extension}"
+        return f"{self.module}/{self.group_name}@{self.key}.{self.identifier}"
 
     @property
     def display_name(self) -> str:
-        """Human-readable label for the session report: 'module/group@key.ext'."""
+        """Human-readable label: 'module/group@key.ext'."""
         return str(self)
 
 
@@ -75,7 +97,7 @@ class LockSeen:
     key : str
         Per-snapshot identifier within the test.
     recorder : str
-        Recorder extension string, e.g. `pkl`, `json`, `pandas.parquet`.
+        Recorder identifier, e.g. `json`, `yaml`, `pandas.parquet`.
     """
 
     target_id: str
@@ -83,6 +105,21 @@ class LockSeen:
     nodeid: str
     key: str
     recorder: str
+
+
+class SnapshotWrite(NamedTuple):
+    """One write of a snapshot to its backend this session, and how it went."""
+
+    key: SnapshotKey
+    outcome: Literal["created", "rewritten", "write_failed"]
+
+
+class _RegisteredTarget(NamedTuple):
+    """A target the session used: where it is, and the backend built for it."""
+
+    canonical_uri: str
+    scheme: str
+    backend: MutableMapping[str, bytes]
 
 
 @dataclass
@@ -94,19 +131,22 @@ class _BackendRecord:
 
 @dataclass
 class _SessionTracker:
-    """In-memory record of snapshot activity for the current pytest session.
+    """In-memory record of snapshot activity for one pytest session.
 
-    Reset at `pytest_sessionstart` and read at `pytest_sessionfinish`.
+    The plugin creates one per session (on `config.stash`) and reads it at
+    `pytest_sessionfinish`. A `Snapshot` built outside the fixture gets its own.
     Never written to disk.
     """
 
     _records: dict[int, _BackendRecord] = field(default_factory=dict)
-    created: list[SnapshotKey] = field(default_factory=list)
-    updated: list[SnapshotKey] = field(default_factory=list)
-    # Tracks (id(backend), storage_key) — scopes duplicate detection to a single
-    # backend instance. Tests using different backends (separate fsspec mappers for
-    # different tmp dirs) cannot collide even when group_name and key are identical.
-    used_keys: set[tuple[int, str]] = field(default_factory=set)
+    # Every snapshot write this session, in order, including failed ones.
+    writes: list[SnapshotWrite] = field(default_factory=list)
+    # Maps (id(backend), storage_key) to the snapshot stored under it. Scoping to
+    # a backend instance means tests using different backends (separate fsspec
+    # mappers for different tmp dirs) cannot collide even when group_name and key
+    # are identical; keeping the snapshot tells a reused key from two different
+    # snapshots whose names collide.
+    used_keys: dict[tuple[int, str], SnapshotKey] = field(default_factory=dict)
     # Maps id(backend) → set of module stems that used this backend this session.
     # Populated by the snapshot fixture at fixture-creation time (before any calls),
     # so modules that request snapshot but make no calls are still tracked. Used by
@@ -114,11 +154,24 @@ class _SessionTracker:
     backend_modules: dict[int, set[str]] = field(default_factory=dict)
     lock_created: set[LockSeen] = field(default_factory=set)
     lock_accessed: set[LockSeen] = field(default_factory=set)
-    # Maps portable target_id → (scheme, live backend); populated at fixture
-    # creation so verify (and prune) can enumerate every active target's backend.
-    target_backends: dict[str, tuple[str, MutableMapping[str, bytes]]] = field(
-        default_factory=dict
-    )
+    # Maps portable target_id → the target registered for it; populated at
+    # fixture creation so verify (and prune) can enumerate every active target.
+    target_backends: dict[str, _RegisteredTarget] = field(default_factory=dict)
+
+    @property
+    def created(self) -> list[SnapshotKey]:
+        """Snapshots written for the first time this session."""
+        return [w.key for w in self.writes if w.outcome == "created"]
+
+    @property
+    def updated(self) -> list[SnapshotKey]:
+        """Existing snapshots overwritten this session."""
+        return [w.key for w in self.writes if w.outcome == "rewritten"]
+
+    @property
+    def write_failed(self) -> list[SnapshotKey]:
+        """Snapshots whose write to the backend raised this session."""
+        return [w.key for w in self.writes if w.outcome == "write_failed"]
 
     def register_backend_module(self, backend_id: int, module: str) -> None:
         """Record that `module` uses the backend identified by `backend_id`.
@@ -140,10 +193,15 @@ class _SessionTracker:
         self._records[backend_id].accessed.add(key)
 
     def register_target_backend(
-        self, target_id: str, scheme: str, backend: MutableMapping[str, bytes]
+        self,
+        target_id: str,
+        canonical_uri: str,
+        backend: MutableMapping[str, bytes],
     ) -> None:
-        """Record the live backend (and scheme) resolved for `target_id`."""
-        self.target_backends[target_id] = (scheme, backend)
+        """Record the canonical URI and live backend resolved for `target_id`."""
+        self.target_backends[target_id] = _RegisteredTarget(
+            canonical_uri, urlparse(canonical_uri).scheme, backend
+        )
 
     def record_lock_seen(self, seen: LockSeen, *, created: bool) -> None:
         """Record a lock entry accessed this session; also as created on first write."""
@@ -151,44 +209,127 @@ class _SessionTracker:
         if created:
             self.lock_created.add(seen)
 
-    def reset(self) -> None:
-        self._records.clear()
-        self.created.clear()
-        self.updated.clear()
-        self.used_keys.clear()
-        self.backend_modules.clear()
-        self.lock_created.clear()
-        self.lock_accessed.clear()
-        self.target_backends.clear()
-
     @property
     def records(self) -> dict[int, _BackendRecord]:
         return self._records
 
 
-session_tracker = _SessionTracker()
-"""Module-level singleton that tracks snapshot activity for the current pytest session.
+# Characters a snapshot name's label keeps; every other character becomes "_".
+# ASCII only, so no platform forbids them in file names and macOS's Unicode
+# normalisation of file names can't apply. "@" separates the label's two parts
+# and "~" starts the hash, so neither appears within a part.
+_LABEL_SAFE = frozenset(string.ascii_letters + string.digits + "._-[]=,+")
+# The most the label keeps of the group name and key, for readability.
+_LABEL_GROUP_MAX = 80
+_LABEL_KEY_MAX = 40
+# Hex characters of the identity hash kept in a name: 64 bits. Two names only
+# rely on the hash when their labels match, and an accidental collision then
+# needs billions of snapshots with one label.
+_HASH_LENGTH = 16
+# The longest file name most file systems allow, in bytes.
+_NAME_MAX_BYTES = 255
+# The fewest label characters (both parts and their "@") a name must keep.
+_LABEL_MIN = 16
 
-Collects created, updated, and accessed snapshot keys across all tests.
-Reset at `pytest_sessionstart` and consumed at `pytest_sessionfinish`
-to produce the session report.
 
-Notes
------
-`reset()` is called by the plugin at `pytest_sessionstart` to clear state
-from any previous session.
-"""
+def _label_part(text: str, limit: int) -> str:
+    return "".join(c if c in _LABEL_SAFE else "_" for c in text)[:limit]
+
+
+def _identity_hash(sk: SnapshotKey) -> str:
+    """The first hex characters of the SHA-256 of the snapshot's exact identity.
+
+    The identity is `[test, key, identifier]`, where `test` is the node id, or
+    `module::group_name` for a snapshot without one. It is serialised as a
+    compact JSON array (`ensure_ascii=False`, UTF-8), so no field's content can
+    be mistaken for a boundary between fields. This is part of the stored
+    format: changing it renames every snapshot.
+    """
+    test = sk.nodeid or f"{sk.module}::{sk.group_name}"
+    identity = json.dumps(
+        [test, sk.key, sk.identifier], ensure_ascii=False, separators=(",", ":")
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
+
+
+def _label(sk: SnapshotKey, room: int | None = None) -> str:
+    """The readable 'group@key' part of a name.
+
+    Characters outside `_LABEL_SAFE` become `_`. The group name keeps at most
+    `_LABEL_GROUP_MAX` characters and the key `_LABEL_KEY_MAX`. Given `room`,
+    the label is shortened further to at most that many characters, the group
+    name giving way first, to half the space.
+    """
+    group = _label_part(sk.group_name, _LABEL_GROUP_MAX)
+    key = _label_part(sk.key, _LABEL_KEY_MAX)
+    if room is not None:
+        room -= len("@")
+        group = group[: max(room - len(key), room // 2)]
+        key = key[: room - len(group)]
+    return f"{group}@{key}"
+
+
+def _snapshot_name(sk: SnapshotKey, label_room: int | None = None) -> str:
+    """The part of a storage key after the module: 'label~hash.ext'.
+
+    The label (see `_label`) is for people to read and isn't decoded;
+    `ditto.lock` records the exact identity. The hash tells apart snapshots
+    whose labels match, such as parametrize IDs that differ only in case or in
+    characters the label replaces.
+    """
+    return f"{_label(sk, label_room)}~{_identity_hash(sk)}.{sk.identifier}"
 
 
 def _flat_key(sk: SnapshotKey) -> str:
-    """Flat filesystem key for file backends: 'module.group@key.ext'.
+    """Storage key for file backends: 'module.label~hash.ext'.
 
     Slashes in the module path are replaced with dots so the key maps to
-    a single flat filename — no subdirectories inside `.ditto/`.
-    Unique across all test files sharing the same `file://` target.
+    a single flat filename — no subdirectories inside `.ditto/`. The label is
+    shortened so the whole name fits in `_NAME_MAX_BYTES`.
+
+    Raises
+    ------
+    DittoSnapshotNameTooLongError
+        When the module path leaves fewer than `_LABEL_MIN` label characters.
     """
-    module_dotted = sk.module.replace("/", ".")
-    return f"{module_dotted}.{sk.group_name}@{sk.key}.{sk.extension}"
+    prefix = sk.module.replace("/", ".") + "."
+    fixed = len(prefix.encode("utf-8")) + len(f"~{'0' * _HASH_LENGTH}.")
+    room = _NAME_MAX_BYTES - fixed - len(sk.identifier)
+    if room < _LABEL_MIN:
+        raise DittoSnapshotNameTooLongError(sk.module, _NAME_MAX_BYTES)
+    return f"{prefix}{_snapshot_name(sk, room)}"
+
+
+def _remote_key(sk: SnapshotKey) -> str:
+    """Storage key for all other backends: 'module/label~hash.ext'.
+
+    A remote key isn't a file name, so its label isn't shortened to fit one:
+    the module path can be as long as the test file's path.
+    """
+    return f"{sk.module}/{_snapshot_name(sk)}"
+
+
+class SnapshotMode(Enum):
+    """How `resolve_snapshot` treats the stored value for a key.
+
+    Attributes
+    ----------
+    RECORD
+        Save the value when the key is absent; otherwise return the stored value.
+    UPDATE
+        Always save the value, overwriting a stored one. Set by `--ditto-update`.
+    VERIFY
+        Never write: return the stored value, or the given value when the key is
+        absent. Set by `--ditto-verify`, so a verify run cannot recreate a
+        deleted snapshot.
+
+    A value that is saved, or returned under VERIFY for an absent key, is
+    serialised and deserialised first, and the deserialised value is returned.
+    """
+
+    RECORD = "record"
+    UPDATE = "update"
+    VERIFY = "verify"
 
 
 @dataclass(frozen=True)
@@ -216,29 +357,39 @@ class Snapshot:
         Resolved storage backend. Conventionally private — set by the fixture via
         `_resolve_target`. Use `target=` to communicate where data goes.
     recorder : Recorder
-        Serialisation strategy. Defaults to pickle.
-    update : bool
-        When True, overwrite existing snapshots. Set by `--ditto-update`.
-    readonly : bool
-        When True, never write to the backend — `resolve_snapshot` returns the
-        stored value (or the given data, if absent) without persisting. Set by
-        `--ditto-verify` so a verify run cannot recreate a deleted snapshot.
+        Serialisation strategy. Defaults to strict JSON.
+    recorder_name : str
+        The recorder's registered name, which is its persisted identifier: it
+        ends snapshot filenames and is recorded in `ditto.lock`. The fixture
+        passes the name the recorder was selected by. A directly constructed
+        `Snapshot` passes `recorder` and `recorder_name` together, or neither
+        for strict JSON (`"json"`). The name may be omitted with the strict JSON
+        recorder itself, whose name is `"json"`.
+    mode : SnapshotMode
+        Whether a snapshot is recorded, updated, or only verified. Defaults to
+        `SnapshotMode.RECORD`.
     nodeid : str
         Full pytest node id for the owning test, e.g. `tests/test_api.py::test_foo`.
         Used to build lock-file entries. Empty when constructed outside the fixture.
     target_id : str
         Portable lock-file target id (rootdir-relative for `file://`, URI otherwise).
+    _tracker : _SessionTracker
+        Where snapshot activity is recorded. The fixture passes its pytest
+        session's tracker; a directly constructed `Snapshot` gets a private one.
     """
 
     group_name: str
     module: str
     target: str
     _backend: MutableMapping[str, bytes] = field(repr=False, compare=False, hash=False)
-    recorder: Recorder = field(default_factory=_default_recorder)
-    update: bool = False
-    readonly: bool = False
+    recorder: Recorder = _UNSET
+    recorder_name: str = _UNSET
+    mode: SnapshotMode = SnapshotMode.RECORD
     nodeid: str = ""
     target_id: str = ""
+    _tracker: _SessionTracker = field(
+        default_factory=_SessionTracker, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         if not self.module:
@@ -247,36 +398,73 @@ class Snapshot:
                 "Pass the rootdir-relative test file stem, e.g. "
                 "module='tests/my_module/test_foo'."
             )
+        if not isinstance(self.mode, SnapshotMode):
+            raise TypeError(
+                f"mode must be a SnapshotMode, got {self.mode!r}. "
+                "Use SnapshotMode.UPDATE in place of update=True and "
+                "SnapshotMode.VERIFY in place of readonly=True."
+            )
+        recorder, name = self.recorder, self.recorder_name
+        if name is _UNSET:
+            if recorder is _UNSET:
+                recorder = _default_recorder()
+            elif recorder is not _default_recorder():
+                raise TypeError(
+                    "Snapshot requires recorder_name= with recorder=. Pass the "
+                    "name the recorder is registered under, e.g. "
+                    "recorder_name='yaml'; it names the snapshot files."
+                )
+            name = DEFAULT_RECORDER_NAME
+        elif recorder is _UNSET:
+            raise TypeError(
+                "Snapshot requires recorder= with recorder_name=. Pass the "
+                f"recorder registered as {name!r}, e.g. "
+                f"recorder=recorders.get({name!r})."
+            )
+        object.__setattr__(self, "recorder", recorder)
+        object.__setattr__(self, "recorder_name", name)
 
     def _key(self, key: str) -> SnapshotKey:
-        return SnapshotKey(self.module, self.group_name, key, self.recorder.extension)
+        if not isinstance(key, str):
+            raise TypeError(f"key must be a str, got {type(key).__name__}")
+        return SnapshotKey(
+            self.module, self.group_name, key, self.recorder_name, self.nodeid
+        )
 
     def _key_of(self) -> Callable[[SnapshotKey], str]:
-        # file:// backends use a flat dotted key (module.group@key.ext) so .ditto/
-        # stays a flat directory. All other backends use slash-namespaced keys.
-        return _flat_key if urlparse(self.target).scheme == "file" else str
-
-    def _store(self) -> Any:
-        from .backends import TransformMapping, _make_recorder_transform
-
-        return TransformMapping(mapping=self._backend) | _make_recorder_transform(
-            self.recorder
-        )
+        # file:// backends use a flat dotted key so .ditto/ stays a flat
+        # directory. All other backends use slash-namespaced keys.
+        return _flat_key if urlparse(self.target).scheme == "file" else _remote_key
 
     def __call__(self, data: Any, key: str) -> Any:
         """Save or load the snapshot for `key`.
 
         Delegates to `resolve_snapshot`: saves `data` on first call and
-        returns the stored value on subsequent calls.
+        returns the stored value on subsequent calls. Either way the value
+        returned is what the recorder reads back, not `data` itself.
         """
         return resolve_snapshot(self, data, key)
 
 
+def _round_trip(recorder: Recorder, data: Any) -> tuple[bytes, Any]:
+    """Serialise `data`, then deserialise those bytes.
+
+    Returns the bytes to store and the value they restore to, so a caller writes
+    exactly the bytes it has shown the recorder can read.
+    """
+    raw = recorder.dumps(data)
+    return raw, recorder.loads(raw)
+
+
 def save_snapshot(snapshot: Snapshot, data: Any, key: str) -> None:
-    """Persist `data` to the backend as the snapshot for `key`."""
+    """Persist `data` to the backend as the snapshot for `key`.
+
+    Nothing is written if the recorder cannot deserialise the bytes it produced.
+    """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    snapshot._store()[storage_key] = data
+    raw, _ = _round_trip(snapshot.recorder, data)
+    snapshot._backend[storage_key] = raw
 
 
 def load_snapshot(snapshot: Snapshot, key: str) -> Any:
@@ -289,37 +477,46 @@ def load_snapshot(snapshot: Snapshot, key: str) -> Any:
     """
     sk = snapshot._key(key)
     storage_key = snapshot._key_of()(sk)
-    store = snapshot._store()
-    if storage_key not in store:
+    backend = snapshot._backend
+    if storage_key not in backend:
         raise FileNotFoundError(
             f"No snapshot file found for key {key!r} (storage key: {storage_key!r})"
         )
-    return store[storage_key]
+    return snapshot.recorder.loads(backend[storage_key])
 
 
 def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
-    """Return the snapshot value for `key`, saving it first if absent.
+    """Return the snapshot value for `key`, first writing `data` if the mode requires.
 
-    When `snapshot.update` is True, always overwrites the existing value.
+    How the stored value is treated depends on `snapshot.mode`; see `SnapshotMode`.
+    Whenever `data` is returned in place of a stored value, it is first passed
+    through the recorder (`dumps`, then `loads`), so the caller's assertion sees
+    what a later run would read back.
 
     Raises
     ------
     DuplicateSnapshotKeyError
         When the same `key` is used more than once within a test.
+    DittoSnapshotNameCollisionError
+        When another snapshot this session has the same storage key.
     """
     sk = snapshot._key(key)
     key_of = snapshot._key_of()
     storage_key = key_of(sk)
 
     backend = snapshot._backend
+    tracker = snapshot._tracker
     used_key = (id(backend), storage_key)
-    if used_key in session_tracker.used_keys:
+    previous = tracker.used_keys.get(used_key)
+    if previous == sk:
         raise DuplicateSnapshotKeyError(key)
-    session_tracker.used_keys.add(used_key)
-    session_tracker.register_access(backend, key_of, sk)
+    if previous is not None:
+        raise DittoSnapshotNameCollisionError(storage_key, str(previous), str(sk))
+    tracker.used_keys[used_key] = sk
+    tracker.register_access(backend, key_of, sk)
 
-    store = snapshot._store()
-    exists = storage_key in store
+    recorder = snapshot.recorder
+    exists = storage_key in backend
 
     # Build the lock observation up front (pure), but only record it AFTER the
     # backend access succeeds — recording before the write would leave a phantom
@@ -330,37 +527,34 @@ def resolve_snapshot(snapshot: Snapshot, data: Any, key: str) -> Any:
             scheme=urlparse(snapshot.target).scheme,
             nodeid=snapshot.nodeid,
             key=key,
-            recorder=snapshot.recorder.extension,
+            recorder=snapshot.recorder_name,
         )
         if snapshot.target_id
         else None
     )
 
-    if snapshot.readonly:
-        # In read-only mode (e.g. --ditto-verify) never write to the backend.
-        # Return the existing value if present, otherwise return `data` unchanged
-        # so the test assertion can still pass, but leave the backend untouched so
-        # the drift check can detect the missing key.
-        # Record as "created" when the key is absent so that the verify hook can
-        # identify intended-but-blocked new snapshots as unsynced.
-        if seen is not None:
-            session_tracker.record_lock_seen(seen, created=not exists)
-        if exists:
-            return store[storage_key]
-        return data
+    match snapshot.mode, exists:
+        case SnapshotMode.RECORD | SnapshotMode.VERIFY, True:
+            value = recorder.loads(backend[storage_key])
+        case SnapshotMode.VERIFY, False:
+            # Never write to the backend: leave it untouched so the drift check
+            # can detect the missing key.
+            _, value = _round_trip(recorder, data)
+        case _:
+            raw, value = _round_trip(recorder, data)
+            try:
+                backend[storage_key] = raw
+            except Exception:
+                # Only the backend call is in here: a recorder error never
+                # reached storage, so it isn't a failed write. An interrupt
+                # isn't one either, since the write may have finished.
+                tracker.writes.append(SnapshotWrite(sk, "write_failed"))
+                raise
+            outcome = "rewritten" if exists else "created"
+            tracker.writes.append(SnapshotWrite(sk, outcome))
 
-    if not exists or snapshot.update:
-        store[storage_key] = data
-        (
-            session_tracker.updated
-            if (snapshot.update and exists)
-            else session_tracker.created
-        ).append(sk)
-        if seen is not None:
-            session_tracker.record_lock_seen(seen, created=not exists)
-        return data
-
-    value = store[storage_key]
+    # A missing key under VERIFY is recorded as "created" so the verify hook
+    # reports it as unsynced.
     if seen is not None:
-        session_tracker.record_lock_seen(seen, created=False)
+        tracker.record_lock_seen(seen, created=not exists)
     return value

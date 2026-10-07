@@ -1,0 +1,4 @@
+"ints","floats","floats_with_none","bools","strings"
+1,4.5,7,true,"a"
+2,5.2,8.5,false,"b"
+3,6.8,,true,"c"

@@ -1,0 +1,1 @@
+{"schema":{"fields":[{"name":"index","type":"integer"},{"name":"ints","type":"integer"},{"name":"floats","type":"number"},{"name":"strings","type":"string","extDtype":"str"}],"primaryKey":["index"],"pandas_version":"1.4.0"},"data":[{"index":0,"ints":1,"floats":4.5,"strings":"a"},{"index":1,"ints":2,"floats":5.2,"strings":"b"},{"index":2,"ints":3,"floats":6.8,"strings":"c"}]}

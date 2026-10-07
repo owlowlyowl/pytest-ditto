@@ -1,26 +1,43 @@
 name: Pre-release Testing
 
+# The release workflow's build, verification and tests, without publishing.
+
 on: workflow_dispatch
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    environment: pre-release
+  artifacts:
+    name: Artifacts
+    uses: ./.github/workflows/release-artifacts.yml
 
+  test:
+    name: Test (${{ matrix.environment }})
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { environment: py312, task: test }
+          - { environment: pandas-py312, task: verify-pandas }
+          - { environment: pickle-py312, task: verify-pickle }
+          - { environment: polars-py312, task: verify-polars }
+          - { environment: pyarrow-py312, task: verify-pyarrow }
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.81.0
           cache: true
+          environments: ${{ matrix.environment }}
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Build package
-        run: pixi run -e build build
-
-      - name: Test package
-        run: pixi run -e py312 test
+      - name: Run ${{ matrix.task }}
+        run: pixi run -e ${{ matrix.environment }} ${{ matrix.task }}

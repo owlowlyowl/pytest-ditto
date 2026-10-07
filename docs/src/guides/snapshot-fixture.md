@@ -64,10 +64,11 @@ By default, snapshots are stored in a `.ditto/` directory adjacent to the
 test file. The filename format is:
 
 ```
-.ditto/<module>.<group>@<key>.<extension>
+.ditto/<module>.<test>@<key>~<hash>.<recorder>
 ```
 
-For example, a test in `tests/test_api.py`:
+For example, with the project root as pytest's rootdir, a test in
+`tests/test_api.py`:
 
 ```python
 @ditto.json
@@ -76,7 +77,23 @@ def test_response(snapshot):
     assert data == snapshot(data, key="body")
 ```
 
-Stores to: `.ditto/test_api.test_response@body.json`
+Stores to: `tests/.ditto/tests.test_api.test_response@body~234c7156f10c6aa4.json`
+
+A key can be any string, and the test name includes any parametrize ID, so
+either can hold characters a file name can't. In the file name, characters other
+than ASCII letters, digits and `. _ - [ ] = , +` become `_`. The hash, from the
+test's exact node ID, the key and the recorder, keeps names apart that would
+otherwise match:
+
+| Test | File |
+|---|---|
+| `test_at[12:00]` | `tests.test_api.test_at[12_00]@body~6617c5399a6ba420.json` |
+| `test_at[12_00]` | `tests.test_api.test_at[12_00]@body~105d78e147145d58.json` |
+| `test_at[A]` | `tests.test_api.test_at[A]@body~46cccc8d4a59c1ef.json` |
+| `test_at[a]` | `tests.test_api.test_at[a]@body~a99f8460327efdf4.json` |
+
+`ditto.lock` records the exact test and key, and `ditto list` shows them. See
+[Storage Backends](backends.md#local-files-file) for the full naming rules.
 
 ## Updating Snapshots
 

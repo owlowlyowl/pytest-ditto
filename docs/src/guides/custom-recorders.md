@@ -4,35 +4,71 @@ Create your own recorder to support any serialisation format.
 
 ## Recorder Definition
 
-A `Recorder` is a frozen dataclass with three fields:
+A `Recorder` is a frozen dataclass with two fields:
 
 ```python
-from pathlib import Path
 from ditto.recorders import Recorder
 
 
-def _save(data: MyType, filepath: Path) -> None:
-    """Write data to filepath."""
+def _dumps(data: MyType) -> bytes:
+    """Serialise data to bytes."""
     ...
 
 
-def _load(filepath: Path) -> MyType:
-    """Read and return data from filepath."""
+def _loads(raw: bytes) -> MyType:
+    """Deserialise bytes produced by _dumps."""
     ...
 
 
-my_recorder: Recorder[MyType] = Recorder(
-    extension="myformat",
-    save=_save,
-    load=_load,
-)
+my_recorder: Recorder[MyType] = Recorder(dumps=_dumps, loads=_loads)
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `extension` | `str` | File extension appended to snapshot names |
-| `save` | `Callable[[T, Path], None]` | Serialises a value to a file path |
-| `load` | `Callable[[Path], T]` | Deserialises a value from a file path |
+| `dumps` | `Callable[[T], bytes]` | Serialises a value to bytes |
+| `loads` | `Callable[[bytes], T]` | Deserialises bytes back to a value |
+
+When recording or updating a snapshot, or verifying a missing snapshot,
+`snapshot()` returns `loads(dumps(value))`, so a test sees what later runs will
+read back. In RECORD or VERIFY mode, an existing snapshot returns
+`loads(stored_bytes)` without serialising the supplied value.
+If `loads` can't read the bytes `dumps` produced, nothing is written. `dumps`
+must not modify the value it is given, because the test compares that value
+with the one `snapshot()` returns.
+
+The bytes are the snapshot file's contents, stored as they are: a text format
+stays readable and diffable. Write text with `"\n"` line endings rather than the
+platform's, so a snapshot's bytes are the same on every machine.
+
+Snapshots are handled whole: the value and its serialised bytes must fit in
+memory together.
+
+### Libraries that only read and write files
+
+If a library can't serialise to bytes, wrap its file functions with
+`recorder_from_files`:
+
+```python
+from pathlib import Path
+from ditto.recorders import recorder_from_files
+
+
+def _save(data: MyType, path: Path) -> None: ...
+
+
+def _load(path: Path) -> MyType: ...
+
+
+my_recorder = recorder_from_files(save=_save, load=_load, suffix=".myformat")
+```
+
+Each call writes or reads a temporary file named `snapshot<suffix>` in its own
+temporary directory, which is removed afterwards even if the call fails. The
+suffix only names that temporary file; the snapshot's filename still comes
+from the recorder's registered name. Only single-file formats work, and a value
+returned by `_load` must not depend on the file after `_load` returns, so lazy
+or memory-mapped readers are unsuitable. Prefer an in-memory API where the
+library has one: it avoids the file I/O.
 
 ## Registration via Entry Points
 
@@ -54,39 +90,81 @@ def test_something(snapshot):
     assert data == snapshot(data, key="output")
 ```
 
-## Registering Custom Marks
+## Marks
 
-For a cleaner API (e.g., `@ditto.myplugin.myformat`), register marks via the
-`ditto_marks` entry point group:
+Every registered recorder gets a mark, derived from its entry-point name. A bare
+name `myformat` is exposed as `@ditto.myformat`. A dotted name
+`myplugin.myformat` is exposed as `@ditto.myplugin.myformat`. Both are
+shorthands for `@ditto.record("<name>")`:
 
 ```toml
-[project.entry-points.ditto_marks]
-myplugin = "my_package.marks:myplugin"
+[project.entry-points.ditto_recorders]
+"myplugin.myformat" = "my_package.recorders:myformat"
 ```
 
-The mark object should be a namespace that provides mark attributes. See the
-`pytest-ditto-pandas` source for a complete example.
+```python
+@ditto.myplugin.myformat
+def test_something(snapshot):
+    ...
+```
+
+Resolving a mark reads only the installed entry-point names; the recorder is
+imported the first time a test uses it. A misspelled format, such as
+`@ditto.myplugin.myfromat`, fails at collection with the formats that are
+available under `myplugin`.
+
+## Naming Rules
+
+A recorder's entry-point name is its user-facing name. It must be `<format>` or
+`<namespace>.<format>`, where each segment is a lowercase letter followed by
+lowercase letters, digits or underscores. Name a plugin's recorders
+`<namespace>.<format>`, with the plugin's name as the namespace.
+
+A recorder's name is also its persisted identifier: it ends the recorder's
+snapshot filenames and is recorded in `ditto.lock`. Renaming a recorder
+therefore renames its snapshot files.
+
+These registrations conflict:
+
+- the same name registered by more than one distribution, which would read and
+  write each other's snapshot files
+- a bare name that is also a namespace, such as `tabular` alongside
+  `tabular.csv`, which makes `@ditto.tabular` ambiguous
+- a name that shadows an attribute of `ditto`, such as `record` or `version`
+
+Conflicts are found from the installed entry-point metadata, without importing
+any recorder, so a conflicting plugin is found even if no test uses it. ditto
+never picks one of the conflicting registrations: pytest stops before
+collecting any tests, listing every conflict and the distributions involved,
+and `ditto doctor` fails.
+
+Plugins written for the 1.x contract, which registered marks under the removed
+`ditto_marks` group, are reported the same way, with the version to install.
+
+## Registering in `conftest.py`
+
+A project can register a recorder without packaging it:
+
+```python
+# conftest.py
+from ditto import recorders
+
+recorders.register("myproject.myformat", my_recorder)
+```
+
+`register` follows the same naming rules and raises
+`DittoRecorderConflictError` if the name conflicts with one already
+registered. It never replaces an installed recorder.
 
 ## Example: MessagePack Recorder
 
 ```python
-from pathlib import Path
 import msgpack
 from ditto.recorders import Recorder
 
 
-def _save_msgpack(data: dict, filepath: Path) -> None:
-    filepath.write_bytes(msgpack.packb(data))
-
-
-def _load_msgpack(filepath: Path) -> dict:
-    return msgpack.unpackb(filepath.read_bytes())
-
-
 msgpack_recorder: Recorder[dict] = Recorder(
-    extension="msgpack",
-    save=_save_msgpack,
-    load=_load_msgpack,
+    dumps=msgpack.packb, loads=msgpack.unpackb
 )
 ```
 
@@ -106,12 +184,4 @@ def test_with_msgpack(snapshot):
     assert data == snapshot(data, key="packed")
 ```
 
-## Extension Naming
-
-The `extension` field is the canonical identifier appended to snapshot keys.
-It may contain dots for namespaced recorders:
-
-- Built-in: `pkl`, `yaml`, `json`
-- Plugin: `pandas.parquet`, `pandas.csv`, `pyarrow.feather`
-
-The extension does not need to match the mark alias or registry key.
+Its snapshots are saved as `<key>.msgpack`.

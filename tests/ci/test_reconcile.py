@@ -2,7 +2,7 @@ import fsspec
 
 from ditto._reconcile import ReconcileResult, owned_prefixes, diff_backend
 from ditto._lockfile import LockEntry, storage_key
-from ditto.snapshot import Snapshot, resolve_snapshot, session_tracker
+from ditto.snapshot import Snapshot, resolve_snapshot
 from ditto.backends import FsspecMapping
 from ditto.recorders import default as _default_recorder
 
@@ -29,6 +29,7 @@ def test_reports_missing_when_lock_key_absent_from_backend():
         lock_keys={"tests.m.test_a@k.pkl"},
         backend_keys=set(),
         owned=frozenset({"tests.m."}),
+        created_keys=set(),
     )
 
     assert result.missing == ("tests.m.test_a@k.pkl",)
@@ -41,6 +42,7 @@ def test_reports_orphan_when_backend_key_under_owned_prefix_absent_from_lock():
         lock_keys=set(),
         backend_keys={"tests.m.test_a@k.pkl"},
         owned=frozenset({"tests.m."}),
+        created_keys=set(),
     )
 
     assert result.orphan == ("tests.m.test_a@k.pkl",)
@@ -53,6 +55,7 @@ def test_ignores_backend_keys_outside_owned_prefixes():
         lock_keys=set(),
         backend_keys={"other.suite.test_z@k.pkl"},
         owned=frozenset({"tests.m."}),
+        created_keys=set(),
     )
 
     assert result.orphan == ()
@@ -63,10 +66,13 @@ def test_reports_nothing_when_backend_matches_lock():
     """No drift when the backend's owned keys equal the lock's keys."""
     keys = {"tests.m.test_a@k.pkl"}
     result = diff_backend(
-        lock_keys=keys, backend_keys=keys, owned=frozenset({"tests.m."})
+        lock_keys=keys,
+        backend_keys=keys,
+        owned=frozenset({"tests.m."}),
+        created_keys=set(),
     )
 
-    assert result == ReconcileResult(missing=(), orphan=())
+    assert result == ReconcileResult(missing=(), orphan=(), unsynced=())
 
 
 def test_classifies_orphans_across_multiple_owned_prefixes():
@@ -79,6 +85,7 @@ def test_classifies_orphans_across_multiple_owned_prefixes():
             "other.z@k.pkl",
         },
         owned=frozenset({"tests.a.", "tests.b."}),
+        created_keys=set(),
     )
 
     assert result.orphan == ("tests.a.test_x@k.pkl", "tests.b.test_y@k.pkl")
@@ -91,6 +98,7 @@ def test_key_in_both_lock_and_backend_is_not_an_orphan():
         lock_keys=keys,
         backend_keys=keys | {"tests.m.test_b@k.pkl"},
         owned=frozenset({"tests.m."}),
+        created_keys=set(),
     )
 
     assert result.orphan == ("tests.m.test_b@k.pkl",)
@@ -99,7 +107,6 @@ def test_key_in_both_lock_and_backend_is_not_an_orphan():
 
 def test_storage_key_matches_the_key_the_fixture_actually_stores(tmp_path):
     """storage_key(nodeid) equals the backend key a real resolve_snapshot writes."""
-    session_tracker.reset()
     root = (tmp_path / ".ditto").as_posix()
     backend = FsspecMapping(fsspec.filesystem("file"), root)
     snap = Snapshot(
@@ -115,8 +122,49 @@ def test_storage_key_matches_the_key_the_fixture_actually_stores(tmp_path):
 
     stored_keys = set(backend)  # the actual storage keys on the backend
     derived = storage_key(
-        LockEntry("tests/test_api.py::TestX::test_foo", "k", "pkl"), "file"
+        LockEntry("tests/test_api.py::TestX::test_foo", "k", "json"), "file"
     )
 
     assert derived in stored_keys
-    session_tracker.reset()
+
+
+def test_classifies_created_this_run_key_as_unsynced_not_orphan():
+    """A key created this run but absent from the lock is unsynced, never an orphan."""
+    key = "tests.m.test_new@k.pkl"
+    result = diff_backend(
+        lock_keys=set(),
+        backend_keys={key},
+        owned=frozenset({"tests.m."}),
+        created_keys={key},
+    )
+
+    assert result.unsynced == (key,)
+    assert result.orphan == ()
+
+
+def test_genuine_orphan_is_not_unsynced():
+    """A backend key not in the lock and not created this run is an orphan."""
+    key = "tests.m.test_old@k.pkl"
+    result = diff_backend(
+        lock_keys=set(),
+        backend_keys={key},
+        owned=frozenset({"tests.m."}),
+        created_keys=set(),
+    )
+
+    assert result.orphan == (key,)
+    assert result.unsynced == ()
+
+
+def test_unsynced_reported_even_when_absent_from_backend():
+    """A created key blocked from the backend (read-only verify) is still unsynced."""
+    key = "tests.m.test_new@k.pkl"
+    result = diff_backend(
+        lock_keys=set(),
+        backend_keys=set(),
+        owned=frozenset({"tests.m."}),
+        created_keys={key},
+    )
+
+    assert result.unsynced == (key,)
+    assert result.orphan == ()

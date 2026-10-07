@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [pixi](https://pixi.sh/) (v0.69+) — environment and task management
-- [Docker](https://www.docker.com/) — for backend examples and Docker-backed integration tests
+- [Docker](https://www.docker.com/) — only for running backend examples (PostgreSQL, Redis)
 
 ## Setup
 
@@ -17,6 +17,11 @@ pixi install
 
 The package is installed in editable mode automatically via the workspace config.
 
+Clone with full history, not `--depth`: every package's version comes from
+`git describe`, which fails in a shallow clone. To fix one, run
+`git fetch --unshallow --tags`. The install writes `src/ditto/_version.py`, which
+isn't tracked.
+
 ## Environments
 
 pixi manages multiple isolated environments for different tasks:
@@ -27,13 +32,15 @@ pixi manages multiple isolated environments for different tasks:
 | `py312` | Test on Python 3.12 | pytest, pytest-cov, hypothesis |
 | `py313` | Test on Python 3.13 | pytest, pytest-cov, hypothesis |
 | `py314` | Test on Python 3.14 | pytest, pytest-cov, hypothesis |
-| `pandas` | Test with pandas recorders | pytest-ditto-pandas |
-| `pyarrow` | Test with PyArrow recorders | pytest-ditto-pyarrow |
+| `pandas-py312`–`py314` | Test the pandas plugin | pytest-ditto-pandas (editable) |
+| `pickle-py312`–`py314` | Test the pickle plugin | pytest-ditto-pickle (editable) |
+| `polars-py312`–`py314` | Test the polars plugin | pytest-ditto-polars (editable) |
+| `pyarrow-py312`–`py314` | Test the PyArrow plugin | pytest-ditto-pyarrow (editable) |
 | `lint` | Linting and type checking | pre-commit, ruff, basedpyright |
 | `docs` | Documentation | zensical, mkdocstrings-python |
 | `build` | Package building | uv |
 | `examples` | Run backend examples | duckdb, redis, psycopg2 |
-| `integration` | Standalone backend integration tests | duckdb, redis, psycopg2 |
+| `integration` | Standalone CLI and backend integration tests | duckdb, redis, psycopg2 |
 
 Install a specific environment:
 
@@ -62,37 +69,64 @@ Coverage reports are generated in HTML, terminal, and XML formats.
 
 ### Plugin tests
 
-```bash
-pixi run -e pandas test       # pandas recorder tests
-pixi run -e pyarrow test      # PyArrow recorder tests
-```
-
-### Standalone integration tests
-
-Run the non-Docker integration coverage:
+First-party recorder plugins live under `plugins/<name>/`, each a separate
+distribution with its own `pyproject.toml`, tests, `ditto.lock` and snapshots.
+The `<name>-py312`/`py313`/`py314` environments install the plugin from
+`plugins/<name>` as an editable path dependency next to core, and its tasks run
+from the plugin's directory, the way a third-party plugin's suite runs:
 
 ```bash
-pixi run -e integration test-integration-local
+pixi run -e pandas-py312 test-pandas       # pandas plugin tests
+pixi run -e pandas-py312 verify-pandas     # its snapshots against its ditto.lock
+pixi run -e pickle-py312 test-pickle       # pickle plugin tests
+pixi run -e pickle-py312 verify-pickle     # its snapshots against its ditto.lock
+pixi run -e polars-py312 test-polars       # polars plugin tests
+pixi run -e polars-py312 verify-polars     # its snapshots against its ditto.lock
+pixi run -e pyarrow-py312 test-pyarrow     # PyArrow plugin tests
+pixi run -e pyarrow-py312 verify-pyarrow   # its snapshots against its ditto.lock
 ```
 
-Run the full standalone CLI/backend lifecycle suite:
+`pandas-floor-py312` runs the pandas plugin with the oldest pandas and pyarrow
+its `pyproject.toml` allows. Raise its pins in the `pandas-floor` feature when
+you raise those floors:
 
 ```bash
-pixi run -e integration test-integration
+pixi run -e pandas-floor-py312 verify-pandas
 ```
 
-Preserve CLI output, lock files, and backend-state artifacts in a stable directory:
+The core environments (`default`, `py312`–`py314`) never install a plugin.
+Plugins share core's version, computed from the same git tag.
+
+A plugin's requirement on core is generated at build time: each plugin's
+`hatch_build.py` adds `pytest-ditto>=<the plugin's version>,<3` to the
+dependencies listed under `[tool.hatch.metadata.hooks.custom]` in its
+`pyproject.toml`. Don't declare `pytest-ditto` there. All plugin `hatch_build.py`
+files are identical copies, so each ships in its plugin's sdist; change them
+together.
+
+## Standalone integration tests
+
+`tests/integration/` runs the real `ditto` CLI against small test-owned projects
+using local, DuckDB, Redis and Postgres backends: record and replay, `list`,
+`status` and `stats`, then `lock`, `verify` (clean, and with a snapshot deleted)
+and recovery with `update`. Redis and Postgres run in Docker. It stays separate
+from `examples/`.
+
+```bash
+pixi run -e integration test-integration-local   # local and DuckDB only, no Docker
+pixi run -e integration test-integration         # everything
+```
+
+Set `DITTO_INTEGRATION_ARTIFACTS_DIR` to keep each command's output, the lock
+files and the backend state in a stable directory:
 
 ```bash
 DITTO_INTEGRATION_ARTIFACTS_DIR=.pytest/integration-artifacts pixi run -e integration test-integration
 ```
 
-The suite lives under `tests/integration/`, uses standalone test-owned fixture
-projects, and stays intentionally separate from `examples/`.
-
 ## Linting & Type Checking
 
-Run all linters (ruff check, ruff format, basedpyright) via pre-commit:
+Run all linters (ruff check, ruff format, basedpyright, zizmor) via pre-commit:
 
 ```bash
 pixi run -e lint lint
@@ -103,6 +137,17 @@ Run the type checker standalone:
 ```bash
 pixi run -e lint typecheck
 ```
+
+Audit the GitHub Actions workflows and Dependabot config with
+[zizmor](https://docs.zizmor.sh). Without a `GH_TOKEN` it skips the online audits,
+which CI runs:
+
+```bash
+pixi run -e lint workflow-lint
+```
+
+Workflows pin every action to a commit SHA with the version in a comment
+(`uses: owner/action@<sha> # vX.Y.Z`); Dependabot updates both.
 
 ### Pre-commit hooks
 
@@ -156,14 +201,38 @@ docs/
 
 ## Building
 
-Build the sdist and wheel:
+Build the sdist and wheel of core and every plugin, then verify them:
 
 ```bash
-pixi run -e build build
+pixi run -e build build              # emptied first; one directory per package
+pixi run -e build verify-artifacts   # add --version X.Y.Z to require a version
 ```
 
-Output goes to `dist/`. The package uses [hatch](https://hatch.pypa.io/) with
-[hatch-vcs](https://github.com/ofek/hatch-vcs) for version management from git tags.
+Output goes to `dist/<distribution>/`, e.g. `dist/pytest-ditto/` and
+`dist/pytest-ditto-pandas/`. Every package is versioned from the same git tag by
+`version_builder.py`, through [hatch](https://hatch.pypa.io/): a tagged commit gets
+the tag (`2.0.0`, `2.0.0rc1`), and the Nth commit after it gets
+`<tag>.post0.dev<N>+<sha>`.
+
+`verify-artifacts` checks every package's wheel and sdist, and a wheel rebuilt
+from the sdist, then installs each one in a clean venv. For core, it checks the
+package boundary and a snapshot round trip. For each plugin, it checks the
+generated `pytest-ditto>=<version>,<3` requirement, that every recorder and its
+mark load, that `import ditto` doesn't import the plugin, and `ditto doctor`.
+
+## Releasing
+
+Publishing a GitHub release runs `.github/workflows/release.yml`. One tag
+releases core and every plugin at the same version:
+
+1. **Artifacts**: build and verify every package, requiring the tag's version.
+2. **Test**: the core suite and each plugin's suite.
+3. **Publish** exactly the verified files, core first, then the plugins, with
+   `skip-existing`, so a partly published release can be re-run.
+
+The *Pre-release Testing* workflow (run manually) does steps 1 and 2 without
+publishing, and CI's *Release artifacts* job does step 1 on every PR. All three
+share `.github/workflows/release-artifacts.yml`.
 
 ## Examples
 
@@ -207,10 +276,8 @@ pixi run -e examples examples-redis-reset      # remove container + volume
 
 ## CI
 
-GitHub Actions runs tests on Python 3.12, 3.13, and 3.14 plus the standalone
-integration job on every push to `main` and on pull requests. The integration
-job uploads `.pytest/integration-artifacts` for inspection. See
-`.github/workflows/ci.yml`.
+GitHub Actions runs tests on Python 3.12, 3.13, and 3.14 on every push to
+`main` and on pull requests. See `.github/workflows/ci.yml`.
 
 Documentation is built and deployed to GitHub Pages on push to `main`.
 See `.github/workflows/docs.yml`.
@@ -226,8 +293,7 @@ See `.github/workflows/docs.yml`.
 │   ├── recorders/        # Built-in recorders (pickle, yaml, json)
 │   ├── backends/         # Storage backends (fsspec, transforms)
 │   └── exceptions.py     # Exception hierarchy
-├── tests/ci/             # Fast test suite
-├── tests/integration/    # Standalone CLI/backend lifecycle coverage
+├── tests/ci/             # Test suite
 ├── examples/             # Backend examples (local, postgres, redis, duckdb)
 ├── docs/                 # Documentation source
 ├── pyproject.toml        # Package metadata + pixi config

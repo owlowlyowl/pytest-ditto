@@ -1,3 +1,5 @@
+import dataclasses
+import sys
 from pathlib import Path
 
 import fsspec
@@ -5,15 +7,15 @@ import pytest
 
 from ditto._lockfile import LockEntry, LockTarget, LockFile, serialise, deserialise
 from ditto._lockfile import read_lockfile, write_lockfile
-from ditto._lockfile import portable_target_id, storage_key
+from ditto._lockfile import portable_target_id
+from ditto._lockfile import split_nodeid, storage_key
 from ditto._lockfile import merge_append
 from ditto.exceptions import DittoLockFileError, DittoLockFileVersionError
 from ditto.snapshot import (
-    _SessionTracker,
     LockSeen,
     Snapshot,
     resolve_snapshot,
-    session_tracker,
+    _SessionTracker,
 )
 from ditto.backends import FsspecMapping
 from ditto.recorders import default as _default_recorder
@@ -106,6 +108,18 @@ def test_leaves_no_temp_file_after_write(tmp_path):
     assert leftovers == []
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_keeps_permissions_of_an_existing_lock_file(tmp_path):
+    """Rewriting the lock file keeps its permission bits."""
+    path = tmp_path / "ditto.lock"
+    write_lockfile(path, _canonical_sample())
+    path.chmod(0o640)
+
+    write_lockfile(path, _canonical_sample())
+
+    assert path.stat().st_mode & 0o777 == 0o640
+
+
 def test_raises_when_lockfile_is_corrupt(tmp_path):
     """A present but unparseable lock file fails loudly rather than reading empty."""
     path = tmp_path / "ditto.lock"
@@ -133,13 +147,35 @@ def test_passes_remote_uri_through_unchanged():
     assert actual == expected
 
 
+@pytest.mark.parametrize(
+    ("nodeid", "expected"),
+    [
+        ("test_api.py::test_foo", ("test_api", "test_foo")),
+        (
+            "tests/sub/test_api.py::TestX::test_foo[a-1]",
+            ("tests/sub/test_api", "TestX.test_foo[a-1]"),
+        ),
+        # A doctest file keeps the key the fixture gave it before 2.0: the
+        # extension is dropped whatever it is.
+        ("docs/guide.txt::guide.txt", ("docs/guide", "guide.txt")),
+        ("tests/test_v1.2.py::test_foo", ("tests/test_v1.2", "test_foo")),
+        # pytest gives a test outside the rootdir no file path.
+        ("::test_foo", ("", "test_foo")),
+    ],
+    ids=["root", "nested-class-param", "doctest", "dotted-stem", "no-path"],
+)
+def test_splits_nodeid_into_module_and_group(nodeid, expected):
+    """The module is the file path without its extension; the rest is the group."""
+    assert split_nodeid(nodeid) == expected
+
+
 def test_derives_flat_dotted_key_for_file_scheme():
     """File backends use a flat dotted storage key."""
     entry = LockEntry("tests/test_api.py::TestX::test_foo", "result", "pkl")
 
     actual = storage_key(entry, "file")
 
-    expected = "tests.test_api.TestX.test_foo@result.pkl"
+    expected = "tests.test_api.TestX.test_foo@result~497fc52676435461.pkl"
     assert actual == expected
 
 
@@ -149,7 +185,7 @@ def test_derives_slash_namespaced_key_for_remote_scheme():
 
     actual = storage_key(entry, "s3")
 
-    expected = "tests/test_api/TestX.test_foo@result.pkl"
+    expected = "tests/test_api/TestX.test_foo@result~497fc52676435461.pkl"
     assert actual == expected
 
 
@@ -159,7 +195,7 @@ def test_preserves_dotted_recorder_extension_in_key():
 
     actual = storage_key(entry, "file")
 
-    expected = "tests.test_etl.test_pipe@frame.pandas.parquet"
+    expected = "tests.test_etl.test_pipe@frame~0713c5e4f8daffa6.pandas.parquet"
     assert actual == expected
 
 
@@ -224,7 +260,6 @@ def test_does_not_mutate_existing_lockfile():
 
 def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
     """Creating a snapshot records a created lock entry for its target."""
-    session_tracker.reset()
     backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
     snap = Snapshot(
         group_name="test_foo",
@@ -243,15 +278,13 @@ def test_records_created_lock_entry_when_snapshot_is_new(tmp_path):
         scheme="file",
         nodeid="tests/test_foo.py::test_foo",
         key="k",
-        recorder="pkl",
+        recorder="json",
     )
-    assert expected in session_tracker.lock_created
-    session_tracker.reset()
+    assert expected in snap._tracker.lock_created
 
 
 def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
     """Resolving an already-stored snapshot records access but not creation."""
-    session_tracker.reset()
     backend = FsspecMapping(fsspec.filesystem("file"), (tmp_path / ".ditto").as_posix())
     snap = Snapshot(
         group_name="test_foo",
@@ -263,20 +296,20 @@ def test_records_accessed_only_when_snapshot_already_exists(tmp_path):
         target_id="tests/.ditto",
     )
     resolve_snapshot(snap, 123, "k")  # first call creates and records it
-    session_tracker.reset()  # clear observations; the stored snapshot remains on disk
+    # A fresh tracker, as in a later session; the stored snapshot remains on disk.
+    later = dataclasses.replace(snap, _tracker=_SessionTracker())
 
-    resolve_snapshot(snap, 123, "k")
+    resolve_snapshot(later, 123, "k")
 
     seen = LockSeen(
         target_id="tests/.ditto",
         scheme="file",
         nodeid="tests/test_foo.py::test_foo",
         key="k",
-        recorder="pkl",
+        recorder="json",
     )
-    assert seen in session_tracker.lock_accessed
-    assert seen not in session_tracker.lock_created
-    session_tracker.reset()
+    assert seen in later._tracker.lock_accessed
+    assert seen not in later._tracker.lock_created
 
 
 def test_records_entry_as_created_and_accessed_when_created():
@@ -299,17 +332,3 @@ def test_records_entry_as_accessed_only_when_not_created():
 
     assert seen not in tracker.lock_created
     assert seen in tracker.lock_accessed
-
-
-def test_clears_lock_sets_on_reset():
-    """Resetting the tracker drops all recorded lock observations."""
-    tracker = _SessionTracker()
-    tracker.record_lock_seen(
-        LockSeen("tests/.ditto", "file", "tests/test_a.py::test_a", "k", "pkl"),
-        created=True,
-    )
-
-    tracker.reset()
-
-    assert not tracker.lock_created
-    assert not tracker.lock_accessed

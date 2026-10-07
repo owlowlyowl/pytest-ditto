@@ -6,7 +6,7 @@ import types
 import pytest
 
 from ditto.exceptions import DittoWarning
-from ditto.plugin import _warn_if_lockfile_ignored
+from ditto.plugin._lock import warn_if_lockfile_ignored
 from ditto.snapshot import _SessionTracker
 
 pytest_plugins = ["pytester"]
@@ -21,38 +21,31 @@ def test_gitignore_guard_warns_with_ditto_category(tmp_path, recwarn):
     """The .gitignore guard emits its advisory under the DittoWarning category."""
     (tmp_path / ".gitignore").write_text("ditto.lock\n")
 
-    _warn_if_lockfile_ignored(types.SimpleNamespace(rootpath=tmp_path))
+    warn_if_lockfile_ignored(types.SimpleNamespace(rootpath=tmp_path))
 
     assert any(issubclass(w.category, DittoWarning) for w in recwarn.list)
 
 
-def test_tracker_registers_target_backend():
-    """A target id maps to its (scheme, backend) for later enumeration."""
+def test_records_a_targets_uri_scheme_and_backend_by_target_id():
+    """A target id maps to its canonical URI, scheme and backend for later
+    enumeration."""
     tracker = _SessionTracker()
     backend = object()
 
-    tracker.register_target_backend("tests/.ditto", "file", backend)
+    tracker.register_target_backend("tests/.ditto", "file:///p/tests/.ditto", backend)
 
-    assert tracker.target_backends["tests/.ditto"] == ("file", backend)
-
-
-def test_tracker_reset_clears_target_backends():
-    """Reset drops registered target backends."""
-    tracker = _SessionTracker()
-    tracker.register_target_backend("tests/.ditto", "file", object())
-
-    tracker.reset()
-
-    assert tracker.target_backends == {}
+    actual = tracker.target_backends["tests/.ditto"]
+    expected = ("file:///p/tests/.ditto", "file", backend)
+    assert actual == expected
 
 
-VERIFY_MODULE = '''
+VERIFY_MODULE = """
 def test_alpha(snapshot):
     assert snapshot(1, key="a") == 1
 
 def test_beta(snapshot):
     assert snapshot(2, key="b") == 2
-'''
+"""
 
 
 def _seed_lock(pytester):
@@ -82,6 +75,53 @@ def test_verify_fails_when_a_snapshot_is_missing(pytester):
     assert result.ret != 0
 
 
+def test_verify_names_the_target_a_missing_snapshot_belongs_to(pytester):
+    """A missing key is reported under the target it is absent from."""
+    _seed_lock(pytester)
+    snap_dir = pytester.path / ".ditto"
+    next(p for p in snap_dir.iterdir() if "test_alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*ditto verify: lock drift detected",
+        "*.ditto:",
+        "*missing (recorded in lock, absent from backend):",
+        "*test_alpha*a*test_mod.test_alpha@a~*",
+    ])
+
+
+def test_verify_names_the_test_the_lock_records_a_missing_key_for(pytester):
+    """A missing key the lock knows is named by node id and key, not just its
+    storage name."""
+    _seed_lock(pytester)
+    snap_dir = pytester.path / ".ditto"
+    next(p for p in snap_dir.iterdir() if "test_alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*test_mod.py::test_alpha  a  test_mod.test_alpha@a~*"
+    ])
+
+
+def test_verify_names_the_target_an_orphan_belongs_to(pytester):
+    """An orphan is reported under the target holding it."""
+    lock_path = _seed_lock(pytester)
+    data = json.loads(lock_path.read_text())
+    target = next(iter(data["targets"].values()))
+    target["entries"] = [e for e in target["entries"] if "test_beta" not in e["nodeid"]]
+    lock_path.write_text(json.dumps(data))  # beta now an orphan on the backend
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "*.ditto:",
+        "*orphan (in backend, not in lock):",
+        "*test_mod.test_beta@b~*",
+    ])
+
+
 def test_verify_fails_on_orphan_backend_snapshot(pytester):
     """A backend snapshot with no lock entry fails verify."""
     lock_path = _seed_lock(pytester)
@@ -100,10 +140,10 @@ def test_verify_fails_when_a_test_produces_an_unrecorded_snapshot(pytester):
     _seed_lock(pytester)
     pytester.makepyfile(
         test_mod=VERIFY_MODULE
-        + '''
+        + """
 def test_gamma(snapshot):
     assert snapshot(3, key="c") == 3
-'''
+"""
     )
 
     result = pytester.runpytest_subprocess("--ditto-verify")
@@ -170,3 +210,34 @@ def test_ditto_verify_cli_fails_on_drift(pytester, monkeypatch):
 
     assert result.returncode != 0
     assert b"drift" in result.stdout  # a verify-specific failure, not a generic error
+
+
+def test_verify_names_the_targets_it_checked_when_there_is_no_drift(pytester):
+    """A clean verify says which targets agree with the lock, not nothing at all."""
+    _seed_lock(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines(["ditto verify: no drift in 1 target: .ditto"])
+
+
+def test_verify_says_nothing_was_checked_when_no_target_was_used(pytester):
+    """A run that used no snapshot target can't pass for a clean verify."""
+    _seed_lock(pytester)
+    pytester.makepyfile(test_mod="def test_plain():\n    assert True\n")
+
+    result = pytester.runpytest_subprocess("--ditto-verify")
+
+    result.stdout.fnmatch_lines([
+        "ditto verify: no snapshot target was used, so nothing was checked*"
+    ])
+
+
+def test_verify_starts_its_report_on_a_line_of_its_own(pytester):
+    """The report doesn't trail pytest's progress output on the same line."""
+    _seed_lock(pytester)
+    next(p for p in (pytester.path / ".ditto").iterdir() if "alpha" in p.name).unlink()
+
+    result = pytester.runpytest_subprocess("--ditto-verify", "-q")
+
+    result.stdout.fnmatch_lines(["ditto verify: lock drift detected"])

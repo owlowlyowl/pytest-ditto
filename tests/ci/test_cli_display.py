@@ -1,0 +1,160 @@
+"""CLI rendering treats user-derived names and errors as literal text."""
+
+from io import StringIO
+
+from click.testing import CliRunner
+from rich.console import Console
+
+from ditto._inventory import InventoryError, location_key
+from ditto._lockfile import LockEntry
+from ditto._manifest import BackendManifest, ManifestEntry
+from ditto.cli import _inventory as cli_inventory
+from ditto.cli import cli
+from ditto.cli._data import RecorderInfo
+from ditto.cli._diagnostics import CheckResult, LintIssue
+from ditto.cli._display import (
+    _render_doctor,
+    _render_lint_issues,
+    _render_recorders,
+    _render_snapshots,
+    _render_stats_table,
+    render_stats,
+)
+from ditto.cli._summary import Extremes, LocatedEntry, gather_stats
+
+
+def render(renderer, *args, width=80, **kwargs):
+    stream = StringIO()
+    console = Console(file=stream, width=width, color_system=None)
+    renderer(*args, console, **kwargs)
+    return stream.getvalue()
+
+
+def first_column(table_output: str) -> str:
+    """The text of a bordered table's first column, its folded lines joined."""
+    cells = [
+        line.split("│")[1].strip()
+        for line in table_output.splitlines()
+        if line.startswith("│")
+    ]
+    return "".join(cells)
+
+
+def test_lint_keeps_parametrize_ids_and_closing_tags():
+    output = render(
+        _render_lint_issues,
+        [
+            LintIssue(
+                "tests.test_x.test_c[a]@k~0123456789abcdef.json",
+                "Malformed name (expected <test>@<key>~<hash>.<recorder>)",
+            ),
+            LintIssue("[/x]file", "[/]error[red]"),
+        ],
+        width=120,
+    )
+    assert "tests.test_x.test_c[a]@k~0123456789abcdef.json" in output
+    assert "[/x]file" in output
+    assert "[/]error[red]" in output
+
+
+def test_doctor_keeps_bracketed_detail():
+    output = render(
+        _render_doctor,
+        [CheckResult("[bold]check[/]", False, "[/]error[red]")],
+        width=120,
+    )
+    assert "[bold]check[/]" in output
+    assert "[/]error[red]" in output
+
+
+def test_recorders_keep_bracketed_plugin_metadata():
+    output = render(
+        _render_recorders,
+        [RecorderInfo("[red]", "[/]", "[bold]package[/]")],
+        width=120,
+    )
+    assert "[red]" in output
+    assert "[/]" in output
+    assert "[bold]package[/]" in output
+
+
+def test_stats_table_keeps_bracketed_locations():
+    output = render(
+        _render_stats_table,
+        [("memory://[red]", gather_stats([], {}))],
+        width=120,
+    )
+    assert "memory://[red]" in output
+
+
+def test_list_keeps_parametrize_ids_in_unlocked_names():
+    stored = "tests.test_x.test_c[a]@k~0123456789abcdef.json"
+    output = render(
+        _render_snapshots,
+        [BackendManifest("memory://one", [ManifestEntry(stored, 1, None)])],
+        None,
+        [],
+        width=120,
+    )
+    assert "tests.test_x.test_c[a]" in output
+
+
+def test_inventory_error_with_markup_is_literal(tmp_path, monkeypatch):
+    def fail_inventory(path, *, live):
+        raise InventoryError("bad [/][red] path")
+
+    monkeypatch.setattr(cli_inventory, "build_inventory", fail_inventory)
+    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "bad [/][red] path" in result.output
+    assert "Inventory failed" in result.output
+
+
+def test_list_shows_a_long_node_id_whole_in_a_narrow_terminal():
+    """A node id wider than its column folds onto more lines rather than being cut."""
+    stored = "tests.test_x.test_c@k~0123456789abcdef.json"
+    nodeid = "tests/test_x.py::test_a_rather_long_name_for_this_column[case-zz]"
+    identities = {
+        (location_key("memory://one"), stored): LockEntry(nodeid, "k", "json")
+    }
+    manifest = [BackendManifest("memory://one", [ManifestEntry(stored, 1, None)])]
+
+    output = render(_render_snapshots, manifest, identities, [], width=80)
+
+    assert nodeid in first_column(output)
+
+
+def test_recorders_keep_each_row_on_one_line_when_another_name_is_long():
+    """One long recorder name doesn't push the other rows' columns onto a new line."""
+    infos = [
+        RecorderInfo("json", ".json", "pytest-ditto"),
+        RecorderInfo(
+            "acme.very_long_recorder_name",
+            ".acme.very_long_recorder_name",
+            "acme-internal-ditto-recorders-plugin",
+        ),
+    ]
+
+    output = render(_render_recorders, infos, width=100)
+
+    json_row = next(line for line in output.splitlines() if "@ditto.json" in line)
+    assert "pytest-ditto" in json_row
+
+
+def test_status_names_the_oldest_and_newest_by_test_key_and_recorder():
+    """status names its oldest and newest snapshots as list does, not by file name."""
+    stored = "tests.test_x.test_c@k~0123456789abcdef.json"
+    entry = LocatedEntry("memory://one", ManifestEntry(stored, 1, 100.0))
+    nodeid = "tests/test_x.py::test_c"
+    identities = {
+        (location_key("memory://one"), stored): LockEntry(nodeid, "k", "json")
+    }
+    em = {".json": RecorderInfo("json", ".json", "pytest-ditto")}
+    stats = gather_stats([entry.entry], em)
+
+    output = render(
+        render_stats, stats, Extremes(entry, entry), identities, em, width=120
+    )
+
+    assert f"{nodeid}  k  json" in output
+    assert stored not in output

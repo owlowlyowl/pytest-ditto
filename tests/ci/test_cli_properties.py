@@ -7,7 +7,10 @@ import re
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ditto.cli import _build_colour_map, _human_size, _parse_snapshot_name
+from ditto.cli._data import _human_size, _parse_snapshot_name
+from ditto.cli._display import _build_colour_map
+from ditto.recorders._contract import NAME_PATTERN
+from ditto.snapshot import SnapshotKey, _flat_key
 
 # ── _human_size ───────────────────────────────────────────────────────────────
 
@@ -71,26 +74,27 @@ def test_human_size_scaled_value_has_exactly_one_decimal_place(n: int) -> None:
 
 
 @given(
-    group=st.text(min_size=1, alphabet=st.characters(blacklist_characters="@")),
-    key=st.text(min_size=1, alphabet=st.characters(blacklist_characters=".@")),
-    ext_body=st.one_of(
-        st.just(""),
-        st.text(min_size=1, alphabet=st.characters(blacklist_characters="@")),
-    ),
+    module=st.lists(
+        st.from_regex(r"[a-z_]{1,12}", fullmatch=True), min_size=1, max_size=5
+    ).map("/".join),
+    group=st.text(min_size=1),
+    key=st.text(),
+    recorder=st.from_regex(NAME_PATTERN, fullmatch=True),
 )
-def test_parse_snapshot_name_roundtrip_for_valid_filenames(
-    group: str, key: str, ext_body: str
+def test_parse_snapshot_name_recovers_the_recorder_and_labels(
+    module: str, group: str, key: str, recorder: str
 ) -> None:
-    """A well-formed {group}@{key}.{ext} filename parses back to its exact
-    components."""
-    ext = f".{ext_body}" if ext_body else ""
-    filename = f"{group}@{key}{ext}"
+    """Whatever the test name and key hold, a stored name parses back to the
+    exact recorder and to the label's two parts."""
+    sk = SnapshotKey(module, group, key, recorder)
+    module_prefix = module.replace("/", ".") + "."
 
-    parsed_group, parsed_key, parsed_ext = _parse_snapshot_name(filename)
+    test, key_label, ext = _parse_snapshot_name(_flat_key(sk))
 
-    assert parsed_group == group
-    assert parsed_key == key
-    assert parsed_ext == ext
+    assert ext == f".{recorder}"
+    assert test.startswith(module_prefix)
+    group_label = test.removeprefix(module_prefix)
+    assert not {"@", "~"} & set(group_label + key_label)
 
 
 @given(st.text(alphabet=st.characters(blacklist_characters="@")))

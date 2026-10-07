@@ -38,13 +38,15 @@ nav:
     - Custom Recorders: guides/custom-recorders.md
     - Storage Backends: guides/backends.md
     - Custom Backends: guides/custom-backends.md
-    - unittest Support: guides/unittest.md
+    - The Lock File: guides/lock-file.md
     - Upgrading: guides/upgrading.md
   - CLI Reference:
     - Overview: cli/index.md
     - ditto run: cli/run.md
     - ditto update: cli/update.md
     - ditto prune: cli/prune.md
+    - ditto verify: cli/verify.md
+    - ditto lock: cli/lock.md
     - ditto list: cli/list.md
     - ditto status: cli/status.md
     - ditto clean: cli/clean.md

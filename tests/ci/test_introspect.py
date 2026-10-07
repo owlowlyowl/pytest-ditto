@@ -27,7 +27,7 @@ def test_introspect_pass_enumerates_a_fixture_resolved_generic_backend(
             def __iter__(self): return iter(self._d)
             def __len__(self): return len(self._d)
 
-        BACKEND_REGISTRY["persist"] = _DictBackend
+        BACKEND_REGISTRY.overrides["persist"] = _DictBackend
 
         @pytest.fixture(scope="session")
         def ditto_target_profiles():
@@ -54,3 +54,38 @@ def test_introspect_pass_enumerates_a_fixture_resolved_generic_backend(
     # Generic mapping: size measured by a read, no mtime.
     assert seeded["size_bytes"] > 0
     assert seeded["modified"] is None
+
+
+def test_introspect_pass_records_a_backend_it_cannot_enumerate(pytester, tmp_path):
+    """A backend whose listing raises is written to the manifest with the error
+    and no entries, not as an empty backend."""
+    pytester.makeconftest("""
+        from collections.abc import MutableMapping
+        from ditto.backends import BACKEND_REGISTRY
+
+        class _DownBackend(MutableMapping):
+            def __init__(self, uri, **kwargs): self._d = {}
+            def __getitem__(self, k): return self._d[k]
+            def __setitem__(self, k, v): self._d[k] = v
+            def __delitem__(self, k): del self._d[k]
+            def __iter__(self): raise OSError("connection refused")
+            def __len__(self): return len(self._d)
+
+        BACKEND_REGISTRY.overrides["down"] = _DownBackend
+    """)
+    pytester.makepyfile("""
+        import ditto
+
+        @ditto.record("json", target="down://store")
+        def test_inner(snapshot):
+            snapshot(1, key="v")
+    """)
+    manifest_path = tmp_path / "manifest.json"
+
+    pytester.runpytest("--setup-only", f"--ditto-introspect={manifest_path}")
+
+    (backend,) = json.loads(manifest_path.read_text())
+    actual = (backend["entries"], backend["error"])
+
+    expected = ([], "connection refused")
+    assert actual == expected

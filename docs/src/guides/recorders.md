@@ -1,27 +1,49 @@
 # Recorders
 
 Recorders determine how snapshot data is serialised and persisted. Each
-recorder is a pair of `save` and `load` functions plus a file extension.
+recorder is a pair of `dumps` and `loads` functions, which convert between a
+value and the snapshot file's bytes. The name a recorder is registered under is
+its persisted identifier, used as the snapshot file suffix.
 
 ## Built-in Recorders
 
-pytest-ditto ships three built-in recorders:
+pytest-ditto ships two built-in recorders:
 
-| Mark | Registry Key | Extension | Best For |
+| Mark | Registry Key | Identifier | Best For |
 |------|-------------|-----------|----------|
-| `@ditto.pickle` | `pickle` | `.pkl` | Any Python object (default) |
+| no mark / `@ditto.json` | `json` | `.json` | Strict, reviewable data (default) |
 | `@ditto.yaml` | `yaml` | `.yaml` | Human-readable config, dicts |
-| `@ditto.json` | `json` | `.json` | JSON-serialisable data |
 
-### pickle (default)
+### Strict JSON (default)
 
 ```python
-def test_anything(snapshot):
-    result = complex_computation()
+def test_api_response(snapshot):
+    result = {"status": "ok", "data": [1, 2, 3]}
     assert result == snapshot(result, key="result")
 ```
 
-No mark needed — pickle is the default recorder. Handles any picklable object.
+No mark is needed. The accepted data model is recursively composed of only
+these exact built-in types:
+
+- `None`
+- `bool`
+- `int`
+- finite `float`
+- `str`
+- `list`
+- `dict` with exact built-in `str` keys and accepted values
+
+Scalar and container subclasses are rejected. So are non-finite floats,
+tuples, sets, frozen sets, bytes-like values, non-string mapping keys,
+`Decimal`, `Fraction`, dates, UUIDs, paths, enums, NumPy/pandas/PyArrow values,
+dataclasses, named tuples, arbitrary user classes, and cyclic containers.
+Errors identify the first invalid path and occur before snapshot persistence.
+
+New files are deterministic UTF-8: object keys are sorted at every depth,
+non-ASCII text is literal, indentation is two spaces, line endings are `\n`, and
+there is exactly one trailing newline. Loading rejects invalid UTF-8, duplicate
+object keys, `NaN`, `Infinity`, `-Infinity`, and numeric overflow. Compact valid
+JSON from older releases remains readable and is reformatted only when updated.
 
 ### YAML
 
@@ -35,21 +57,25 @@ def test_config(snapshot):
     assert config == snapshot(config, key="config")
 ```
 
-### JSON
-
-```python
-import ditto
-
-
-@ditto.json
-def test_api_response(snapshot):
-    response = {"status": "ok", "data": [1, 2, 3]}
-    assert response == snapshot(response, key="response")
-```
-
 ## Plugin Recorders
 
-Additional recorders are available via plugin packages:
+Additional recorders are available via plugin packages. Install the package,
+then select its registered convenience mark or use
+`@ditto.record("registry_name")`. Recorder packages are ordinary trusted Python
+plugins and execute package code when imported.
+
+### Pickle (`pytest-ditto-pickle`)
+
+Users who explicitly need pickle can install its external recorder:
+
+```bash
+pip install pytest-ditto-pickle
+```
+
+Then select it explicitly with `@ditto.pickle` or
+`@ditto.record("pickle")`. Loading pickle data can execute arbitrary code; only
+load snapshots you trust. Pickle implementation and policy are owned by that
+external distribution, not pytest-ditto core.
 
 ### pandas (`pytest-ditto-pandas`)
 
@@ -57,11 +83,11 @@ Additional recorders are available via plugin packages:
 pip install pytest-ditto[pandas]
 ```
 
-| Mark | Registry Key | Extension |
+| Mark | Registry Key | Identifier |
 |------|-------------|-----------|
-| `@ditto.pandas.parquet` | `pandas_parquet` | `.pandas.parquet` |
-| `@ditto.pandas.json` | `pandas_json` | `.pandas.json` |
-| `@ditto.pandas.csv` | `pandas_csv` | `.pandas.csv` |
+| `@ditto.pandas.parquet` | `pandas.parquet` | `.pandas.parquet` |
+| `@ditto.pandas.json` | `pandas.json` | `.pandas.json` |
+| `@ditto.pandas.csv` | `pandas.csv` | `.pandas.csv` |
 
 ```python
 import pandas as pd
@@ -75,17 +101,46 @@ def test_dataframe(snapshot):
     pd.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
 ```
 
+The same marks record a `pd.Series`, which loads back as a Series with its name.
+Parquet and JSON also restore a `DatetimeIndex` or `TimedeltaIndex` `freq`,
+which pandas itself drops. Both are recorded in a small `ditto` marker stored
+inside the file: in the Arrow schema metadata for parquet, as a `"ditto"` key
+beside `schema` and `data` for JSON, and as a first `# ditto: {…}` line for a
+CSV Series. A DataFrame with no index `freq` gets no marker, so its file is
+exactly what pandas writes. See the
+[plugin README](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas)
+for what each format keeps.
+
+!!! warning "Prefer `pandas.parquet`; `pandas.json` changes some data"
+    Parquet is the only pandas format that keeps every dtype and value exactly.
+    Use `pandas.json` only for simple frames you want to read as text:
+
+    - It rounds floats to 10 decimal places and writes values between about
+      `1e-15` and `1e-10` as `0.0`. `pd.testing.assert_frame_equal` still
+      passes, because the difference is inside its default tolerance, so the
+      snapshot doesn't hold the exact values.
+    - It reads datetimes back in nanoseconds. pandas 3 creates them in
+      microseconds by default, so on pandas 3 any datetime column or index fails
+      the comparison unless it's converted with `.as_unit("ns")` first.
+    - It also truncates datetimes to the millisecond, turns `inf` into `NaN`,
+      widens narrow integers and `float32`, and can't read back timedelta,
+      interval or complex data.
+
+    See the plugin README's
+    [format notes](https://github.com/owlowlyowl/pytest-ditto/tree/main/plugins/pandas#format-notes)
+    for the full list.
+
 ### PyArrow (`pytest-ditto-pyarrow`)
 
 ```bash
 pip install pytest-ditto[pyarrow]
 ```
 
-| Mark | Registry Key | Extension |
+| Mark | Registry Key | Identifier |
 |------|-------------|-----------|
-| `@ditto.pyarrow.parquet` | `pyarrow_parquet` | `.pyarrow.parquet` |
-| `@ditto.pyarrow.feather` | `pyarrow_feather` | `.pyarrow.feather` |
-| `@ditto.pyarrow.csv` | `pyarrow_csv` | `.pyarrow.csv` |
+| `@ditto.pyarrow.parquet` | `pyarrow.parquet` | `.pyarrow.parquet` |
+| `@ditto.pyarrow.feather` | `pyarrow.feather` | `.pyarrow.feather` |
+| `@ditto.pyarrow.csv` | `pyarrow.csv` | `.pyarrow.csv` |
 
 ```python
 import pyarrow as pa
@@ -97,6 +152,32 @@ def test_table(snapshot):
     table = pa.table({"x": [1, 2, 3]})
     result = process(table)
     assert result.equals(snapshot(result, key="processed"))
+```
+
+### Polars (`pytest-ditto-polars`)
+
+```bash
+pip install pytest-ditto[polars]
+```
+
+| Mark | Registry Key | Identifier |
+|------|-------------|-----------|
+| `@ditto.polars.parquet` | `polars.parquet` | `.polars.parquet` |
+| `@ditto.polars.ipc` | `polars.ipc` | `.polars.ipc` |
+| `@ditto.polars.csv` | `polars.csv` | `.polars.csv` |
+| `@ditto.polars.ndjson` | `polars.ndjson` | `.polars.ndjson` |
+
+```python
+import polars as pl
+import polars.testing
+import ditto
+
+
+@ditto.polars.parquet
+def test_dataframe(snapshot):
+    df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+    result = transform(df)
+    pl.testing.assert_frame_equal(result, snapshot(result, key="transformed"))
 ```
 
 ## The Generic `@ditto.record()` Mark
@@ -121,8 +202,10 @@ registry key, including custom ones.
 
 | Consideration | Recommended |
 |---------------|-------------|
-| Any Python object | `pickle` (default) |
-| Human-readable diffs in version control | `yaml` or `json` |
-| pandas DataFrames with type fidelity | `pandas.parquet` |
+| Strict reviewable Python data | `json` (default) |
+| Human-readable diffs in version control | `json` or `yaml` |
+| Values outside strict JSON | An explicitly installed suitable recorder |
+| pandas DataFrames or Series | `pandas.parquet` |
+| Polars DataFrames with type fidelity | `polars.parquet` |
 | Large datasets, fast I/O | `parquet` variants |
 | Interop with other tools | `json` or `csv` |

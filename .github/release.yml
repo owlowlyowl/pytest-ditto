@@ -1,0 +1,26 @@
+# Sections of the release notes GitHub generates from merged PRs ("Generate release
+# notes", or `gh release create --generate-notes`). A PR goes in the first section
+# whose labels it has, so a breaking feature is listed under breaking changes and a
+# feature that also touches the docs under features.
+
+changelog:
+  exclude:
+    labels:
+      - "release: skip"
+  categories:
+    - title: 💥 Breaking changes
+      labels: ["impact: breaking"]
+    - title: ✨ New features
+      labels: ["kind: feature"]
+    - title: 🚀 Enhancements
+      labels: ["kind: enhancement"]
+    - title: 🐛 Bug fixes
+      labels: ["kind: bug"]
+    - title: 📚 Documentation
+      labels: ["area: docs"]
+    - title: 📦 Packaging, CI and security
+      labels: ["area: packaging", "area: ci", "area: security"]
+    - title: 🧹 Maintenance
+      labels: ["kind: chore", "area: tests"]
+    - title: Other changes
+      labels: ["*"]

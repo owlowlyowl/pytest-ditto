@@ -1,21 +1,34 @@
 import json
+from collections.abc import Iterator, MutableMapping
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import fsspec
 import pytest
 
-from ditto import Snapshot, recorders
+from ditto import Snapshot, SnapshotMode, recorders
 from ditto.backends import FsspecMapping
-from ditto.exceptions import DuplicateSnapshotKeyError
-from ditto.snapshot import load_snapshot, save_snapshot
+from ditto.exceptions import DittoJSONSerializationError, DuplicateSnapshotKeyError
+from ditto.snapshot import (
+    SnapshotKey,
+    _flat_key,
+    _remote_key,
+    load_snapshot,
+    save_snapshot,
+)
+
+
+def _file_name(group: str, key: str, recorder: str) -> str:
+    """The name a `file://` target stores module `m`'s snapshot under."""
+    return _flat_key(SnapshotKey("m", group, key, recorder))
+
+
+def _remote_name(group: str, key: str, recorder: str) -> str:
+    """The key a remote target stores module `m`'s snapshot under."""
+    return _remote_key(SnapshotKey("m", group, key, recorder))
+
 
 json_recorder = recorders.get("json")
-qualified_json_recorder = recorders.Recorder(
-    extension="plugin.json",
-    save=json_recorder.save,
-    load=json_recorder.load,
-)
 
 
 def _file_snapshot(path: Path, **kwargs) -> Snapshot:
@@ -31,6 +44,50 @@ def _file_snapshot(path: Path, **kwargs) -> Snapshot:
 
 
 # --- Snapshot dataclass ---
+
+
+def test_snapshot_defaults_to_strict_json(tmp_path: Path) -> None:
+    snapshot = _file_snapshot(tmp_path)
+
+    assert snapshot.recorder is json_recorder
+    assert snapshot.recorder_name == "json"
+
+
+def test_strict_json_recorder_needs_no_name(tmp_path: Path) -> None:
+    """The strict JSON recorder's name is unambiguous, so it may be omitted."""
+    snapshot = _file_snapshot(tmp_path, recorder=json_recorder)
+
+    actual = snapshot.recorder_name
+
+    expected = "json"
+    assert actual == expected
+
+
+def test_custom_recorder_without_a_name_is_rejected(tmp_path: Path) -> None:
+    """A recorder passed without its name is never saved under `json`."""
+    with pytest.raises(TypeError, match="requires recorder_name= with recorder="):
+        _file_snapshot(tmp_path, recorder=recorders.get("yaml"))
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_recorder_name_without_a_recorder_is_rejected(tmp_path: Path) -> None:
+    """A name passed without its recorder never saves JSON under that name."""
+    with pytest.raises(TypeError, match=r"recorder=recorders.get\('yaml'\)"):
+        _file_snapshot(tmp_path, recorder_name="yaml")
+
+
+def test_recorder_and_name_together_name_the_snapshot_file(tmp_path: Path) -> None:
+    """The snapshot file ends with the given name and holds the recorder's output."""
+    snapshot = _file_snapshot(
+        tmp_path, recorder=recorders.get("yaml"), recorder_name="yaml"
+    )
+
+    snapshot({"answer": 42}, "value")
+
+    actual = (tmp_path / _file_name("group", "value", "yaml")).read_text()
+    expected = "answer: 42\n"
+    assert actual == expected
 
 
 def test_snapshot_is_immutable() -> None:
@@ -81,7 +138,7 @@ def test_returns_deserialised_stored_value(tmp_dir) -> None:
     group_name = "OEIS"
     value = [1, 2, 3, 6, 7, 9, 18, 25, 27, 54, 73, 97, 129, 171, 231, 313]
 
-    with open(tmp_dir / f"m.{group_name}@{key}.json", "w") as f:
+    with open(tmp_dir / _file_name(group_name, key, "json"), "w") as f:
         json.dump(value, f)
     snapshot = _file_snapshot(tmp_dir, group_name=group_name, recorder=json_recorder)
 
@@ -118,7 +175,7 @@ def test_returns_stored_value_when_snapshot_already_exists(tmp_dir) -> None:
         "#4b0082",
     ]
 
-    with open(tmp_dir / f"m.{group_name}@{key}.json", "w") as f:
+    with open(tmp_dir / _file_name(group_name, key, "json"), "w") as f:
         json.dump(stored, f)
     snapshot = _file_snapshot(tmp_dir, group_name=group_name, recorder=json_recorder)
 
@@ -127,28 +184,29 @@ def test_returns_stored_value_when_snapshot_already_exists(tmp_dir) -> None:
     assert actual == stored
 
 
-def test_file_backed_snapshot_preserves_dotted_recorder_identifier(tmp_dir) -> None:
-    """A dotted recorder identifier is preserved in the persisted snapshot name."""
+def test_file_backed_snapshot_preserves_dotted_recorder_name(tmp_dir) -> None:
+    """A dotted recorder name is preserved in the persisted snapshot name."""
     snapshot = _file_snapshot(
         tmp_dir,
         group_name="group",
-        recorder=qualified_json_recorder,
+        recorder=json_recorder,
+        recorder_name="plugin.json",
     )
 
     actual = snapshot({"answer": 42}, "result")
 
     assert actual == {"answer": 42}
-    assert (tmp_dir / "m.group@result.plugin.json").exists()
+    assert (tmp_dir / _file_name("group", "result", "plugin.json")).exists()
     assert load_snapshot(snapshot, "result") == {"answer": 42}
 
 
 # --- update mode ---
 
 
-def test_returns_new_value_when_update_is_true(tmp_dir) -> None:
-    """When update=True, snapshot returns the new value rather than the stored one."""
+def test_returns_new_value_when_mode_is_update(tmp_dir) -> None:
+    """In update mode, snapshot returns the new value rather than the stored one."""
     key = "result"
-    snapshot = _file_snapshot(tmp_dir, group_name="group", update=True)
+    snapshot = _file_snapshot(tmp_dir, group_name="group", mode=SnapshotMode.UPDATE)
     save_snapshot(snapshot, "original", key)
 
     actual = snapshot("updated", key)
@@ -156,15 +214,264 @@ def test_returns_new_value_when_update_is_true(tmp_dir) -> None:
     assert actual == "updated"
 
 
-def test_overwrites_stored_value_when_update_is_true(tmp_dir) -> None:
-    """When update=True, snapshot replaces the value on disk."""
+def test_overwrites_stored_value_when_mode_is_update(tmp_dir) -> None:
+    """In update mode, snapshot replaces the value on disk."""
     key = "result"
-    snapshot = _file_snapshot(tmp_dir, group_name="group", update=True)
+    snapshot = _file_snapshot(tmp_dir, group_name="group", mode=SnapshotMode.UPDATE)
     save_snapshot(snapshot, "original", key)
 
     snapshot("updated", key)
 
     assert load_snapshot(snapshot, key) == "updated"
+
+
+# --- round-tripped return values ---
+
+yaml_recorder = recorders.get("yaml")
+
+
+def _unreadable_recorder() -> recorders.Recorder:
+    """A recorder whose `loads` cannot read what its `dumps` produced."""
+
+    def loads(raw: bytes) -> object:
+        raise ValueError("unreadable")
+
+    return recorders.Recorder(dumps=lambda value: str(value).encode(), loads=loads)
+
+
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_returns_restored_value_when_writing_snapshot(mode: SnapshotMode) -> None:
+    """A value yaml cannot round-trip is returned as yaml reads it back."""
+    snapshot = _legacy_backend_snapshot(
+        {}, recorder=yaml_recorder, recorder_name="yaml", mode=mode
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+
+
+def test_returns_restored_new_value_when_updating_existing_snapshot() -> None:
+    backend = {_remote_name("group", "k", "yaml"): yaml_recorder.dumps("original")}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=yaml_recorder,
+        recorder_name="yaml",
+        mode=SnapshotMode.UPDATE,
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+    assert yaml_recorder.loads(backend[_remote_name("group", "k", "yaml")]) == [1, 2]
+
+
+def test_returns_restored_value_for_absent_snapshot_in_verify() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=yaml_recorder,
+        recorder_name="yaml",
+        mode=SnapshotMode.VERIFY,
+    )
+
+    actual = snapshot((1, 2), "k")
+
+    assert actual == [1, 2]
+    assert backend == {}
+
+
+def test_unreadable_new_snapshot_is_not_written_or_tracked() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=_unreadable_recorder(),
+        recorder_name="raw",
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_unreadable",
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        snapshot("value", "k")
+
+    assert backend == {}
+    assert snapshot._tracker.created == []
+    assert snapshot._tracker.lock_accessed == set()
+
+
+def test_preserves_existing_snapshot_when_update_is_unreadable() -> None:
+    backend = {_remote_name("group", "k", "raw"): b"original"}
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=_unreadable_recorder(),
+        recorder_name="raw",
+        mode=SnapshotMode.UPDATE,
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_unreadable",
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        snapshot("updated", "k")
+
+    assert backend == {_remote_name("group", "k", "raw"): b"original"}
+    assert snapshot._tracker.updated == []
+    assert snapshot._tracker.lock_accessed == set()
+
+
+def test_save_snapshot_does_not_write_unreadable_bytes() -> None:
+    backend: dict[str, bytes] = {}
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=_unreadable_recorder(), recorder_name="raw"
+    )
+
+    with pytest.raises(ValueError, match="unreadable"):
+        save_snapshot(snapshot, "value", "k")
+
+    assert backend == {}
+
+
+# --- legacy recorder isolation ---
+
+
+class _TrackingBackend(MutableMapping[str, bytes]):
+    def __init__(self, values: dict[str, bytes]) -> None:
+        self.values = values.copy()
+        self.getitem_calls: list[str] = []
+
+    def __getitem__(self, key: str) -> bytes:
+        self.getitem_calls.append(key)
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: bytes) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+def _legacy_backend_snapshot(backend: MutableMapping[str, bytes], **kwargs) -> Snapshot:
+    return Snapshot(
+        group_name="group",
+        module="m",
+        target="memory://snapshots",
+        _backend=backend,
+        **kwargs,
+    )
+
+
+class _CountingRecorder:
+    """A recorder whose `dumps` and `loads` count their calls."""
+
+    def __init__(self) -> None:
+        self.dumps_calls = 0
+        self.loads_calls = 0
+        self.recorder = recorders.Recorder(dumps=self._dumps, loads=self._loads)
+
+    def _dumps(self, value: object) -> bytes:
+        self.dumps_calls += 1
+        return f"raw:{value}".encode()
+
+    def _loads(self, raw: bytes) -> object:
+        self.loads_calls += 1
+        return raw.decode().removeprefix("raw:")
+
+
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_write_stores_exactly_the_recorders_bytes(mode: SnapshotMode) -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({})
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=counting.recorder, recorder_name="raw", mode=mode
+    )
+
+    snapshot("value", "k")
+
+    assert backend.values == {_remote_name("group", "k", "raw"): b"raw:value"}
+    assert (counting.dumps_calls, counting.loads_calls) == (1, 1)
+
+
+def test_reading_a_stored_snapshot_decodes_it_once() -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({_remote_name("group", "k", "raw"): b"raw:stored"})
+    snapshot = _legacy_backend_snapshot(
+        backend, recorder=counting.recorder, recorder_name="raw"
+    )
+
+    actual = snapshot("ignored", "k")
+
+    assert actual == "stored"
+    assert (counting.dumps_calls, counting.loads_calls) == (0, 1)
+
+
+def test_verifying_an_absent_snapshot_round_trips_without_writing() -> None:
+    counting = _CountingRecorder()
+    backend = _TrackingBackend({})
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        recorder=counting.recorder,
+        recorder_name="raw",
+        mode=SnapshotMode.VERIFY,
+    )
+
+    actual = snapshot("value", "k")
+
+    assert actual == "value"
+    assert backend.values == {}
+    assert (counting.dumps_calls, counting.loads_calls) == (1, 1)
+
+
+@pytest.mark.parametrize("mode", [SnapshotMode.RECORD, SnapshotMode.UPDATE])
+def test_missing_json_records_normally_without_reading_legacy_key(
+    mode: SnapshotMode,
+) -> None:
+    """A missing JSON snapshot is recorded without reading a same-key .pkl file."""
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(backend, mode=mode)
+
+    actual = snapshot({"current": True}, "result")
+
+    assert actual == {"current": True}
+    stored = backend.values[_remote_name("group", "result", "json")]
+    assert json.loads(stored) == {"current": True}
+    assert backend.values[legacy_key] == b"untrusted legacy bytes"
+    assert legacy_key not in backend.getitem_calls
+
+
+def test_verify_missing_json_ignores_legacy_key() -> None:
+    """Verify mode neither writes JSON nor reads a same-key .pkl file."""
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(backend, mode=SnapshotMode.VERIFY)
+
+    actual = snapshot({"current": True}, "result")
+
+    assert actual == {"current": True}
+    assert backend.values == {legacy_key: b"untrusted legacy bytes"}
+    assert legacy_key not in backend.getitem_calls
+
+
+def test_invalid_json_value_does_not_touch_backend_or_lock_observations() -> None:
+    legacy_key = "m/group@result.pkl"
+    backend = _TrackingBackend({legacy_key: b"untrusted legacy bytes"})
+    snapshot = _legacy_backend_snapshot(
+        backend,
+        target_id="memory://snapshots",
+        nodeid="test_module.py::test_invalid",
+    )
+    with pytest.raises(DittoJSONSerializationError):
+        snapshot((1, 2), "result")
+
+    assert backend.values == {legacy_key: b"untrusted legacy bytes"}
+    assert legacy_key not in backend.getitem_calls
+    assert snapshot._tracker.lock_accessed == set()
+    assert snapshot._tracker.lock_created == set()
 
 
 # --- duplicate key detection ---
@@ -219,3 +526,16 @@ def test_raises_at_construction_when_module_is_empty_for_file_scheme(
     """Snapshot raises TypeError when constructed without module= for file:// too."""
     with pytest.raises(TypeError, match="module="):
         _file_snapshot(tmp_dir, group_name="test", module="")
+
+
+@pytest.mark.parametrize("mode", ["update", True, None])
+def test_raises_at_construction_when_mode_is_not_a_snapshot_mode(mode: object) -> None:
+    """A mode outside SnapshotMode is rejected rather than recording nothing."""
+    with pytest.raises(TypeError, match="mode must be a SnapshotMode"):
+        Snapshot(
+            group_name="test",
+            module="m",
+            target="memory://",
+            _backend={},
+            mode=mode,  # type: ignore[arg-type]
+        )

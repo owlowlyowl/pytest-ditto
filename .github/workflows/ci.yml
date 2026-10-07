@@ -8,48 +8,89 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a PR cancels its previous run. Pushes to main are grouped by commit,
+# so every commit on main is tested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.81.0
           cache: true
           environments: lint
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Run ruff
         run: pixi run -e lint ruff-lint
 
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.81.0
           cache: true
           environments: lint
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # The token enables zizmor's online audits, e.g. that each pinned SHA belongs to
+      # the action's repository and that no pinned version has a known advisory.
+      - name: Run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pixi run -e lint workflow-lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: lint
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Run basedpyright
         run: pixi run -e lint typecheck
 
   test:
     name: Test (Python 3.${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     strategy:
@@ -59,42 +100,195 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.81.0
           cache: true
           environments: py3${{ matrix.python-version }}
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Run tests (Python 3.${{ matrix.python-version }})
         run: pixi run -e py3${{ matrix.python-version }} test
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-results-py3${{ matrix.python-version }}
           path: .pytest/test-results.xml
           retention-days: 30
 
-  integration:
-    name: Integration
-    runs-on: ubuntu-latest
+  test-plugin:
+    name: Plugin ${{ matrix.plugin }}${{ matrix.floor }} (Python 3.${{ matrix.python-version }})
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [pandas, pickle, polars, pyarrow]
+        python-version: ["12", "13", "14"]
+        floor: [""]
+        # pytest-ditto-pandas declares pandas>=2.2 and pyarrow>=16.1.0; this runs
+        # its suite at those floors.
+        include:
+          - plugin: pandas
+            python-version: "12"
+            floor: "-floor"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: ${{ matrix.plugin }}${{ matrix.floor }}-py3${{ matrix.python-version }}
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # Read-only (`pytest --ditto-verify`): runs the whole plugin suite against this
+      # commit's core and fails on any drift from the plugin's ditto.lock. An
+      # ordinary run would recreate a missing committed snapshot and hide it.
+      - name: Run plugin tests read-only against its ditto.lock
+        run: pixi run -e ${{ matrix.plugin }}${{ matrix.floor }}-py3${{ matrix.python-version }} verify-${{ matrix.plugin }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results-${{ matrix.plugin }}${{ matrix.floor }}-py3${{ matrix.python-version }}
+          path: plugins/${{ matrix.plugin }}/.pytest/test-results.xml
+          retention-days: 30
+
+  portable-json:
+    name: Cross-platform (${{ matrix.os }}, Python 3.${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-latest, windows-latest]
+        python-version: ["12", "13", "14"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: py3${{ matrix.python-version }}
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # The fixture, lock and drift modules check that snapshot keys don't
+      # depend on the platform's path separator.
+      - name: Run recorder, plugin discovery, fixture, lock and drift tests
+        run: >-
+          pixi run -e py3${{ matrix.python-version }} pytest
+          tests/ci/test_recorders.py
+          tests/ci/test_recorder_properties.py
+          tests/ci/test_recorder_files.py
+          tests/ci/test_plugins.py
+          tests/ci/test_fixture.py
+          tests/ci/test_lockfile.py
+          tests/ci/test_lockfile_session.py
+          tests/ci/test_verify_session.py
+          tests/ci/test_prune_session.py
+
+  lock-file:
+    name: Lock-file drift
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@v0.9.4
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
-          pixi-version: v0.69.0
+          pixi-version: v0.81.0
+          cache: true
+          environments: py312
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Verify committed snapshots match ditto.lock
+        run: pixi run -e py312 verify
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          environments: py312
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Run branch coverage
+        run: pixi run -e py312 test-cov
+
+  artifacts:
+    name: Release artifacts
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-artifacts.yml
+
+  # The one CI check to require on main, so the ruleset doesn't list every matrix
+  # job. It fails unless every job it needs succeeded; add new jobs to `needs`
+  # (tests/ci/test_workflows.py checks that).
+  integration:
+    name: Integration
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
           cache: true
           environments: integration
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
+      # Runs the real `ditto` CLI against local, DuckDB, Redis and Postgres
+      # projects; Redis and Postgres run in Docker.
       - name: Run standalone integration suite
         env:
           DITTO_INTEGRATION_ARTIFACTS_DIR: .pytest/integration-artifacts
@@ -102,7 +296,7 @@ jobs:
 
       - name: Upload integration test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-results-integration
           path: .pytest/test-results.xml
@@ -110,8 +304,36 @@ jobs:
 
       - name: Upload integration artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-artifacts
           path: .pytest/integration-artifacts
           retention-days: 30
+
+  ci:
+    name: CI
+    if: always()
+    needs:
+      - lint
+      - workflow-lint
+      - typecheck
+      - test
+      - test-plugin
+      - portable-json
+      - lock-file
+      - coverage
+      - artifacts
+      - integration
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+      - name: Require every job to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$failed" ]; then
+            echo "::error::Jobs that didn't succeed:%0A${failed//$'\n'/%0A}"
+            exit 1
+          fi
+          echo "Every job succeeded."

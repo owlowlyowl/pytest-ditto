@@ -1,7 +1,11 @@
 import json
 import types
 
-from ditto.plugin import _xdist_is_distributing
+import pytest
+
+from ditto.plugin._lock import keeps_entry
+from ditto.plugin._options import xdist_is_distributing
+from ditto.plugin._session import CollectionRecord
 
 pytest_plugins = ["pytester"]
 
@@ -90,14 +94,18 @@ def test_ditto_lock_does_not_rewrite_snapshot_values(pytester):
 
 
 def test_ditto_lock_refuses_to_rebuild_on_filtered_run(pytester):
-    """A filtered --ditto-lock run does not rebuild, so a stale entry survives."""
+    """A filtered --ditto-lock run does not rebuild, so a stale entry survives.
+    The run fails and says why, even with warnings filtered out."""
     pytester.makepyfile(test_mod=TEST_MODULE)
     pytester.runpytest_subprocess()
     _append_stale_entry(pytester)
 
-    result = pytester.runpytest_subprocess("--ditto-lock", "-k", "test_alpha")
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "-k", "test_alpha", "-W", "ignore::UserWarning"
+    )
 
     assert result.ret != 0  # an explicit refusal fails the command
+    result.stdout.fnmatch_lines(["*ditto: --ditto-lock requires a full run*"])
     assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
 
 
@@ -119,6 +127,29 @@ def test_ditto_lock_preserves_unexercised_targets(pytester):
     pytester.runpytest_subprocess("--ditto-lock")
 
     assert any("other/test_x.py::test_x" in n for n in _nodeids_in_lockfile(pytester))
+
+
+def test_ditto_update_full_run_reconciles_lock(pytester):
+    """A full --ditto-update drops a deleted test's stale entry from the lock."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess()  # records alpha + beta
+    _append_stale_entry(pytester)
+
+    result = pytester.runpytest_subprocess("--ditto-update")
+
+    result.assert_outcomes(passed=2)
+    assert not any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
+
+
+def test_ditto_update_filtered_run_appends_without_removing(pytester):
+    """A filtered --ditto-update appends only, so a stale entry survives."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess()
+    _append_stale_entry(pytester)
+
+    pytester.runpytest_subprocess("--ditto-update", "-k", "test_alpha")
+
+    assert any("test_removed" in n for n in _nodeids_in_lockfile(pytester))
 
 
 def test_warns_when_lockfile_is_gitignored(pytester):
@@ -179,17 +210,344 @@ def test_ditto_lock_replaces_corrupt_lock_file(pytester):
     assert any("test_beta" in n for n in nodeids)
 
 
-def test_xdist_distribution_detected_when_numprocesses_set():
-    """A positive -n value marks the run as xdist-distributed."""
-    config = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=4))
-
-    assert _xdist_is_distributing(config) is True
+def _xdist_config(**option):
+    return types.SimpleNamespace(option=types.SimpleNamespace(**option))
 
 
-def test_no_xdist_distribution_when_numprocesses_absent_or_zero():
-    """No -n (or -n0) is a single-process run."""
-    absent = types.SimpleNamespace(option=types.SimpleNamespace())
-    zero = types.SimpleNamespace(option=types.SimpleNamespace(numprocesses=0))
+@pytest.mark.parametrize(
+    "option",
+    [
+        # -n 4 and -n auto, after xdist has normalised them.
+        {"numprocesses": 4, "dist": "load", "tx": ["popen"] * 4},
+        # --dist=load --tx=2*popen, which leaves numprocesses unset.
+        {"numprocesses": None, "dist": "load", "tx": ["2*popen"]},
+    ],
+    ids=["numprocesses", "dist-tx"],
+)
+def test_xdist_distribution_detected(option):
+    """A distribution mode with worker specs marks the run as distributed."""
+    assert xdist_is_distributing(_xdist_config(**option)) is True
 
-    assert _xdist_is_distributing(absent) is False
-    assert _xdist_is_distributing(zero) is False
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {},  # xdist not installed
+        {"numprocesses": None, "dist": "no", "tx": []},  # no -n
+        {"numprocesses": 0, "dist": "no", "tx": []},  # -n 0
+        {"numprocesses": None, "dist": "load", "tx": []},  # --dist with no workers
+        {"dist": "load", "tx": ["popen"] * 2, "collectonly": True},
+    ],
+    ids=["no-xdist", "no-n", "n0", "dist-without-tx", "collect-only"],
+)
+def test_no_xdist_distribution(option):
+    """Without both a distribution mode and worker specs, the run is local."""
+    assert xdist_is_distributing(_xdist_config(**option)) is False
+
+
+NESTED_SESSION_MODULE = '''
+import ditto
+
+pytest_plugins = ["pytester"]
+
+
+def test_a_outer(snapshot):
+    assert snapshot(1, key="outer") == 1
+
+
+def test_b_nested(pytester):
+    pytester.makepyfile(test_inner="""
+        import ditto
+
+        @ditto.record("json", target="memory://nested")
+        def test_inner(snapshot):
+            assert snapshot(2, key="inner") == 2
+    """)
+    pytester.runpytest().assert_outcomes(passed=1)
+'''
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param((), id="full-run"),
+        pytest.param(("-k", "a_outer or b_nested"), id="filtered-run"),
+    ],
+)
+def test_nested_in_process_session_does_not_leak_into_outer_lockfile(pytester, args):
+    """An in-process pytester session run from inside a test keeps its own ditto
+    state: its snapshots never reach the outer session's ditto.lock, and the outer
+    session's own observations survive it (#115)."""
+    pytester.makepyfile(test_outer=NESTED_SESSION_MODULE)
+
+    result = pytester.runpytest_subprocess(*args)
+
+    result.assert_outcomes(passed=2)
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    entries = {
+        (e["nodeid"], e["key"]) for t in data["targets"].values() for e in t["entries"]
+    }
+    assert entries == {("test_outer.py::test_a_outer", "outer")}
+
+
+# ── Rebuilds keep the entries of tests that didn't run (#156) ─────────────────
+
+SKIPPABLE_MODULE = """
+import os
+import pytest
+
+def test_alpha(snapshot):
+    assert snapshot(1, key="a") == 1
+
+@pytest.mark.skipif(os.environ.get("SKIP_BETA") == "1", reason="platform")
+def test_beta(snapshot):
+    assert snapshot(2, key="b") == 2
+"""
+
+
+def _beta_snapshot(pytester):
+    return [p for p in (pytester.path / ".ditto").iterdir() if "test_beta" in p.name]
+
+
+@pytest.mark.parametrize("rebuild", ["--ditto-lock", "--ditto-update"])
+def test_a_skipped_test_keeps_its_entry_and_baseline_through_rebuild_and_prune(
+    pytester, monkeypatch, rebuild
+):
+    """A test skipped on this machine keeps its lock entry through a rebuild, so
+    the next prune doesn't delete its baseline."""
+    pytester.makepyfile(test_mod=SKIPPABLE_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    monkeypatch.setenv("SKIP_BETA", "1")
+
+    pytester.runpytest_subprocess(rebuild).assert_outcomes(passed=1, skipped=1)
+    pruned = pytester.runpytest_subprocess("--ditto-prune")
+
+    assert pruned.ret == 0
+    assert any("test_beta" in n for n in _nodeids_in_lockfile(pytester))
+    assert _beta_snapshot(pytester)
+
+
+def test_a_deselected_test_keeps_its_entry(pytester):
+    """A test left out with --deselect keeps its entry through a full rebuild."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "--deselect", "test_mod.py::test_beta"
+    )
+
+    assert result.ret == 0
+    assert "test_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+@pytest.mark.parametrize(
+    "narrowing",
+    [("--ignore", "test_beta_mod.py"), ("--ignore-glob", "*beta_mod.py")],
+    ids=["ignore", "ignore-glob"],
+)
+def test_a_test_in_an_ignored_file_keeps_its_entry(pytester, narrowing):
+    """A test in a file left out with --ignore or --ignore-glob keeps its entry
+    through a full rebuild."""
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess("--ditto-lock", *narrowing)
+
+    assert result.ret == 0
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_test_skipped_partway_keeps_the_entries_it_did_not_reach(
+    pytester, monkeypatch
+):
+    """A test that skips after some snapshots keeps the entries it didn't reach."""
+    module = """
+    import os
+    import pytest
+
+    def test_t(snapshot):
+        snapshot(1, key="first")
+        if os.environ.get("STOP") == "1":
+            pytest.skip("stopped")
+        snapshot(2, key="second")
+    """
+    pytester.makepyfile(test_mod=module)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+    monkeypatch.setenv("STOP", "1")
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(skipped=1)
+
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    keys = {e["key"] for t in data["targets"].values() for e in t["entries"]}
+    assert keys == {"first", "second"}
+
+
+def test_a_passing_test_that_stops_using_a_key_loses_that_entry(pytester):
+    """A test that passed is authoritative for its own entries."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    pytester.makepyfile(
+        test_mod=TEST_MODULE.replace('snapshot(2, key="b") == 2', "True")
+    )
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    data = json.loads((pytester.path / "ditto.lock").read_text())
+    keys = {e["key"] for t in data["targets"].values() for e in t["entries"]}
+    assert keys == {"a"}
+
+
+@pytest.mark.parametrize(
+    "skip",
+    [
+        "import pytest\npytest.skip('platform', allow_module_level=True)\n",
+        "import pytest\npytest.importorskip('ditto_no_such_module')\n",
+    ],
+    ids=["skip", "importorskip"],
+)
+def test_a_module_skipped_at_collection_keeps_its_entries(pytester, skip):
+    """A module skipped while being collected keeps its entries through a
+    rebuild, and verifies cleanly once it runs again."""
+    beta = "def test_beta(snapshot):\n    snapshot(2, key='b')\n"
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod=beta,
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    pytester.makepyfile(test_beta_mod=skip + beta)
+
+    result = pytester.runpytest_subprocess("--ditto-lock")
+
+    assert result.ret == 0
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+    pytester.makepyfile(test_beta_mod=beta)
+    assert pytester.runpytest_subprocess("--ditto-verify").ret == 0
+
+
+def test_a_test_in_a_directory_matched_by_ignore_glob_keeps_its_entry(pytester):
+    """--ignore-glob can match a directory, which pytest then doesn't enter;
+    the tests inside it keep their entries in the target they share."""
+    pytester.makeini(f"[pytest]\nditto_target = file://{pytester.path / 'snaps'}\n")
+    pytester.makepyfile(
+        test_alpha="def test_alpha(snapshot):\n    snapshot(1, key='a')\n"
+    )
+    platform = pytester.mkdir("platform_tests")
+    (platform / "test_beta.py").write_text(
+        "def test_beta(snapshot):\n    snapshot(2, key='b')\n"
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+
+    result = pytester.runpytest_subprocess(
+        "--ditto-lock", "--ignore-glob", "*platform_tests"
+    )
+
+    assert result.ret == 0
+    assert "platform_tests/test_beta.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_test_in_a_file_a_conftest_ignores_keeps_its_entry(pytester, monkeypatch):
+    """A file left out by a platform-dependent conftest `collect_ignore` keeps
+    its entries."""
+    pytester.makeconftest(
+        "import os\n"
+        "collect_ignore = ['test_beta_mod.py'] if os.environ.get('SKIP_BETA') else []\n"
+    )
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    monkeypatch.setenv("SKIP_BETA", "1")
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+
+    assert "test_beta_mod.py::test_beta" in _nodeids_in_lockfile(pytester)
+
+
+def test_a_deleted_module_still_loses_its_entries(pytester):
+    """Recording what pytest ignored or skipped doesn't keep a deleted test."""
+    pytester.makepyfile(
+        test_alpha_mod="def test_alpha(snapshot):\n    snapshot(1, key='a')\n",
+        test_beta_mod="def test_beta(snapshot):\n    snapshot(2, key='b')\n",
+    )
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=2)
+    (pytester.path / "test_beta_mod.py").unlink()
+
+    pytester.runpytest_subprocess("--ditto-lock").assert_outcomes(passed=1)
+
+    assert _nodeids_in_lockfile(pytester) == {"test_alpha_mod.py::test_alpha"}
+
+
+NODE = "tests/unit/test_mod.py::TestC::test_m[a]"
+
+
+@pytest.mark.parametrize(
+    ("collection", "kept"),
+    [
+        (CollectionRecord(), False),
+        (CollectionRecord(collected={NODE}), True),
+        (CollectionRecord(collected={NODE}, passed={NODE}), False),
+        (CollectionRecord(uncollected={""}), True),
+        (CollectionRecord(uncollected={"tests"}), True),
+        (CollectionRecord(uncollected={"tests/unit/test_mod.py"}), True),
+        (CollectionRecord(uncollected={"tests/unit/test_mod.py::TestC"}), True),
+        (CollectionRecord(uncollected={"tests/un"}), False),
+        (CollectionRecord(uncollected={"tests/unit/test_mod"}), False),
+        (CollectionRecord(uncollected={"tests/other"}), False),
+    ],
+    ids=[
+        "deleted",
+        "collected",
+        "passed",
+        "root-ignored",
+        "directory-ignored",
+        "module-skipped",
+        "class-skipped",
+        "partial-directory-name",
+        "partial-file-name",
+        "sibling-directory",
+    ],
+)
+def test_keeps_entry(collection, kept):
+    """An entry is kept for a collected test that didn't pass, or one under
+    something pytest left out, matched on whole node-id segments."""
+    assert keeps_entry(NODE, collection) is kept
+
+
+# ── A failed rebuild fails the run (#159) ─────────────────────────────────────
+
+
+def _make_lock_unwritable(pytester):
+    """Replace ditto.lock with a directory, which can be neither read nor written."""
+    lock = pytester.path / "ditto.lock"
+    lock.unlink(missing_ok=True)
+    lock.mkdir()
+
+
+@pytest.mark.parametrize("rebuild", ["--ditto-lock", "--ditto-update"])
+def test_a_rebuild_that_cannot_write_the_lock_fails_the_run(pytester, rebuild):
+    """`ditto lock` or a full `ditto update` that can't write the lock exits
+    non-zero and says why, even with warnings filtered out."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess(rebuild, "-W", "ignore::UserWarning")
+
+    result.assert_outcomes(passed=2)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto: failed to write ditto.lock*"])
+
+
+def test_an_ordinary_run_that_cannot_append_to_the_lock_only_warns(pytester):
+    """A plain run still passes when the lock can't be written; it warns."""
+    pytester.makepyfile(test_mod=TEST_MODULE)
+    _make_lock_unwritable(pytester)
+
+    result = pytester.runpytest_subprocess()
+
+    assert result.ret == pytest.ExitCode.OK
+    result.stdout.fnmatch_lines(["*DittoWarning: Failed to write ditto.lock*"])

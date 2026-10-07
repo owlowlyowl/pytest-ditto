@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "targets": {
+    "redis://localhost:6379/0": {
+      "scheme": "redis",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_keys_use_namespaced_format",
+          "key": "n",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_multiple_keys_in_one_test",
+          "key": "list",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_multiple_keys_in_one_test",
+          "key": "str",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_redis_backend.py::test_snapshot_round_trips_value_through_redis",
+          "key": "data",
+          "recorder": "json"
+        }
+      ]
+    },
+    "tests/ci/.ditto": {
+      "scheme": "file",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_dict_through_yaml_format",
+          "key": "a",
+          "recorder": "yaml"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_dict_through_yaml_format",
+          "key": "x",
+          "recorder": "yaml"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[First]",
+          "key": "a",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[First]",
+          "key": "b",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[Second]",
+          "key": "a",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_parametrised_ints_through_json[Second]",
+          "key": "b",
+          "recorder": "json"
+        },
+        {
+          "nodeid": "tests/ci/test_usage_examples.py::test_roundtrips_string_through_json_format",
+          "key": "abc",
+          "recorder": "json"
+        }
+      ]
+    }
+  }
+}

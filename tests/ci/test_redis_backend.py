@@ -6,6 +6,7 @@ backend via `redis://` plus a registered factory.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, MutableMapping
 from contextlib import AbstractContextManager
 
@@ -80,9 +81,9 @@ def _register_redis_backend(_redis_client: fakeredis.FakeRedis):
     def create_redis_backend(uri: str, **kwargs) -> PrefixedMapping:
         return PrefixedMapping(RedisMapping(_redis_client), prefix="ditto:")
 
-    BACKEND_REGISTRY["redis"] = create_redis_backend
+    BACKEND_REGISTRY.overrides["redis"] = create_redis_backend
     yield
-    BACKEND_REGISTRY.pop("redis", None)
+    BACKEND_REGISTRY.overrides.pop("redis", None)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ def _register_redis_backend(_redis_client: fakeredis.FakeRedis):
 # ---------------------------------------------------------------------------
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     """Snapshot stores and retrieves a value via the Redis backend."""
     result = snapshot({"answer": 42}, key="data")
@@ -98,7 +99,7 @@ def test_snapshot_round_trips_value_through_redis(snapshot) -> None:
     assert result == {"answer": 42}
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     """Keys stored in Redis use the full module/group@key.ext namespaced form.
 
@@ -108,13 +109,13 @@ def test_snapshot_keys_use_namespaced_format(_redis_client, snapshot) -> None:
     snapshot(1, key="n")
 
     raw_keys = [k.decode() for k in _redis_client.keys("*")]
-    # Expect something like: ditto:tests/ci/test_redis_backend/test_..._format@n.pkl
+    # Expect something like: ditto:tests/ci/test_redis_backend/test_..._format@n.json
     assert any(k.startswith("ditto:") and "/" in k for k in raw_keys), (
         f"expected a namespaced key in Redis, got: {raw_keys}"
     )
 
 
-@ditto.record("pickle", target="redis://localhost:6379/0")
+@ditto.record("json", target="redis://localhost:6379/0")
 def test_snapshot_multiple_keys_in_one_test(snapshot) -> None:
     """Multiple snapshot calls with unique keys in one test all round-trip."""
     a = snapshot([1, 2, 3], key="list")
@@ -124,12 +125,14 @@ def test_snapshot_multiple_keys_in_one_test(snapshot) -> None:
     assert b == "hello"
 
 
-def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
-    """Snapshots written to Redis but not accessed in a session appear as unused.
+def test_dry_run_reports_orphan_redis_key_absent_from_lock(pytester) -> None:
+    """A Redis backend key absent from ditto.lock is reported by a dry-run prune.
 
     Runs two pytester sessions sharing the same FakeRedis instance:
-      1. First session writes two keys (alpha, beta).
-      2. Second session reads only alpha — beta should appear as unused.
+      1. First session writes two keys (alpha, beta) and seeds ditto.lock.
+      2. Beta's lock entry is removed, making it an orphan on the backend.
+      3. Second session with --ditto-prune-dry-run reports beta as a would-prune
+         orphan without deleting it.
     """
     pytester.makeconftest("""
         from collections.abc import Iterator, MutableMapping
@@ -167,40 +170,53 @@ def test_unused_detection_reports_unaccessed_redis_keys(pytester) -> None:
                 # lifetime is managed by the outer test, not by ditto.
                 pass
 
-        _shared_client = fakeredis.FakeRedis()
+        # Key the FakeServer by a fixed name so the same in-memory store is
+        # reused across both in-process pytester runs, even though the conftest
+        # module is re-imported between them. A bare FakeRedis() would give each
+        # run a fresh, empty server and the orphan would never be seen.
+        _server = fakeredis.FakeServer.get_server(
+            "ditto-prune-test", version=(7,), server_type="redis"
+        )
+        _shared_client = fakeredis.FakeRedis(server=_server)
 
         def create_redis_backend(uri: str, **kwargs):
             return PrefixedMapping(RedisMapping(_shared_client), prefix="ditto:")
 
-        BACKEND_REGISTRY["redis"] = create_redis_backend
+        BACKEND_REGISTRY.overrides["redis"] = create_redis_backend
     """)
     pytester.makepyfile(
         test_write="""
             import ditto
 
-            @ditto.record("pickle", target="redis://localhost:6379/0")
+            @ditto.record("json", target="redis://localhost:6379/0")
             def test_write_alpha(snapshot):
                 snapshot("alpha-value", key="alpha")
 
-            @ditto.record("pickle", target="redis://localhost:6379/0")
+            @ditto.record("json", target="redis://localhost:6379/0")
             def test_write_beta(snapshot):
                 snapshot("beta-value", key="beta")
         """,
-        test_read="""
-            import ditto
-
-            @ditto.record("pickle", target="redis://localhost:6379/0")
-            def test_read_alpha_only(snapshot):
-                result = snapshot("alpha-value", key="alpha")
-                assert result == "alpha-value"
-        """,
     )
 
-    # First run: create both snapshots
+    # First run: create both snapshots and seed ditto.lock.
     result = pytester.runpytest("test_write.py")
     result.assert_outcomes(passed=2)
 
-    # Second run: only access alpha — beta is unused
-    result = pytester.runpytest("test_read.py")
-    result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*unused*"])
+    # Drop beta's entry from the lock so its backend key becomes an orphan.
+    lock_path = pytester.path / "ditto.lock"
+    data = json.loads(lock_path.read_text())
+    target = next(iter(data["targets"].values()))
+    target["entries"] = [
+        e for e in target["entries"] if "test_write_beta" not in e["nodeid"]
+    ]
+    lock_path.write_text(json.dumps(data))
+
+    # Second run with dry-run prune: beta is reported as a would-prune orphan
+    # but left in the backend. A Redis target is remote, so prune only deletes
+    # from it with --ditto-prune-shared. In-process so the shared FakeRedis
+    # client survives.
+    result = pytester.runpytest(
+        "test_write.py", "--ditto-prune-dry-run", "--ditto-prune-shared"
+    )
+    result.assert_outcomes(passed=2)
+    result.stderr.fnmatch_lines(["*would prune*"])

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "targets": {
+    "tests/ci/.ditto": {
+      "scheme": "file",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_legacy.py::test_loads_a_snapshot_written_by_pytest_ditto_1x",
+          "key": "value",
+          "recorder": "pickle"
+        },
+        {
+          "nodeid": "tests/ci/test_readme.py::test_schedule",
+          "key": "schedule",
+          "recorder": "pickle"
+        },
+        {
+          "nodeid": "tests/ci/test_snapshot.py::test_pickle_snapshot_matches_the_recorded_value",
+          "key": "value",
+          "recorder": "pickle"
+        },
+        {
+          "nodeid": "tests/ci/test_snapshot.py::test_record_mark_selects_pickle_by_name",
+          "key": "value",
+          "recorder": "pickle"
+        }
+      ]
+    }
+  }
+}

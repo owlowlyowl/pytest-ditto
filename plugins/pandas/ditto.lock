@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "targets": {
+    "tests/ci/.ditto": {
+      "scheme": "file",
+      "entries": [
+        {
+          "nodeid": "tests/ci/test_frame.py::test_csv_snapshot_matches_the_recorded_frame",
+          "key": "frame",
+          "recorder": "pandas.csv"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_csv_snapshot_matches_the_recorded_series",
+          "key": "series",
+          "recorder": "pandas.csv"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_json_snapshot_matches_the_recorded_frame",
+          "key": "frame",
+          "recorder": "pandas.json"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_json_snapshot_matches_the_recorded_series",
+          "key": "series",
+          "recorder": "pandas.json"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_parquet_snapshot_keeps_the_index_freq",
+          "key": "frame",
+          "recorder": "pandas.parquet"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_parquet_snapshot_matches_the_recorded_frame",
+          "key": "frame",
+          "recorder": "pandas.parquet"
+        },
+        {
+          "nodeid": "tests/ci/test_frame.py::test_parquet_snapshot_matches_the_recorded_series",
+          "key": "series",
+          "recorder": "pandas.parquet"
+        },
+        {
+          "nodeid": "tests/ci/test_readme.py::test_fn_with_json_dataframe_snapshot",
+          "key": "ab_dataframe",
+          "recorder": "pandas.json"
+        },
+        {
+          "nodeid": "tests/ci/test_readme.py::test_fn_with_parquet_dataframe_snapshot",
+          "key": "ab_dataframe",
+          "recorder": "pandas.parquet"
+        }
+      ]
+    }
+  }
+}

@@ -1,8 +1,11 @@
-"""Behavioural tests for FsspecMapping, TransformMapping, and PrefixedMapping."""
+"""Behavioural tests for FsspecMapping and PrefixedMapping."""
 
 from __future__ import annotations
 
-import pickle
+import errno
+import os
+import subprocess
+import sys
 import uuid
 from collections.abc import Iterator, MutableMapping
 
@@ -10,9 +13,8 @@ import pytest
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.implementations.memory import MemoryFileSystem
 
-from ditto.backends import FsspecMapping, PrefixedMapping, TransformMapping
-from ditto.backends._transform import _make_recorder_transform
-from ditto.recorders import default as _default_recorder
+from ditto._atomic import TEMP_PREFIX
+from ditto.backends import FsspecMapping, PrefixedMapping
 
 
 def _mem() -> FsspecMapping:
@@ -35,9 +37,9 @@ def test_fsspec_mapping_stores_and_retrieves_bytes() -> None:
     """Bytes written under a key are returned unchanged on read."""
     m = _mem()
 
-    m["snap.pkl"] = b"hello"
+    m["snap.json"] = b"hello"
 
-    assert m["snap.pkl"] == b"hello"
+    assert m["snap.json"] == b"hello"
 
 
 def test_fsspec_mapping_raises_key_error_for_absent_key() -> None:
@@ -45,32 +47,32 @@ def test_fsspec_mapping_raises_key_error_for_absent_key() -> None:
     m = _mem()
 
     with pytest.raises(KeyError):
-        _ = m["missing.pkl"]
+        _ = m["missing.json"]
 
 
 def test_fsspec_mapping_contains_written_key() -> None:
     """__contains__ returns True for a key that has been written."""
     m = _mem()
-    m["a.pkl"] = b"x"
+    m["a.json"] = b"x"
 
-    assert "a.pkl" in m
+    assert "a.json" in m
 
 
 def test_fsspec_mapping_does_not_contain_absent_key() -> None:
     """__contains__ returns False for a key that has never been written."""
     m = _mem()
 
-    assert "nope.pkl" not in m
+    assert "nope.json" not in m
 
 
 def test_fsspec_mapping_deletes_key() -> None:
     """Deleting a key removes it from the mapping."""
     m = _mem()
-    m["a.pkl"] = b"x"
+    m["a.json"] = b"x"
 
-    del m["a.pkl"]
+    del m["a.json"]
 
-    assert "a.pkl" not in m
+    assert "a.json" not in m
 
 
 def test_fsspec_mapping_delete_absent_key_raises() -> None:
@@ -78,23 +80,23 @@ def test_fsspec_mapping_delete_absent_key_raises() -> None:
     m = _mem()
 
     with pytest.raises(KeyError):
-        del m["ghost.pkl"]
+        del m["ghost.json"]
 
 
 def test_fsspec_mapping_iter_returns_filenames() -> None:
     """__iter__ yields the filenames of all stored keys."""
     m = _mem()
-    m["a.pkl"] = b"1"
-    m["b.pkl"] = b"2"
+    m["a.json"] = b"1"
+    m["b.json"] = b"2"
 
-    assert set(m) == {"a.pkl", "b.pkl"}
+    assert set(m) == {"a.json", "b.json"}
 
 
 def test_fsspec_mapping_len_counts_stored_keys() -> None:
     """__len__ returns the number of stored entries."""
     m = _mem()
-    m["a.pkl"] = b"1"
-    m["b.pkl"] = b"2"
+    m["a.json"] = b"1"
+    m["b.json"] = b"2"
 
     assert len(m) == 2
 
@@ -110,7 +112,7 @@ def test_fsspec_mapping_iter_returns_empty_when_root_does_not_exist() -> None:
 def test_fsspec_mapping_stores_and_retrieves_bracket_key() -> None:
     """Keys containing bracket characters round-trip correctly."""
     m = _mem()
-    key = "test_result[second]@v.pkl"
+    key = "test_result[second]@v.json"
 
     m[key] = b"payload"
 
@@ -126,7 +128,7 @@ def test_fsspec_mapping_iter_includes_bracket_key() -> None:
     pattern, silently dropping parametrised test names like test_result[second].
     """
     m = _mem()
-    key = "test_result[second]@v.pkl"
+    key = "test_result[second]@v.json"
 
     m[key] = b"payload"
 
@@ -136,7 +138,7 @@ def test_fsspec_mapping_iter_includes_bracket_key() -> None:
 def test_fsspec_mapping_stores_and_retrieves_bytes_at_nested_key_path() -> None:
     """Bytes stored under a slash-containing key are returned unchanged on read."""
     m = _mem()
-    key = "tests/test_api/test_something@result.pkl"
+    key = "tests/test_api/test_something@result.json"
 
     m[key] = b"nested-data"
 
@@ -147,20 +149,20 @@ def test_fsspec_mapping_stores_and_retrieves_bytes_at_nested_key_path() -> None:
 def test_fsspec_mapping_iter_yields_forward_slash_keys_for_nested_files() -> None:
     """__iter__ yields forward-slash-separated relative paths for files at any depth."""
     m = _mem()
-    m["flat.pkl"] = b"1"
-    m["sub/nested.pkl"] = b"2"
-    m["sub/deep/leaf.pkl"] = b"3"
+    m["flat.json"] = b"1"
+    m["sub/nested.json"] = b"2"
+    m["sub/deep/leaf.json"] = b"3"
 
     keys = set(m)
 
-    assert keys == {"flat.pkl", "sub/nested.pkl", "sub/deep/leaf.pkl"}
+    assert keys == {"flat.json", "sub/nested.json", "sub/deep/leaf.json"}
     assert all("\\" not in k for k in keys)
 
 
 def test_fsspec_mapping_removes_entry_when_nested_key_is_deleted() -> None:
     """Deleting a nested key removes the backing entry."""
     m = _mem()
-    key = "mod/group@k.pkl"
+    key = "mod/group@k.json"
     m[key] = b"x"
 
     del m[key]
@@ -173,7 +175,7 @@ def test_fsspec_mapping_raises_when_key_contains_path_traversal() -> None:
     m = _mem()
 
     with pytest.raises(ValueError, match="escape"):
-        m["../../outside.pkl"] = b"x"
+        m["../../outside.json"] = b"x"
 
 
 def test_fsspec_mapping_raises_when_key_is_absolute_path() -> None:
@@ -197,78 +199,195 @@ def test_fsspec_mapping_raises_when_key_resolves_to_root() -> None:
         m["."] = b"x"
 
 
-# ---------------------------------------------------------------------------
-# TransformMapping
-# ---------------------------------------------------------------------------
+def _local(tmp_path) -> FsspecMapping:
+    """FsspecMapping on the local filesystem, rooted in `tmp_path`."""
+    return FsspecMapping(LocalFileSystem(), tmp_path.as_posix())
 
 
-def test_transform_mapping_stores_and_retrieves_via_recorder() -> None:
-    """Values written through a recorder transform round-trip correctly."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder()
+# Writes a baseline, then caps the process's file size so the next write fails
+# partway through, as it would on a full disk, whichever code path writes it.
+_WRITE_PAST_A_FILE_SIZE_LIMIT = """
+import resource, signal, sys
+from fsspec.implementations.local import LocalFileSystem
+from ditto.backends import FsspecMapping
+
+m = FsspecMapping(LocalFileSystem(), sys.argv[1])
+m["mod.test@k.json"] = b"old baseline"
+signal.signal(signal.SIGXFSZ, signal.SIG_IGN)  # fail with EFBIG, don't die
+resource.setrlimit(resource.RLIMIT_FSIZE, (4, resource.RLIM_INFINITY))
+try:
+    m["mod.test@k.json"] = b"a new value longer than the limit"
+except OSError as exc:
+    print(exc.errno)
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs RLIMIT_FSIZE")
+def test_fsspec_mapping_keeps_previous_local_value_when_a_write_fails(
+    tmp_path,
+) -> None:
+    """A local write that fails partway through leaves the previous value
+    intact and no temporary file behind."""
+    result = subprocess.run(
+        [sys.executable, "-c", _WRITE_PAST_A_FILE_SIZE_LIMIT, tmp_path.as_posix()],
+        capture_output=True,
+        text=True,
+        check=True,
     )
 
-    store["key.pkl"] = {"x": 42}
-
-    actual = store["key.pkl"]
-    assert actual == {"x": 42}
-
-
-def test_transform_mapping_contains_does_not_deserialise() -> None:
-    """__contains__ resolves without calling __getitem__ or the load callable.
-
-    This is the critical correctness guarantee: a load callable that parses a
-    large file must not run just to check key existence.
-    """
-    load_calls: list[str] = []
-
-    def counting_load(raw: bytes) -> object:
-        load_calls.append("load")
-        return pickle.loads(raw)  # noqa: S301
-
-    backend = _mem()
-    backend["k.pkl"] = pickle.dumps("value")
-    store = TransformMapping(
-        mapping=backend,
-        save=pickle.dumps,
-        load=counting_load,
-    )
-
-    _ = "k.pkl" in store
-
-    assert load_calls == [], "load callable must not be invoked by __contains__"
+    assert result.stdout.strip() == str(errno.EFBIG)
+    assert _local(tmp_path)["mod.test@k.json"] == b"old baseline"
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.test@k.json"]
 
 
-def test_transform_mapping_pipe_combines_mapping_and_transform() -> None:
-    """| combines a backend wrapper with a recorder transform into a usable store."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder()
-    )
+def test_fsspec_mapping_keeps_previous_local_value_when_the_replace_fails(
+    tmp_path, monkeypatch
+) -> None:
+    """A local write whose final rename fails leaves the previous value intact."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
 
-    store["k.pkl"] = [1, 2, 3]
+    def failing_replace(src, dst):
+        raise OSError("rename failed")
 
-    assert store["k.pkl"] == [1, 2, 3]
+    monkeypatch.setattr("ditto._atomic.os.replace", failing_replace)
+    with pytest.raises(OSError):
+        m["mod.test@k.json"] = b"new"
 
-
-def test_transform_mapping_missing_key_raises() -> None:
-    """Reading an absent key raises KeyError (propagated from the inner mapping)."""
-    store = TransformMapping(mapping=_mem()) | _make_recorder_transform(
-        _default_recorder()
-    )
-
-    with pytest.raises(KeyError):
-        _ = store["missing.pkl"]
+    monkeypatch.undo()
+    assert m["mod.test@k.json"] == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["mod.test@k.json"]
 
 
-def test_transform_mapping_raises_when_both_sides_have_a_mapping() -> None:
-    """Merging two TransformMappings that both carry a backend raises TypeError.
+def test_fsspec_mapping_does_not_list_a_leftover_temporary_file(tmp_path) -> None:
+    """A temporary file an interrupted write left behind isn't a snapshot."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"x"
+    (tmp_path / f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp").write_bytes(b"partial")
 
-    The | operator is designed to merge a mapping-bearing instance with a
-    save/load-only instance. When both sides have a mapping, one would be
-    silently dropped, so the error is raised explicitly instead.
-    """
-    with pytest.raises(TypeError, match="both carry a backend mapping"):
-        TransformMapping(mapping=_mem()) | TransformMapping(mapping=_mem())
+    assert list(m) == ["mod.test@k.json"]
+    assert [key for key, _, _ in m.stat_entries()] == ["mod.test@k.json"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_creates_local_files_with_default_permissions(
+    tmp_path,
+) -> None:
+    """An atomically written snapshot gets the permissions `open` would give
+    it, not the owner-only mode of a secure temporary file."""
+    umask = os.umask(0o022)
+    try:
+        _local(tmp_path)["mod.test@k.json"] = b"x"
+    finally:
+        os.umask(umask)
+
+    assert (tmp_path / "mod.test@k.json").stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_keeps_permissions_when_overwriting_a_local_file(
+    tmp_path,
+) -> None:
+    """Overwriting a snapshot keeps its permission bits, as writing to it in
+    place would, rather than giving the replacement the default ones."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    (tmp_path / "mod.test@k.json").chmod(0o600)
+
+    umask = os.umask(0o022)
+    try:
+        m["mod.test@k.json"] = b"new"
+    finally:
+        os.umask(umask)
+
+    assert m["mod.test@k.json"] == b"new"
+    assert (tmp_path / "mod.test@k.json").stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_fsspec_mapping_stages_an_overwrite_with_the_existing_permissions(
+    tmp_path, monkeypatch
+) -> None:
+    """The temporary file holding the new value is created with the existing
+    snapshot's permissions, so it is never readable by more users than the
+    snapshot, even before it is renamed into place."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    (tmp_path / "mod.test@k.json").chmod(0o600)
+    staged_modes = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        staged_modes.append(os.stat(src).st_mode & 0o777)
+        real_replace(src, dst)
+
+    # Without the final chmod, the temporary file keeps the mode it was
+    # created with, which is what the rename then sees.
+    monkeypatch.setattr("ditto._atomic.os.chmod", lambda path, mode: None)
+    monkeypatch.setattr("ditto._atomic.os.replace", recording_replace)
+    umask = os.umask(0o022)
+    try:
+        m["mod.test@k.json"] = b"new"
+    finally:
+        os.umask(umask)
+
+    assert staged_modes == [0o600]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="path exceeds MAX_PATH")
+def test_fsspec_mapping_writes_a_local_file_with_the_longest_name(tmp_path) -> None:
+    """A snapshot name using the whole 255-byte limit can be written: the
+    temporary file's name doesn't include it."""
+    key = "m" * 250 + ".json"
+    m = _local(tmp_path)
+
+    m[key] = b"old"
+    m[key] = b"new"
+
+    assert m[key] == b"new"
+
+
+def test_fsspec_mapping_lists_a_local_file_named_like_but_not_as_a_temporary_file(
+    tmp_path,
+) -> None:
+    """Only the exact name a temporary file gets is hidden on the local
+    filesystem; other names that share its prefix are listed."""
+    m = _local(tmp_path)
+    m[f"{TEMP_PREFIX}real.json"] = b"x"
+
+    assert list(m) == [f"{TEMP_PREFIX}real.json"]
+
+
+def test_fsspec_mapping_lists_temporary_file_names_on_other_filesystems() -> None:
+    """Only a local mapping writes temporary files, so other filesystems list
+    every stored key, even one named like a temporary file."""
+    m = _mem()
+    temp_name = f"{TEMP_PREFIX}{uuid.uuid4().hex}.tmp"
+    m[temp_name] = b"x"
+    m[f"{TEMP_PREFIX}real.json"] = b"y"
+
+    assert sorted(m) == sorted([temp_name, f"{TEMP_PREFIX}real.json"])
+    assert sorted(key for key, _, _ in m.stat_entries()) == sorted(m)
+
+
+def test_fsspec_mapping_leaves_another_writers_temporary_file_when_its_name_is_taken(
+    tmp_path, monkeypatch
+) -> None:
+    """When the temporary file's name is already taken, the write fails
+    without removing that file or touching the destination."""
+    m = _local(tmp_path)
+    m["mod.test@k.json"] = b"old"
+    taken = uuid.UUID(int=0)
+    other = tmp_path / f"{TEMP_PREFIX}{taken.hex}.tmp"
+    other.write_bytes(b"another writer's")
+
+    monkeypatch.setattr("ditto._atomic.uuid.uuid4", lambda: taken)
+    with pytest.raises(FileExistsError):
+        m["mod.test@k.json"] = b"new"
+
+    monkeypatch.undo()
+    assert other.read_bytes() == b"another writer's"
+    assert m["mod.test@k.json"] == b"old"
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +478,57 @@ def test_prefixed_mapping_propagates_context_manager_enter() -> None:
 
     assert inner.entered is True
     assert inner.exited is True
+
+
+class _SuppressingStore(dict[str, bytes]):
+    """A dict store whose __exit__ records the exception and returns `suppress`."""
+
+    def __init__(self, *, suppress: bool) -> None:
+        super().__init__()
+        self.suppress = suppress
+        self.exit_args: tuple[object, ...] | None = None
+
+    def __enter__(self) -> "_SuppressingStore":
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        self.exit_args = args
+        return self.suppress
+
+
+def test_prefixed_mapping_suppresses_exception_when_inner_exit_suppresses() -> None:
+    """An exception raised in the with-block is suppressed when the inner store's
+    __exit__ returns True, as the context-manager protocol requires."""
+    inner = _SuppressingStore(suppress=True)
+    error = ValueError("boom")
+
+    with PrefixedMapping(inner, prefix="p:"):
+        raise error
+
+    assert inner.exit_args is not None
+    assert inner.exit_args[:2] == (ValueError, error)
+
+
+def test_prefixed_mapping_propagates_exception_when_inner_exit_does_not_suppress() -> (
+    None
+):
+    """An exception raised in the with-block propagates when the inner store's
+    __exit__ returns a falsy value."""
+    inner = _SuppressingStore(suppress=False)
+
+    with pytest.raises(ValueError, match="boom"):
+        with PrefixedMapping(inner, prefix="p:"):
+            raise ValueError("boom")
+
+
+def test_prefixed_mapping_propagates_exception_when_inner_has_no_context_manager() -> (
+    None
+):
+    """With a plain dict inner store there is nothing to suppress, so the exception
+    propagates."""
+    with pytest.raises(ValueError, match="boom"):
+        with PrefixedMapping({}, prefix="p:"):
+            raise ValueError("boom")
 
 
 def test_prefixed_mapping_does_not_fail_when_inner_has_no_context_manager() -> None:

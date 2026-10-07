@@ -1,6 +1,7 @@
 import pytest
 
 from ditto import Snapshot
+from ditto._lockfile import LOCKFILE_NAME, read_lockfile, storage_key
 
 
 def test_injects_snapshot_instance_into_test(snapshot) -> None:
@@ -17,6 +18,18 @@ def test_raises_when_key_is_not_provided(snapshot) -> None:
     )
 
 
+def test_rejects_non_string_key(snapshot) -> None:
+    """snapshot raises TypeError when key is not a str.
+
+    A non-str key round-trips through `snapshot()` but cannot be represented
+    by a `ditto.lock` entry, whose `key` field is `str`-typed: a normal run
+    would auto-append a lock entry for it and then fail to read the lock back
+    on the very next session (see #98).
+    """
+    with pytest.raises(TypeError, match=r"key must be a str, got int"):
+        snapshot(77, key=1029384756)
+
+
 def test_returns_value_on_first_call(pytester) -> None:
     """snapshot returns the value passed to it when no snapshot file exists yet."""
     pytester.makepyfile("""
@@ -30,17 +43,37 @@ def test_returns_value_on_first_call(pytester) -> None:
     result.assert_outcomes(passed=1)
 
 
-def test_returns_stored_value_on_subsequent_calls(snapshot) -> None:
-    """snapshot returns the stored value, not the argument, when the file exists."""
-    key = "read"
+def test_lossy_snapshot_fails_on_the_run_that_records_it(pytester) -> None:
+    """A value the recorder changes fails when first recorded, not a run later."""
+    pytester.makepyfile("""
+        import ditto
 
-    # tests/ci/.ditto/tests.ci.test_fixture\
-    #   .test_returns_stored_value_on_subsequent_calls@read.pkl
-    # is committed and contains "read-value". Passing a different argument proves the
-    # stored value is returned rather than the argument.
-    actual = snapshot("different-value", key=key)
+        @ditto.yaml
+        def test_inner(snapshot):
+            actual = (1, 2)
+            assert snapshot(actual, key="pair") == actual
+    """)
 
-    assert actual == "read-value"
+    result = pytester.runpytest()
+
+    result.assert_outcomes(failed=1)
+
+
+def test_returns_stored_value_on_subsequent_calls(pytester) -> None:
+    """A second run returns stored JSON rather than its new argument."""
+    test_file = pytester.path / "test_inner.py"
+    test_file.write_text(
+        "def test_inner(snapshot):\n"
+        "    assert snapshot('read-value', key='read') == 'read-value'\n"
+    )
+    pytester.runpytest().assert_outcomes(passed=1)
+
+    test_file.write_text(
+        "def test_inner(snapshot):\n"
+        "    assert snapshot('different-value', key='read') == 'read-value'\n"
+    )
+
+    pytester.runpytest().assert_outcomes(passed=1)
 
 
 def test_returns_each_value_when_called_with_different_keys(pytester) -> None:
@@ -84,12 +117,9 @@ def test_user_defined_ditto_backend_raises_migration_error(pytester) -> None:
 def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     """--ditto-prune must not delete snapshots written by sibling tests.
 
-    Regression: the fallback fixture created a fresh FsspecMapping per test, giving
-    each test its own _BackendRecord. Pass 1 of pytest_sessionfinish enumerated the
-    entire shared .ditto/ directory for each record and subtracted only that one
-    test's accessed keys, marking every sibling's snapshot as "not accessed" and
-    deleting it. The fix caches the FsspecMapping by resolved root path so all
-    tests in the same directory share one backend instance and one record.
+    The first run seeds ditto.lock with both alpha and beta. A subsequent
+    --ditto-prune finds both keys recorded in the lock, so neither is an orphan
+    and nothing is pruned.
     """
     pytester.makepyfile(
         test_alpha="""
@@ -111,8 +141,9 @@ def test_prune_does_not_delete_snapshots_from_sibling_tests(pytester) -> None:
     result.stdout.no_fnmatch_line("*pruned*")
 
 
-def test_shared_memory_target_does_not_report_false_unused(pytester) -> None:
-    """Two tests sharing one memory target should not flag each other as unused."""
+def test_shared_memory_target_does_not_report_false_prune_candidates(pytester) -> None:
+    """A normal run on a shared memory target reports no spurious deletion
+    candidates."""
     pytester.makepyfile(
         test_alpha="""
             import ditto
@@ -133,7 +164,7 @@ def test_shared_memory_target_does_not_report_false_unused(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=2)
-    result.stderr.no_fnmatch_line("*│   unused*")
+    result.stderr.no_fnmatch_line("*would prune*")
 
 
 def test_module_field_uses_forward_slashes(pytester) -> None:
@@ -155,7 +186,7 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
         def _factory(uri: str, **kwargs):
             return _backend
 
-        BACKEND_REGISTRY["test"] = _factory
+        BACKEND_REGISTRY.overrides["test"] = _factory
 
         @pytest.fixture
         def stored_keys():
@@ -164,7 +195,7 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     subdir = pytester.mkdir("sub")
     subdir.joinpath("test_inner.py").write_text(
         "import ditto\n\n"
-        "@ditto.record('pickle', target='test://shared')\n"
+        "@ditto.record('json', target='test://shared')\n"
         "def test_inner(snapshot, stored_keys):\n"
         "    snapshot('v', key='k')\n"
         "    key = next(iter(stored_keys))\n"
@@ -175,6 +206,108 @@ def test_module_field_uses_forward_slashes(pytester) -> None:
     result = pytester.runpytest()
 
     result.assert_outcomes(passed=1)
+
+
+def test_nested_snapshot_keys_match_the_keys_the_lock_derives(pytester) -> None:
+    """Every key the fixture writes is the key the lock derives for its entry.
+
+    The fixture and lock, verify and prune must build a snapshot's identity
+    from its test the same way, or verify reports the snapshots missing and
+    prune deletes them. A test below the rootdir, in a class and parametrized,
+    exercises the node id's path, class and parameter parts.
+    """
+    pytester.mkdir("tests")
+    pytester.mkdir("tests/sub").joinpath("test_nested.py").write_text(
+        "import pytest\n\n"
+        "class TestGroup:\n"
+        "    @pytest.mark.parametrize('n', [1, 2])\n"
+        "    def test_value(self, snapshot, n):\n"
+        "        assert snapshot(n, key='v') == n\n"
+    )
+
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+
+    lock = read_lockfile(pytester.path / LOCKFILE_NAME)
+    assert lock is not None
+    target = lock.targets["tests/sub/.ditto"]
+    derived = {storage_key(entry, target.scheme) for entry in target.entries}
+    written = {p.name for p in (pytester.path / "tests/sub/.ditto").iterdir()}
+    assert written == derived
+    assert written == {
+        "tests.sub.test_nested.TestGroup.test_value[1]@v~8f4d5521135643b9.json",
+        "tests.sub.test_nested.TestGroup.test_value[2]@v~8181519ff641b5a5.json",
+    }
+
+
+_DOCTEST = """
+>>> snap = getfixture("snapshot")
+>>> snap({value}, key="v")
+{value}
+"""
+
+
+def test_doctest_snapshot_name_drops_the_extension_and_matches_the_lock(
+    pytester,
+) -> None:
+    """A doctest file's module drops the file's extension, like a `.py` file's.
+
+    The lock must derive the same name from the node id, so a clean verify
+    passes, and a changed value must fail against the stored baseline.
+    """
+    doctest_args = ("--doctest-glob=*.txt",)
+    doc = pytester.path / "test_example.txt"
+    doc.write_text(_DOCTEST.format(value=123))
+    pytester.runpytest_subprocess(*doctest_args).assert_outcomes(passed=1)
+
+    written = {p.name for p in (pytester.path / ".ditto").iterdir()}
+    assert written == {"test_example.test_example.txt@v~c88622f6052deede.json"}
+    lock = read_lockfile(pytester.path / LOCKFILE_NAME)
+    assert lock is not None
+    target = lock.targets[".ditto"]
+    assert {storage_key(e, target.scheme) for e in target.entries} == written
+
+    verify = pytester.runpytest_subprocess("--ditto-verify", *doctest_args)
+    assert verify.ret == pytest.ExitCode.OK
+
+    doc.write_text(_DOCTEST.format(value=999))
+    pytester.runpytest_subprocess(*doctest_args).assert_outcomes(failed=1)
+
+
+def test_ids_differing_only_in_what_the_label_drops_keep_separate_baselines(
+    pytester,
+) -> None:
+    """`[a::b]` and `[a.b]` share a label but not a node id, so each test keeps
+    its own snapshot and never reads the other's."""
+    module = """
+    import pytest
+
+    @pytest.mark.parametrize("v", ["{first}", "{second}"], ids=["a::b", "a.b"])
+    def test_t(snapshot, v):
+        assert snapshot(v, key="k") == v
+    """
+    pytester.makepyfile(test_m=module.format(first="one", second="two"))
+    pytester.runpytest_subprocess().assert_outcomes(passed=2)
+
+    assert len(list((pytester.path / ".ditto").iterdir())) == 2
+    pytester.makepyfile(test_m=module.format(first="one", second="changed"))
+    pytester.runpytest_subprocess().assert_outcomes(passed=1, failed=1)
+
+
+def test_snapshot_in_a_test_outside_the_rootdir_errors_clearly(pytester) -> None:
+    """A test outside the rootdir has no module to key its snapshots by."""
+    root = pytester.mkdir("root")
+    root.joinpath("pytest.ini").write_text("[pytest]\n")
+    outside = pytester.mkdir("outside")
+    outside.joinpath("test_outside.py").write_text(
+        "def test_a(snapshot):\n    snapshot(1, key='a')\n"
+    )
+
+    result = pytester.runpytest_subprocess(
+        f"--rootdir={root}", str(outside / "test_outside.py")
+    )
+
+    result.assert_outcomes(errors=1)
+    result.stdout.fnmatch_lines(["*is outside the rootdir*"])
 
 
 _ITER_RAISING_CONFTEST = """
@@ -194,79 +327,59 @@ _ITER_RAISING_CONFTEST = """
     def _factory(uri: str, **kwargs):
         return {cls}()
 
-    BACKEND_REGISTRY["testiter"] = _factory
+    BACKEND_REGISTRY.overrides["testiter"] = _factory
 """
 
 
-def test_session_completes_when_backend_iter_raises_not_implemented(pytester) -> None:
-    """A backend that raises NotImplementedError from __iter__ emits a warning and
-    does not crash pytest_sessionfinish."""
+_ITER_RAISING_TEST = (
+    "import ditto\n\n"
+    "@ditto.record('json', target='testiter://shared')\n"
+    "def test_inner(snapshot):\n"
+    "    snapshot('v', key='k')\n"
+)
+
+
+def test_prune_fails_the_run_when_a_target_cannot_be_listed(pytester) -> None:
+    """A target whose __iter__ raises can't be checked for orphans, so prune
+    reports it and fails the run after the tests pass."""
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
             cls="NoIterBackend", exc="NotImplementedError", msg="no iteration"
         )
     )
-    pytester.makepyfile(
-        "import ditto\n\n"
-        "@ditto.record('pickle', target='testiter://shared')\n"
-        "def test_inner(snapshot):\n"
-        "    snapshot('v', key='k')\n"
-    )
+    pytester.makepyfile(_ITER_RAISING_TEST)
+    pytester.runpytest().assert_outcomes(passed=1)
 
-    result = pytester.runpytest("-W", "always")
+    result = pytester.runpytest("--ditto-prune")
 
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*does not support enumeration*"])
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto prune: could not read*: no iteration"])
 
 
-def test_session_completes_when_backend_iter_raises_ioerror(pytester) -> None:
-    """A backend that raises a non-NotImplementedError (e.g. ConnectionError) from
-    __iter__ emits a warning and does not crash pytest_sessionfinish.
-
-    Regression: the original except clause only caught NotImplementedError.
-    ConnectionError, PermissionError, and other I/O errors from remote backends
-    (e.g. FsspecMapping's fs.find() call) propagated uncaught, preventing the
-    session report from rendering.
-    """
+def test_prune_dry_run_fails_the_run_when_a_target_cannot_be_listed(pytester) -> None:
+    """A dry run that can't read a target fails, rather than reporting nothing
+    to prune."""
     pytester.makeconftest(
         _ITER_RAISING_CONFTEST.format(
             cls="BrokenIterBackend", exc="ConnectionError", msg="network gone"
         )
     )
-    pytester.makepyfile(
-        "import ditto\n\n"
-        "@ditto.record('pickle', target='testiter://shared')\n"
-        "def test_inner(snapshot):\n"
-        "    snapshot('v', key='k')\n"
-    )
+    pytester.makepyfile(_ITER_RAISING_TEST)
+    pytester.runpytest().assert_outcomes(passed=1)
 
-    result = pytester.runpytest("-W", "always")
+    result = pytester.runpytest("--ditto-prune-dry-run")
 
-    result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*raised ConnectionError*"])
-
-
-def test_accepts_integer_as_key(pytester) -> None:
-    """snapshot accepts an integer key and stores and returns the value correctly."""
-    pytester.makepyfile("""
-        def test_inner(snapshot):
-            actual = snapshot(77, key=1029384756)
-            assert actual == 77
-    """)
-
-    result = pytester.runpytest()
-
-    result.assert_outcomes(passed=1)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*ditto prune: could not read*: network gone"])
 
 
 def test_prune_does_not_touch_snapshots_outside_collected_scope(pytester) -> None:
-    """--ditto-prune must not prune .ditto/ directories outside the collected paths.
+    """--ditto-prune must not touch targets outside the collected paths.
 
-    Regression: Pass 2 of pytest_sessionfinish used rootdir.rglob(".ditto") which
-    scans the entire project. Running --ditto-prune scoped to a subdirectory would
-    find all .ditto/ directories under rootdir and prune every snapshot in ones not
-    opened this session, destroying snapshots from unrelated test directories.
-    The fix scopes the rglob to directories of actually-collected test items.
+    Prune only enumerates targets exercised this run. Running --ditto-prune
+    scoped to dir_a never resolves dir_b's target, so dir_b's snapshots are left
+    untouched.
     """
     dir_a = pytester.mkpydir("dir_a")
     dir_b = pytester.mkpydir("dir_b")
@@ -283,14 +396,14 @@ def test_b(snapshot):
     # First run: record snapshots in both directories.
     pytester.runpytest().assert_outcomes(passed=2)
 
-    snapshots_b_before = list((dir_b / ".ditto").rglob("*.pkl"))
+    snapshots_b_before = list((dir_b / ".ditto").rglob("*.json"))
     assert snapshots_b_before, "dir_b snapshots must exist before partial prune"
 
     # Second run: prune scoped to dir_a only — dir_b must be untouched.
     result = pytester.runpytest("dir_a", "--ditto-prune")
     result.assert_outcomes(passed=1)
 
-    snapshots_b_after = list((dir_b / ".ditto").rglob("*.pkl"))
+    snapshots_b_after = list((dir_b / ".ditto").rglob("*.json"))
     assert snapshots_b_after == snapshots_b_before
 
 
@@ -349,14 +462,14 @@ def test_shared_file_target_does_not_collide_across_files(pytester) -> None:
         test_alpha=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_roundtrip(snapshot):
                 assert snapshot("alpha", key="v") == "alpha"
         """,
         test_beta=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_roundtrip(snapshot):
                 assert snapshot("beta", key="v") == "beta"
         """,
@@ -375,23 +488,23 @@ def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> N
     """--ditto-prune on a partial run must not prune snapshots from uncollected
     modules sharing the same backend.
 
-    When two test files write to the same file:// target, running --ditto-prune
-    scoped to one file must leave the other file's snapshots intact. Only keys
-    that belong to modules in the current run are candidates for pruning.
+    When two test files write to the same file:// target, both keys are recorded
+    in the seeded lock. Running --ditto-prune scoped to one file finds no orphans
+    (every backend key is in the lock), so the other file's snapshot survives.
     """
     shared_target = pytester.path / "shared_ditto"
     pytester.makepyfile(
         test_alpha=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_alpha(snapshot):
                 assert snapshot("alpha", key="v") == "alpha"
         """,
         test_beta=f"""
             import ditto
 
-            @ditto.record("pickle", target="file://{shared_target.as_posix()}")
+            @ditto.record("json", target="file://{shared_target.as_posix()}")
             def test_beta(snapshot):
                 assert snapshot("beta", key="v") == "beta"
         """,
@@ -400,12 +513,12 @@ def test_prune_scoped_run_does_not_delete_other_modules_snapshots(pytester) -> N
     # First run: create both snapshots in the shared backend.
     pytester.runpytest().assert_outcomes(passed=2)
 
-    snapshots_before = list(shared_target.rglob("*.pkl"))
+    snapshots_before = list(shared_target.rglob("*.json"))
     assert len(snapshots_before) == 2, "both snapshots must exist before partial prune"
 
     # Second run: prune scoped to test_alpha only — test_beta's snapshot must survive.
     result = pytester.runpytest("test_alpha.py", "--ditto-prune")
     result.assert_outcomes(passed=1)
 
-    snapshots_after = list(shared_target.rglob("*.pkl"))
+    snapshots_after = list(shared_target.rglob("*.json"))
     assert len(snapshots_after) == 2, "test_beta snapshot must not be pruned"

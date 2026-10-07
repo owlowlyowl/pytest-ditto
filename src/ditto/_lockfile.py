@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Iterable
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Literal
 from urllib.parse import urlparse
 
 import msgspec
 
+from ._atomic import write_atomically
 from .exceptions import DittoLockFileError, DittoLockFileVersionError
-from .snapshot import SnapshotKey, _flat_key
+from .snapshot import SnapshotKey, _flat_key, _remote_key
 
 __all__ = (
     "LOCKFILE_VERSION",
@@ -17,11 +18,13 @@ __all__ = (
     "LockEntry",
     "LockTarget",
     "LockFile",
+    "LockOutcome",
     "serialise",
     "deserialise",
     "read_lockfile",
     "write_lockfile",
     "portable_target_id",
+    "split_nodeid",
     "storage_key",
     "merge_append",
 )
@@ -33,7 +36,7 @@ LOCKFILE_NAME = "ditto.lock"
 class LockEntry(msgspec.Struct, frozen=True, order=True):
     """One legitimate snapshot's identity.
 
-    Carries the test `nodeid`, the snapshot `key`, and the recorder extension.
+    Carries the test `nodeid`, the snapshot `key`, and the recorder identifier.
     """
 
     nodeid: str
@@ -53,6 +56,21 @@ class LockFile(msgspec.Struct, frozen=True):
 
     version: int
     targets: dict[str, LockTarget]
+
+
+@dataclass(frozen=True)
+class LockOutcome:
+    """What a session did to `ditto.lock`, counted in lock entries.
+
+    `added` and `removed` are None when the previous lock couldn't be read, so
+    the change in entries is unknown. `reason` says briefly why a lock was
+    refused or failed; it never holds an error message.
+    """
+
+    status: Literal["unchanged", "written", "failed", "refused"] = "unchanged"
+    added: int | None = 0
+    removed: int | None = 0
+    reason: str = ""
 
 
 def _canonical(lock: LockFile) -> LockFile:
@@ -102,18 +120,8 @@ def read_lockfile(path: Path) -> LockFile | None:
 
 
 def write_lockfile(path: Path, lock: LockFile) -> None:
-    """Atomically write `lock` to `path` (temp file in the same dir + os.replace)."""
-    data = serialise(lock)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=".ditto.lock.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    """Atomically write `lock` to `path`; see `write_atomically`."""
+    write_atomically(path, serialise(lock))
 
 
 def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
@@ -133,14 +141,23 @@ def portable_target_id(canonical_uri: str, rootdir: Path) -> str:
         return canonical_uri
 
 
-def _split_nodeid(nodeid: str) -> tuple[str, str]:
+def split_nodeid(nodeid: str) -> tuple[str, str]:
     """Split a pytest nodeid into `(module_stem, group_name)`.
 
     `tests/test_api.py::TestX::test_foo` -> (`tests/test_api`, `TestX.test_foo`),
-    matching `SnapshotKey.module` and `SnapshotKey.group_name`.
+    matching `SnapshotKey.module` and `SnapshotKey.group_name`. The file's last
+    extension is dropped whatever it is, so a doctest in `docs/guide.txt` has
+    module `docs/guide`.
+
+    This is the one derivation of a snapshot's identity from its test: the
+    `snapshot` fixture builds keys with it, and lock, verify and prune rebuild
+    the same keys from lock entries with it. Node ids always use forward
+    slashes, so the result is the same on every platform.
     """
     path_part, _, rest = nodeid.partition("::")
-    module = path_part.removesuffix(".py")
+    # A node id with no file path (a test outside the rootdir) has no module;
+    # `PurePosixPath("")` is ".", which `with_suffix` rejects.
+    module = PurePosixPath(path_part).with_suffix("").as_posix() if path_part else ""
     group = rest.replace("::", ".")
     return module, group
 
@@ -151,9 +168,9 @@ def storage_key(entry: LockEntry, scheme: str) -> str:
     Reuses the live `SnapshotKey` logic: `file` schemes use the flat dotted key,
     all others use the slash-namespaced key.
     """
-    module, group = _split_nodeid(entry.nodeid)
-    sk = SnapshotKey(module, group, entry.key, entry.recorder)
-    return _flat_key(sk) if scheme == "file" else str(sk)
+    module, group = split_nodeid(entry.nodeid)
+    sk = SnapshotKey(module, group, entry.key, entry.recorder, entry.nodeid)
+    return _flat_key(sk) if scheme == "file" else _remote_key(sk)
 
 
 def merge_append(

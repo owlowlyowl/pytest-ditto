@@ -1,64 +1,114 @@
-"""Unit tests for pure CLI helper functions in ditto.cli."""
+"""Unit tests for pure CLI helper functions in the ditto.cli package."""
 
 from __future__ import annotations
 
+import importlib.metadata
+
+import pytest
 from click.testing import CliRunner
 
-from ditto import cli as cli_mod
+from ditto._cli_introspect import IntrospectError
+from ditto._inventory import InventoryError
 from ditto._manifest import BackendManifest, ManifestEntry
-from ditto.cli import (
-    _RECORDER_PALETTE,
-    RecorderInfo,
-    _build_colour_map,
-    _ext_map,
-    _human_size,
-    _parse_snapshot_name,
-    cli,
+from ditto.cli import _inventory as cli_inventory
+from ditto.cli import cli
+from ditto.cli._data import RecorderInfo, _ext_map, _human_size, _parse_snapshot_name
+from ditto.cli._display import _RECORDER_PALETTE, _build_colour_map
+from ditto.cli._summary import (
+    Extremes,
+    LocatedEntry,
+    oldest_and_newest,
+    RecorderStats,
+    SizeSummary,
+    _format_size_summary,
     gather_stats,
 )
+
+
+# ── --version ─────────────────────────────────────────────────────────────────
+
+
+def test_version_option_reports_the_installed_distribution_version() -> None:
+    """`ditto --version` prints the pytest-ditto distribution's version and exits
+    cleanly."""
+    result = CliRunner().invoke(cli, ["--version"])
+
+    assert result.exit_code == 0
+    expected = importlib.metadata.version("pytest-ditto")
+    assert result.output == f"pytest-ditto {expected}\n"
 
 
 # ── _parse_snapshot_name ──────────────────────────────────────────────────────
 
 
-def test_splits_group_key_and_extension() -> None:
-    """Standard {group}@{key}.{ext} filename is split correctly."""
-    group, key, ext = _parse_snapshot_name("test_foo@result.pickle")
-    assert group == "test_foo"
-    assert key == "result"
-    assert ext == ".pickle"
+def test_splits_label_key_and_extension() -> None:
+    """A `<test label>@<key label>~<hash>.<ext>` name splits into its parts."""
+    test, key, ext = _parse_snapshot_name(
+        "tests.test_api.test_get@body~65d95e2289583fbe.json"
+    )
+    assert test == "tests.test_api.test_get"
+    assert key == "body"
+    assert ext == ".json"
 
 
-def test_preserves_multi_dot_extension() -> None:
-    """Extension with multiple dots (e.g. pandas.parquet) is preserved."""
-    group, key, ext = _parse_snapshot_name("test_foo@result.pandas.parquet")
-    assert group == "test_foo"
-    assert key == "result"
+def test_everything_after_the_hash_is_the_extension() -> None:
+    """A dotted recorder name and a dotted key both parse, as the hash marks
+    where the recorder starts."""
+    test, key, ext = _parse_snapshot_name(
+        "m.test_foo@v1.2~4956086b5a19330d.pandas.parquet"
+    )
+    assert test == "m.test_foo"
+    assert key == "v1.2"
     assert ext == ".pandas.parquet"
 
 
-def test_no_at_sign_returns_empty_key_and_ext() -> None:
-    """A filename with no '@' is treated as group only; key and ext are empty."""
-    group, key, ext = _parse_snapshot_name("invalid_filename")
-    assert group == "invalid_filename"
-    assert key == ""
-    assert ext == ""
-
-
-def test_returns_empty_extension_when_no_dot_follows_at() -> None:
-    """A file like 'group@key' (no dot) yields an empty ext."""
-    group, key, ext = _parse_snapshot_name("test_foo@key_only")
-    assert group == "test_foo"
-    assert key == "key_only"
-    assert ext == ""
-
-
-def test_preserves_dots_in_group_portion() -> None:
-    """Group portion (before @) may itself contain dots (unittest class names)."""
-    group, key, ext = _parse_snapshot_name("MyTestCase.test_method@snap.yaml")
-    assert group == "MyTestCase.test_method"
+def test_preserves_dots_in_the_test_label() -> None:
+    """The test label keeps the module prefix and class name."""
+    test, key, ext = _parse_snapshot_name(
+        "m.MyTestCase.test_method@snap~0a1b2c3d4e5f6a7b.yaml"
+    )
+    assert test == "m.MyTestCase.test_method"
     assert key == "snap"
     assert ext == ".yaml"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "invalid_filename",
+        # The format before hashed names.
+        "test_foo@result.yaml",
+        # The hash must be 16 lowercase hex characters.
+        "test_foo@result~0a1b2c3d.yaml",
+        "test_foo@result~0A1B2C3D4E5F6A7B.yaml",
+        "test_foo@result~0a1b2c3d4e5f6a7b",
+        # A hash and recorder, but no `@` or no test label before it.
+        "garbage~0123456789abcdef.json",
+        "~0123456789abcdef.json",
+        "@k~0123456789abcdef.json",
+    ],
+)
+def test_other_names_return_empty_key_and_ext(name) -> None:
+    """A name not in the stored form is returned whole, with empty key and ext."""
+    assert _parse_snapshot_name(name) == (name, "", "")
+
+
+def test_an_empty_key_parses() -> None:
+    """`key=""` is a valid key, so its name has an empty key label."""
+    assert _parse_snapshot_name("m.test_t@~0123456789abcdef.json") == (
+        "m.test_t",
+        "",
+        ".json",
+    )
+
+
+def test_the_last_at_ends_the_test_label() -> None:
+    """An `@` in the module path stays in the test label."""
+    assert _parse_snapshot_name("a@b.test_t@k~0123456789abcdef.json") == (
+        "a@b.test_t",
+        "k",
+        ".json",
+    )
 
 
 # ── _human_size ───────────────────────────────────────────────────────────────
@@ -97,6 +147,57 @@ def test_formats_fractional_kilobytes() -> None:
     assert _human_size(1536) == "1.5 KB"
 
 
+def test_human_size_renders_none_as_dash():
+    """An unknown size renders as an em dash, not a crash."""
+    assert _human_size(None) == "—"
+
+
+def test_gather_stats_counts_entries_with_unknown_sizes() -> None:
+    """An unknown byte size does not remove a snapshot from the total count."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    assert stats.total_count == 1
+
+
+def test_gather_stats_preserves_known_and_unknown_size_components() -> None:
+    """Known bytes and unknown snapshot counts remain distinct when aggregated."""
+    entries = [
+        ManifestEntry(storage_key="m.test_a@k.json", size_bytes=100, modified=None),
+        ManifestEntry(storage_key="m.test_b@k.json", size_bytes=None, modified=None),
+    ]
+
+    stats = gather_stats(entries, {})
+
+    actual = stats.total_size
+
+    expected = SizeSummary(known_bytes=100, unknown_count=1)
+    assert actual == expected
+
+
+def test_formats_entirely_unknown_size_summary_as_dash() -> None:
+    """An aggregate with no known sizes renders as unknown rather than zero."""
+    summary = SizeSummary(known_bytes=0, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "—"
+    assert actual == expected
+
+
+def test_labels_known_bytes_when_size_summary_is_partial() -> None:
+    """A mixed aggregate identifies its byte total as only the known portion."""
+    summary = SizeSummary(known_bytes=100, unknown_count=2)
+
+    actual = _format_size_summary(summary)
+
+    expected = "100 B known"
+    assert actual == expected
+
+
 # ── _build_colour_map ─────────────────────────────────────────────────────────
 
 
@@ -107,14 +208,14 @@ def test_colour_map_is_empty_for_no_names() -> None:
 
 def test_single_name_gets_a_palette_colour() -> None:
     """A single name is assigned a string palette colour."""
-    result = _build_colour_map(["pickle"])
-    assert "pickle" in result
-    assert isinstance(result["pickle"], str)
+    result = _build_colour_map(["json"])
+    assert "json" in result
+    assert isinstance(result["json"], str)
 
 
 def test_colour_assignment_is_independent_of_input_order() -> None:
     """The same names yield the same colour assignment regardless of order."""
-    names = ["yaml", "pickle", "json"]
+    names = ["yaml", "external", "json"]
     assert _build_colour_map(names) == _build_colour_map(list(reversed(names)))
 
 
@@ -128,14 +229,14 @@ def test_assigns_palette_colours_in_alphabetical_order() -> None:
 # ── _ext_map ──────────────────────────────────────────────────────────────────
 
 
-def test_maps_extension_to_recorder_info() -> None:
-    """Each RecorderInfo is keyed by its extension."""
+def test_maps_identifier_to_recorder_info() -> None:
+    """Each RecorderInfo is keyed by its identifier."""
     infos = [
-        RecorderInfo(name="pickle", extension=".pickle", package="pytest-ditto"),
-        RecorderInfo(name="yaml", extension=".yaml", package="pytest-ditto"),
+        RecorderInfo(name="json", identifier=".json", package="pytest-ditto"),
+        RecorderInfo(name="yaml", identifier=".yaml", package="pytest-ditto"),
     ]
     result = _ext_map(infos)
-    assert result[".pickle"].name == "pickle"
+    assert result[".json"].name == "json"
     assert result[".yaml"].name == "yaml"
 
 
@@ -144,12 +245,12 @@ def test_ext_map_is_empty_for_no_infos() -> None:
     assert _ext_map([]) == {}
 
 
-def test_later_entry_wins_on_duplicate_extension() -> None:
-    """Last info with a given extension is kept (dict overwrite semantics)."""
-    a = RecorderInfo(name="first", extension=".pkl", package="pkg-a")
-    b = RecorderInfo(name="second", extension=".pkl", package="pkg-b")
+def test_later_entry_wins_on_duplicate_identifier() -> None:
+    """Last info with a given identifier is kept (dict overwrite semantics)."""
+    a = RecorderInfo(name="first", identifier=".custom", package="pkg-a")
+    b = RecorderInfo(name="second", identifier=".custom", package="pkg-b")
     result = _ext_map([a, b])
-    assert result[".pkl"].name == "second"
+    assert result[".custom"].name == "second"
 
 
 # ── gather_stats ──────────────────────────────────────────────────────────────
@@ -157,19 +258,30 @@ def test_later_entry_wins_on_duplicate_extension() -> None:
 
 def test_attributes_entry_to_recorder_when_extension_is_known() -> None:
     """An entry with a mapped extension is attributed to its recorder."""
-    em = {".pickle": RecorderInfo("pickle", ".pickle", "pytest-ditto")}
-    entries = [ManifestEntry("test_foo@snap.pickle", size_bytes=100, modified=1000.0)]
+    em = {".json": RecorderInfo("json", ".json", "pytest-ditto")}
+    entries = [
+        ManifestEntry(
+            "test_foo@snap~0000000000000000.json", size_bytes=100, modified=1000.0
+        )
+    ]
 
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 1
-    assert stats.total_size == 100
-    assert stats.by_recorder["pickle"] == (1, 100)
+    assert stats.total_size == SizeSummary(known_bytes=100)
+    assert stats.by_recorder["json"] == RecorderStats(
+        count=1,
+        size=SizeSummary(known_bytes=100),
+    )
 
 
 def test_attributes_unknown_extension_to_its_raw_name() -> None:
     """An unmapped extension uses the extension (minus leading dot) as recorder name."""
-    entries = [ManifestEntry("test_foo@snap.custom", size_bytes=50, modified=None)]
+    entries = [
+        ManifestEntry(
+            "test_foo@snap~0000000000000000.custom", size_bytes=50, modified=None
+        )
+    ]
 
     stats = gather_stats(entries, ext_map={})
 
@@ -185,63 +297,73 @@ def test_buckets_entry_with_no_extension_under_empty_string() -> None:
     assert "" in stats.by_recorder
 
 
-def test_tracks_oldest_and_newest_by_mtime_when_present() -> None:
-    """oldest and newest are the entries with the min/max modified timestamp."""
-    entries = [
-        ManifestEntry("test_a@x.pickle", size_bytes=10, modified=100.0),
-        ManifestEntry("test_b@y.pickle", size_bytes=20, modified=999.0),
-    ]
+def test_oldest_and_newest_are_the_entries_with_the_earliest_and_latest_mtime() -> None:
+    """The oldest and newest snapshots are picked by modified time across targets."""
+    first = ManifestEntry(
+        "test_a@x~0000000000000000.yaml", size_bytes=10, modified=100.0
+    )
+    last = ManifestEntry(
+        "test_b@y~0000000000000000.yaml", size_bytes=20, modified=999.0
+    )
+    manifest = [BackendManifest("one", [first]), BackendManifest("two", [last])]
 
-    stats = gather_stats(entries, ext_map={})
+    actual = oldest_and_newest(manifest)
 
-    assert stats.oldest[0] == 100.0
-    assert stats.newest[0] == 999.0
+    expected = Extremes(
+        oldest=LocatedEntry("one", first), newest=LocatedEntry("two", last)
+    )
+    assert actual == expected
 
 
-def test_leaves_oldest_and_newest_unset_when_no_entry_has_mtime() -> None:
-    """Remote entries (modified=None) leave oldest/newest as None."""
-    entries = [ManifestEntry("test_a@x.pickle", size_bytes=10, modified=None)]
+def test_oldest_and_newest_is_none_when_no_entry_has_an_mtime() -> None:
+    """Remote entries read from the lock (modified=None) have no oldest or newest."""
+    entry = ManifestEntry(
+        "test_a@x~0000000000000000.yaml", size_bytes=10, modified=None
+    )
 
-    stats = gather_stats(entries, ext_map={})
+    actual = oldest_and_newest([BackendManifest("one", [entry])])
 
-    assert stats.oldest is None
-    assert stats.newest is None
+    assert actual is None
 
 
 def test_sums_count_and_size_across_entries_of_one_recorder() -> None:
     """Multiple entries of the same recorder type are summed correctly."""
-    em = {".pickle": RecorderInfo("pickle", ".pickle", "pytest-ditto")}
+    em = {".yaml": RecorderInfo("yaml", ".yaml", "pytest-ditto")}
     entries = [
-        ManifestEntry("test_a@s.pickle", size_bytes=100, modified=1.0),
-        ManifestEntry("test_b@s.pickle", size_bytes=200, modified=2.0),
-        ManifestEntry("test_c@s.pickle", size_bytes=300, modified=3.0),
+        ManifestEntry("test_a@s~0000000000000000.yaml", size_bytes=100, modified=1.0),
+        ManifestEntry("test_b@s~0000000000000000.yaml", size_bytes=200, modified=2.0),
+        ManifestEntry("test_c@s~0000000000000000.yaml", size_bytes=300, modified=3.0),
     ]
 
     stats = gather_stats(entries, em)
 
     assert stats.total_count == 3
-    assert stats.total_size == 600
-    assert stats.by_recorder["pickle"] == (3, 600)
+    assert stats.total_size == SizeSummary(known_bytes=600)
+    assert stats.by_recorder["yaml"] == RecorderStats(
+        count=3,
+        size=SizeSummary(known_bytes=600),
+    )
 
 
 # ── command inventory dispatch ─────────────────────────────────────────────────
 
 
 def _patch_inventory(monkeypatch, manifest: list[BackendManifest]) -> None:
-    monkeypatch.setattr(cli_mod, "run_introspect", lambda path: manifest)
+    monkeypatch.setattr("ditto._inventory.run_introspect", lambda path: manifest)
 
 
 def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None:
-    """`ditto list` renders the storage keys the introspection pass enumerated."""
+    """`ditto list --live` renders the storage keys the introspection pass
+    enumerated."""
     manifest = [
         BackendManifest(
             "file:///x/.ditto",
-            [ManifestEntry("mod.test_y@v.json", 7, None)],
+            [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
         )
     ]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["list", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "test_y" in result.output
@@ -250,15 +372,74 @@ def test_list_renders_snapshots_from_the_manifest(tmp_path, monkeypatch) -> None
 def test_stats_shows_a_configured_backend_even_with_no_snapshots(
     tmp_path, monkeypatch
 ) -> None:
-    """An empty-but-resolved backend still appears in `ditto stats`, flagging it to
-    the user as removable or misconfigured."""
+    """An empty-but-resolved backend still appears in `ditto stats --live`, flagging
+    it to the user as removable or misconfigured."""
     manifest = [BackendManifest("redis://h/0", [])]
     _patch_inventory(monkeypatch, manifest)
 
-    result = CliRunner().invoke(cli, ["stats", str(tmp_path)])
+    result = CliRunner().invoke(cli, ["stats", "--live", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "redis://h/0" in result.output
+
+
+_UNREADABLE = BackendManifest("redis://down/0", [], error="connection refused")
+
+
+@pytest.mark.parametrize("command", ["list", "status", "stats", "lint"])
+def test_live_command_exits_one_and_names_a_backend_it_could_not_read(
+    tmp_path, monkeypatch, command
+) -> None:
+    """A backend the live pass couldn't read is reported with its error, and the
+    command fails rather than presenting an incomplete inventory as complete."""
+    healthy = BackendManifest(
+        "file:///x/.ditto",
+        [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
+    )
+    _patch_inventory(monkeypatch, [healthy, _UNREADABLE])
+
+    result = CliRunner().invoke(cli, [command, "--live", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Could not read redis://down/0: connection refused" in result.output
+
+
+def test_list_live_still_shows_the_backends_it_could_read(
+    tmp_path, monkeypatch
+) -> None:
+    """One unreadable backend doesn't hide another backend's snapshots."""
+    healthy = BackendManifest(
+        "file:///x/.ditto",
+        [ManifestEntry("mod.test_y@v~0000000000000000.json", 7, None)],
+    )
+    _patch_inventory(monkeypatch, [healthy, _UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
+
+    assert "test_y" in result.output
+
+
+def test_stats_live_does_not_count_an_unreadable_backend_as_empty(
+    tmp_path, monkeypatch
+) -> None:
+    """An unreadable backend is named only in the failure, not as a row of zero
+    snapshots."""
+    _patch_inventory(monkeypatch, [_UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["stats", "--live", str(tmp_path)])
+
+    assert result.output.count("redis://down/0") == 1
+
+
+def test_lint_live_does_not_call_an_incomplete_inventory_valid(
+    tmp_path, monkeypatch
+) -> None:
+    """Lint doesn't report every snapshot valid when it couldn't read them all."""
+    _patch_inventory(monkeypatch, [_UNREADABLE])
+
+    result = CliRunner().invoke(cli, ["lint", "--live", str(tmp_path)])
+
+    assert "All snapshots are valid." not in result.output
 
 
 def test_list_reports_failure_and_exits_one_when_introspection_errors(
@@ -267,11 +448,28 @@ def test_list_reports_failure_and_exits_one_when_introspection_errors(
     """A failed introspection pass surfaces an error and a non-zero exit."""
 
     def _boom(path):
-        raise cli_mod.IntrospectError("pytest blew up")
+        raise IntrospectError("pytest blew up")
 
-    monkeypatch.setattr(cli_mod, "run_introspect", _boom)
+    monkeypatch.setattr("ditto._inventory.run_introspect", _boom)
+
+    result = CliRunner().invoke(cli, ["list", "--live", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Introspection failed" in result.output
+
+
+def test_list_reports_failure_and_exits_one_when_inventory_is_unreadable(
+    tmp_path, monkeypatch
+) -> None:
+    """A filesystem inventory failure is shown without an uncaught traceback."""
+
+    def fail_inventory(path, *, live):
+        raise InventoryError("permission denied")
+
+    monkeypatch.setattr(cli_inventory, "build_inventory", fail_inventory)
 
     result = CliRunner().invoke(cli, ["list", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "Introspection failed" in result.output
+    assert "Inventory failed" in result.output
+    assert "permission denied" in result.output

@@ -12,20 +12,30 @@ from dataclasses import asdict, dataclass
 
 @dataclass(frozen=True)
 class ManifestEntry:
-    """One stored snapshot. `modified` is a POSIX timestamp when the backend's
-    filesystem reports one (local files, S3), else None (e.g. Redis)."""
+    """One stored snapshot.
+
+    `size_bytes` is the byte size when known, or `None` when the inventory was
+    read credential-free from `ditto.lock` (a remote snapshot whose physical size
+    needs `--live`). `modified` is a POSIX timestamp when the backend reports one
+    (local files, S3), else `None`.
+    """
 
     storage_key: str
-    size_bytes: int
+    size_bytes: int | None
     modified: float | None
 
 
 @dataclass(frozen=True)
 class BackendManifest:
-    """The snapshots under one resolved backend, keyed by its canonical URI."""
+    """The snapshots under one resolved backend, keyed by its canonical URI.
+
+    `error` is why the backend couldn't be enumerated, when it couldn't; its
+    `entries` are then empty because they are unknown, not because it holds none.
+    """
 
     location: str
     entries: list[ManifestEntry]
+    error: str | None = None
 
 
 # The whole inventory for one CLI invocation: one BackendManifest per resolved
@@ -44,6 +54,7 @@ def from_json(text: str) -> Manifest:
         BackendManifest(
             location=b["location"],
             entries=[ManifestEntry(**e) for e in b["entries"]],
+            error=b.get("error"),
         )
         for b in json.loads(text)
     ]

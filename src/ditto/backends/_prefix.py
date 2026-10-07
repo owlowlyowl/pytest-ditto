@@ -78,6 +78,9 @@ class PrefixedMapping(MutableMapping[str, bytes]):
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None:
+    ) -> bool | None:
+        # Forward the inner store's return value: a truthy result suppresses the
+        # active exception, per the context-manager protocol.
         if isinstance(self._store, AbstractContextManager):
-            self._store.__exit__(exc_type, exc_val, exc_tb)
+            return self._store.__exit__(exc_type, exc_val, exc_tb)
+        return None

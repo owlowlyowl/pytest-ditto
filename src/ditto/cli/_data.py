@@ -1,0 +1,111 @@
+"""Recorder metadata and snapshot-name parsing for the CLI."""
+
+from __future__ import annotations
+
+import importlib.metadata
+import re
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+
+from ..recorders._contract import NAME_PATTERN
+
+
+# A stored snapshot name: `<module>.<group label>@<key label>~<hash>.<recorder>`
+# (`/` after the module for remote backends). Labels never contain `@` or `~`
+# within a part, so the last `@` ends the test label, which always holds at
+# least the module; the key label may be empty. The hash follows the key, and
+# everything after it is the recorder.
+_SNAPSHOT_NAME = re.compile(
+    r"(?P<test>.+)@(?P<key>[^@~]*)~[0-9a-f]{16}\.(?P<recorder>.+)"
+)
+
+
+def _parse_snapshot_name(filename: str) -> tuple[str, str, str]:
+    """Parse a snapshot name into (test label, key label, ext).
+
+    The test label keeps the module prefix (e.g. `tests.test_api.test_get[12_00]`).
+    Labels shorten and replace characters of the real test name and key, so
+    they are for display when the lock has no entry for the name. Returns ext
+    with a leading dot (e.g. `.pandas.parquet`), or `("name", "", "")` for a
+    name not in this form.
+    """
+    match = _SNAPSHOT_NAME.fullmatch(filename)
+    if match is None:
+        return filename, "", ""
+    return match["test"], match["key"], f".{match['recorder']}"
+
+
+@dataclass(frozen=True)
+class RecorderInfo:
+    name: str  # e.g. "pandas.parquet"
+    identifier: str  # e.g. ".pandas.parquet"
+    package: str  # e.g. "pytest-ditto-pandas"
+
+
+def _load_recorder_infos() -> list[RecorderInfo]:
+    """Read every registered recorder from entry-point metadata, importing none.
+
+    A recorder's identifier is its entry-point name.
+    """
+    return [
+        RecorderInfo(
+            name=ep.name,
+            identifier=f".{ep.name}",
+            package=ep.dist.name if ep.dist else "unknown",
+        )
+        for ep in importlib.metadata.entry_points(group="ditto_recorders")
+    ]
+
+
+def _ext_map(infos: list[RecorderInfo]) -> dict[str, RecorderInfo]:
+    """Pure: derive identifier → RecorderInfo lookup from a list of infos."""
+    return {info.identifier: info for info in infos}
+
+
+def _recorder_name(ext: str, ext_map: Mapping[str, RecorderInfo]) -> str:
+    """Map a parsed identifier to its recorder name, falling back to the bare one."""
+    if ext in ext_map:
+        return ext_map[ext].name
+    return ext.lstrip(".")
+
+
+def _human_size(n: int | None) -> str:
+    if n is None:
+        return "—"
+    value: float = n
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024:
+            return f"{n} B" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
+def _mark_for(name: str) -> str:
+    """Return the mark a recorder name derives, or "-" for an invalid name."""
+    return f"@ditto.{name}" if NAME_PATTERN.fullmatch(name) else "-"
+
+
+# Where a node id can continue past a selector that names its parent: a path
+# separator (directory), `::` (a test in a file or class) or `[` (a case of a
+# parametrized test).
+_NODEID_BOUNDARIES = ("/", "::", "[")
+
+
+def _selects(selector: str, nodeid: str) -> bool:
+    if nodeid == selector:
+        return True
+    if not selector or not nodeid.startswith(selector):
+        return False
+    if selector.endswith(("/", "::")):
+        return True
+    return nodeid[len(selector) :].startswith(_NODEID_BOUNDARIES)
+
+
+def nodeid_selected(nodeid: str, selectors: Iterable[str]) -> bool:
+    """Whether any selector is `nodeid` itself or a prefix ending at a boundary.
+
+    `tests/ci`, `tests/ci/test_a.py`, `tests/ci/test_a.py::TestX` and
+    `tests/ci/test_a.py::test_t` (for `test_t[case]`) all select; a prefix that
+    stops mid-name, such as `tests/c` or `test_t` for `test_total`, never does.
+    """
+    return any(_selects(selector, nodeid) for selector in selectors)

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, Generic, TypeVar
 
 
@@ -12,33 +11,34 @@ T = TypeVar("T")
 @dataclass(frozen=True)
 class Recorder(Generic[T]):
     """
-    Recorder: a persisted identifier string paired with save and load functions.
+    Recorder: a pair of functions that serialise a value to bytes and back.
 
-    A `Recorder` specifies how snapshot data is written to and read from disk.
-    The type parameter `T` constrains the data type this recorder operates on.
-    Use `Recorder[Any]` for generic formats (pickle, yaml, json).
-    Use a concrete type for format-specific recorders (e.g. `Recorder[pd.DataFrame]`).
+    A `Recorder` specifies how a snapshot value becomes the bytes a backend
+    stores, and how those bytes become a value again. The bytes are the
+    snapshot file's contents: a JSON recorder produces ordinary JSON text, a
+    parquet recorder an ordinary parquet file. The type parameter `T`
+    constrains the data type this recorder operates on. Use `Recorder[Any]` for
+    generic formats (yaml, json). Use a concrete type for format-specific
+    recorders (e.g. `Recorder[pd.DataFrame]`).
 
-    Notes
-    -----
-    The field name `extension` is historical. Its current contract is broader than
-    a pure terminal file extension: it is the canonical persisted recorder
-    identifier appended to snapshot keys. Built-in recorders use short values such
-    as `pkl` and `json`; optional plugin recorders may use dotted identifiers such
-    as `pandas.parquet` or `pyarrow.csv`.
+    A recorder's persisted identifier, which ends its snapshot filenames and is
+    recorded in `ditto.lock`, is the name it is registered under (e.g. "yaml",
+    "pandas.parquet"), not a property of the recorder.
+
+    Snapshots are handled whole: the value and its serialised bytes must fit in
+    memory together. For a library that can only read and write files, wrap its
+    functions with `recorder_from_files`.
 
     Parameters
     ----------
-    extension : str
-        Canonical persisted recorder identifier appended to snapshot names (e.g.
-        "pkl", "json", "pandas.parquet"). This value may contain dots and is
-        not guaranteed to match the mark alias or recorder registry key.
-    save : Callable[[T, Path], None]
-        Function that persists a value of type `T` to the given path.
-    load : Callable[[Path], T]
-        Function that reads and returns a value of type `T` from the given path.
+    dumps : Callable[[T], bytes]
+        Function that serialises a value of type `T` to bytes. It must not
+        modify the value: the caller compares that value with what
+        `loads(dumps(value))` returns.
+    loads : Callable[[bytes], T]
+        Function that deserialises bytes produced by `dumps` into a value of
+        type `T`.
     """
 
-    extension: str
-    save: Callable[[T, Path], None]
-    load: Callable[[Path], T]
+    dumps: Callable[[T], bytes]
+    loads: Callable[[bytes], T]
