@@ -1,18 +1,25 @@
 # pytest-ditto
 
-Snapshot testing with minimal ceremony and flexible recorders.
+Snapshot testing for tabular data in pytest, with minimal ceremony, pluggable
+recorders, and local or remote storage backends.
+
+Choose a recorder for pandas or Polars DataFrames or PyArrow Tables, then compare
+snapshots with your library's usual assertions. Add a custom recorder for other
+data types; storage backends work independently of the recorder.
 
 <div class="grid cards" markdown>
 
-- :material-camera: **Snapshot Testing**
+- :material-camera: **Tabular Snapshots**
 
-    Record test outputs once, assert they don't change. No boilerplate.
+    Record DataFrames and Tables once, then check them with the comparison
+    functions you already use.
 
-- :material-swap-horizontal: **Flexible Recorders**
+- :material-swap-horizontal: **Pluggable Recorders**
 
-    Strict JSON by default, built-in YAML, and plugins for specialised data.
+    Strict JSON and YAML are built in. Plugins add Parquet, Arrow IPC, CSV and
+    more; write a recorder for your own data types and formats.
 
-- :material-cloud-upload: **Remote Backends**
+- :material-cloud-upload: **Local and Remote Backends**
 
     Store snapshots locally, on S3 or anywhere fsspec reaches, or in your own
     backend for a database such as Redis.
@@ -31,6 +38,32 @@ Snapshot testing with minimal ceremony and flexible recorders.
 ## Quick Example
 
 ```bash
+pip install "pytest-ditto[pandas]"
+```
+
+```python
+import ditto
+import pandas as pd
+
+
+@ditto.pandas.parquet
+def test_sales_totals(snapshot):
+    sales = pd.DataFrame({"region": ["east", "east", "west"], "amount": [10, 5, 8]})
+    totals = sales.groupby("region")["amount"].sum().to_frame()
+    pd.testing.assert_frame_equal(totals, snapshot(totals, key="totals"))
+```
+
+The mark selects Parquet; `snapshot()` handles storage and returns the recorded
+DataFrame. The first run records the result, and later runs compare against it.
+Run `ditto verify` in CI so a missing snapshot fails instead of being recorded
+again. See the [pandas](plugins/pandas.md), [Polars](plugins/polars.md) and
+[PyArrow](plugins/pyarrow.md) guides for their recorders and format limitations.
+
+## Other data types
+
+Strict JSON works without a recorder plugin:
+
+```bash
 pip install pytest-ditto
 ```
 
@@ -45,8 +78,9 @@ def test_summarise(snapshot):
     assert result == snapshot(result, key="summary")
 ```
 
-The first run stores the result as a snapshot. Every later run compares the
-result with it, and fails if it has changed.
+Use a [custom recorder](guides/custom-recorders.md) for other types that you can
+serialise and read back for comparison, and a
+[storage backend](guides/backends.md) to choose where their snapshots go.
 
 ## Where to start
 
