@@ -116,11 +116,13 @@ Every test without its own `target=` or `target_profile=` then uses this
 target. A relative `file://` path here is still resolved against each test
 file's directory.
 
-!!! warning "Give each project and branch its own remote path"
-    Snapshots are named after test modules, so two branches of a project, or
-    two projects with the same test paths, sharing one target can't tell each
-    other's snapshots from their own stale ones. Use a path per project and
-    branch, such as `s3://my-bucket/<project>/<branch>/`. See
+!!! warning "Every branch shares a remote target's snapshots"
+    Snapshots are named after test modules, so every checkout using a target,
+    whether another branch or another project with the same test paths, reads
+    and writes the same snapshots, and can't tell another's from its own stale
+    ones. Give each project its own path, such as `s3://my-bucket/<project>/`,
+    and keep snapshots in the repository when branches change them
+    independently. See
     [Sharing a target](../concepts/lock-file.md#sharing-a-target).
 
 ## Credentials and connection settings: `ditto_storage_options`
