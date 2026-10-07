@@ -42,7 +42,7 @@ pytest
 The snapshot doesn't exist yet, so this run stores it and the test passes.
 After the test results, ditto prints a report of what it did:
 
-```
+```text { .text-diagram }
 ╭──────────────── ditto snapshot report ────────────────╮
 │ 1 created                                             │
 │                                                       │
@@ -102,7 +102,7 @@ snapshot from the current output:
 ditto update
 ```
 
-```
+```text { .text-diagram }
 ╭──── ditto snapshot report ─────╮
 │ 1 rewritten                    │
 │                                │

@@ -11,7 +11,7 @@ pass the credentials that remote storage needs.
 A target URI has two parts. The **scheme**, before the first `:`, says what
 kind of storage it is. The rest says where in that storage the snapshots go:
 
-```
+```text { .text-diagram }
 s3://my-bucket/snapshots/
 ^^   ^^^^^^^^^^^^^^^^^^^^
 │    └ where: here, a bucket and a prefix within it

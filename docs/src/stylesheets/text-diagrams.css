@@ -1,0 +1,9 @@
+/* The hosted code font omits box-drawing glyphs. Use one system monospace
+   font for the whole diagram so fallback glyphs cannot shift its columns. */
+.md-typeset .text-diagram code {
+  font-family: SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono",
+    "Liberation Mono", monospace;
+  font-feature-settings: normal;
+  font-kerning: none;
+  letter-spacing: 0;
+}
