@@ -165,8 +165,8 @@ after a parallel test run if you like. See
 `ditto prune` no longer deletes from a target that other checkouts might
 share, such as a remote URI or a `file://` path outside the project (after
 following symlinks), unless you pass `--shared` (`pytest --ditto-prune-shared`).
-Another branch's snapshots on such a target look like orphans, so first make
-sure each project and branch has its own target path. See
+Another branch's or project's snapshots on such a target look like orphans, so
+pass it only when nothing else writes to the target. See
 [Sharing a target](concepts/lock-file.md#sharing-a-target).
 
 `ditto prune` (`--ditto-prune`) and `ditto prune --check`

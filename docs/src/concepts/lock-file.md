@@ -55,18 +55,35 @@ a snapshot that another machine still runs.
 
 ### Sharing a target
 
-`ditto verify` and `ditto prune` only look at keys under the test modules your
-suite owns, so another suite with different module paths on the same backend is
-left alone. What they can't tell apart is anyone else with the same module
-paths: another branch of the same project, or another project that also has
-`tests/test_api.py`. On a target they both write to, a snapshot that only the
-other has recorded looks like an orphan. `ditto verify` reports it as drift,
-and `ditto prune` would delete it.
+A target holds one set of snapshots. Every checkout that uses it, whether
+another branch of the project, another project with the same test paths, CI or
+a developer's machine, reads and writes that same set:
 
-So give each project, and each branch whose tests can differ, its own target
-path, for example `s3://bucket/<project>/<branch>/`. In CI, you can pass it
-on the command line with the branch name filled in:
-`pytest -o "ditto_target=s3://bucket/my-project/$BRANCH/"`.
+- **Writes are shared.** Recording a snapshot, or running `ditto update`, on
+  one branch changes what every other branch compares against.
+- **Orphans are ambiguous.** `ditto verify` and `ditto prune` only look at keys
+  under the test modules your suite owns, so another suite with different
+  module paths is left alone. But a snapshot that only another branch, or
+  another project with the same test paths, has recorded looks like an orphan:
+  `ditto verify` reports it as drift, and `ditto prune --shared` would delete
+  it.
+
+So:
+
+- Give each project its own target path, such as `s3://bucket/<project>/`.
+- If branches change snapshots independently, keep the snapshots in the
+  repository, in the default `.ditto` directories. Git then keeps each
+  branch's snapshots and lock together, and merges them like any other file.
+- Use a remote target for snapshots that change through one branch, such as
+  baselines updated only on the main branch.
+
+A separate remote path per branch doesn't work yet. The lock records a remote
+target by its URI, so on a branch whose path differs, `ditto verify` finds no
+entries for it and fails, even after the snapshots are copied there. Recording
+the lock under the branch's path instead puts that path into the lock, which
+the merge then carries into the main branch.
+[Issue #251](https://github.com/owlowlyowl/pytest-ditto/issues/251) tracks
+making this possible.
 
 Because ditto can't check that a target is used by one checkout only, `ditto
 prune` deletes nothing from one that might be shared unless you pass
