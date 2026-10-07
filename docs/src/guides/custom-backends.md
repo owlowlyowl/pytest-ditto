@@ -18,7 +18,7 @@ A custom backend has two parts:
 Every snapshot target is a URI. ditto uses the URI's scheme, the part before
 the first `:`, to decide which backend stores the snapshots:
 
-```
+```text { .text-diagram }
 redis://localhost:6379/0
 └─┬─┘   └──────┬───────┘
 scheme    the rest: its meaning is up to the backend
@@ -122,7 +122,7 @@ with the same interface as a `dict` of strings to bytes. Subclass
 Each key names one snapshot by its test module, test, snapshot key and a short
 hash of them, and ends with the name of the recorder that wrote it:
 
-```
+```text { .text-diagram }
 tests/api/test_users/test_create@response~90e755f5c20755bd.json
 └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
     test module         test       key         hash     recorder

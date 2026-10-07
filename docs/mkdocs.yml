@@ -6,6 +6,9 @@ repo_name: owlowlyowl/pytest-ditto
 
 docs_dir: src
 
+extra_css:
+  - stylesheets/text-diagrams.css
+
 theme:
   name: material
   features:

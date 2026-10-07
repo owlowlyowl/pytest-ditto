@@ -13,7 +13,7 @@ hash, and the recorder. With the project root as pytest's rootdir, a test
 `test_create` in `tests/api/test_users.py` that calls
 `snapshot(value, key="response")` with the `json` recorder is stored as:
 
-```
+```text { .text-diagram }
 tests/api/.ditto/tests.api.test_users.test_create@response~90e755f5c20755bd.json
                  └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
                      test module         test       key         hash     recorder
@@ -37,7 +37,7 @@ Any other target stores one object per snapshot under the URI's path, and the
 module path keeps its slashes. The same test, with
 `target="s3://my-bucket/snapshots/"`, is stored as:
 
-```
+```text { .text-diagram }
 s3://my-bucket/snapshots/tests/api/test_users/test_create@response~90e755f5c20755bd.json
                          └────────┬─────────┘ └────┬────┘ └──┬───┘ └──────┬───────┘ └┬─┘
                              test module         test       key         hash     recorder
