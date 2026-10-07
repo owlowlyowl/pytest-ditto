@@ -33,10 +33,12 @@ class DittoWarning(UserWarning):
 
 
 class DittoException(Exception):
-    """Base class for every error pytest-ditto raises.
+    """Base class for pytest-ditto's own exceptions.
 
-    Catch it to handle any ditto error. Most are raised during a test run and
-    reported by pytest as a test error or a usage error.
+    Not every error ditto raises is one: misuse such as a snapshot key that
+    isn't a `str` raises `TypeError`, and a target ditto can't resolve raises
+    `ValueError`. Errors from a recorder or a backend, such as a value the
+    recorder can't serialise or a storage failure, propagate unchanged.
     """
 
 
