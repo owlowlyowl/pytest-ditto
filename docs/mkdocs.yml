@@ -1,5 +1,5 @@
 site_name: pytest-ditto
-site_description: Snapshot testing pytest plugin with minimal ceremony and flexible recorders.
+site_description: Snapshot testing for tabular data in pytest, with minimal ceremony, pluggable recorders, and local or remote storage backends.
 site_url: https://owlowlyowl.github.io/pytest-ditto/
 repo_url: https://github.com/owlowlyowl/pytest-ditto
 repo_name: owlowlyowl/pytest-ditto
