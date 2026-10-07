@@ -130,7 +130,13 @@ def cmd_lock(pytest_args):
 )
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def cmd_verify(pytest_args):
-    """Fail if the backend has drifted from ditto.lock (read-only).
+    """Fail if stored snapshots have drifted from ditto.lock (read-only).
+
+    Runs pytest with --ditto-verify. In each snapshot target the run uses, it
+    reports snapshots the lock records but storage lacks (missing), stored
+    snapshots the lock doesn't record (orphan) and snapshots the run produced
+    that the lock doesn't record (unsynced). It doesn't compare snapshot values
+    (your tests do that), and it writes nothing.
 
     \b
     Examples:

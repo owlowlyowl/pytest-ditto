@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -43,6 +44,26 @@ def _find_ditto_dirs(root: Path) -> tuple[list[Path], list[Path]]:
     return selected, skipped
 
 
+def _stdin_is_a_terminal() -> bool:
+    return sys.stdin.isatty()
+
+
+def _shown(path: Path) -> str:
+    """`path` as the user would type it from here, or whole on another drive."""
+    try:
+        return os.path.relpath(path)
+    except ValueError:
+        return str(path)
+
+
+def _confirmed() -> bool:
+    """Whether the user answered yes; Enter, `n` and end of input are no."""
+    try:
+        return click.confirm(click.style("\nProceed?", fg="bright_white"))
+    except click.Abort:
+        return False
+
+
 @click.command(name="clean")
 @click.argument(
     "path", default=".", type=click.Path(exists=True, file_okay=False, path_type=Path)
@@ -52,8 +73,10 @@ def _find_ditto_dirs(root: Path) -> tuple[list[Path], list[Path]]:
 def cmd_clean(console: Console, path: Path, yes: bool):
     """Delete all .ditto/ directories under PATH.
 
-    Shows a preview of what will be deleted and requires confirmation
-    unless --yes is passed.
+    Local only: remote snapshots and ditto.lock aren't touched. Shows what
+    it will delete and asks for confirmation unless --yes is passed. It only
+    asks at a terminal; without one, pass --yes. Symlinked .ditto/
+    directories are skipped, never followed.
 
     \b
     Examples:
@@ -74,24 +97,40 @@ def cmd_clean(console: Console, path: Path, yes: bool):
         console.print(
             Text.assemble(
                 ("  skipped  ", f"bold {MUTED}"),
-                (str(link), PATH),
+                (_shown(link), PATH),
                 " (symlink)",
             )
         )
 
     if not dirs:
-        console.print(f"[{MUTED}]No .ditto/ directories found.[/{MUTED}]")
-        sys.exit(1)
+        console.print(
+            Text("No .ditto/ directories found; nothing deleted.", style=MUTED)
+        )
+        return
 
     preview = Text()
     preview.append("Will delete:\n\n", style=f"bold {TEXT}")
     for d in dirs:
-        preview.append(f"  {d}\n", style=PATH)
+        preview.append(f"  {_shown(d)}\n", style=PATH)
+    preview.append(
+        "\nLocal only: remote snapshots and ditto.lock aren't touched.", style=MUTED
+    )
 
     console.print(Panel(preview, border_style=PRUNED, expand=False))
 
     if not yes:
-        click.confirm(click.style("\nProceed?", fg="bright_white"), abort=True)
+        if not _stdin_is_a_terminal():
+            console.print(
+                Text(
+                    "Nothing deleted: confirmation needs a terminal. Pass --yes to "
+                    "delete without one.",
+                    style=PRUNED,
+                )
+            )
+            sys.exit(1)
+        if not _confirmed():
+            console.print(Text("Nothing deleted.", style=MUTED))
+            return
 
     removed: list[Path] = []
     failed: list[tuple[Path, OSError]] = []
@@ -102,14 +141,14 @@ def cmd_clean(console: Console, path: Path, yes: bool):
             failed.append((d, exc))
             t = Text()
             t.append("  failed   ", style=f"bold {PRUNED}")
-            t.append(str(d), style=PATH)
+            t.append(_shown(d), style=PATH)
             t.append(f": {exc}", style=MUTED)
             console.print(t)
         else:
             removed.append(d)
             t = Text()
             t.append("  deleted  ", style=f"bold {PRUNED}")
-            t.append(str(d), style=PATH)
+            t.append(_shown(d), style=PATH)
             console.print(t)
 
     n = len(removed)
@@ -118,7 +157,7 @@ def cmd_clean(console: Console, path: Path, yes: bool):
         f".ditto/ director{'y' if n == 1 else 'ies'}.[/bold {CREATED}]"
     )
     if failed:
-        names = ", ".join(str(path) for path, _ in failed)
+        names = ", ".join(_shown(path) for path, _ in failed)
         console.print(
             Text(
                 f"Could not remove {len(failed)} "
