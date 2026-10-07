@@ -80,8 +80,8 @@ def cmd_prune(check, shared, pytest_args):
 
     With --check, report what would be pruned without deleting anything. A
     target outside the project (a remote URI, or a file:// path outside it) is
-    only pruned with --shared. Any extra arguments are passed directly to
-    pytest.
+    only pruned with --shared; --check lists its orphans apart, as shared. Any
+    extra arguments are passed directly to pytest.
 
     \b
     Examples:

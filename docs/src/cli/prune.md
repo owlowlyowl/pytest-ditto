@@ -51,6 +51,10 @@ ditto prune --shared
   only when each project and branch has its own target path: another branch's
   snapshots look like orphans. See
   [Sharing a target](../guides/lock-file.md#sharing-a-target).
+- `--check` previews exactly what `ditto prune` would delete, grouped by target
+  under **would prune**. Orphans in a shared target are listed apart, under
+  **shared**, because prune only deletes them with `--shared`; with
+  `ditto prune --check --shared` they're listed under **would prune** too.
 
 !!! warning
     Using `-k` for a partial run may falsely classify snapshots for un-run

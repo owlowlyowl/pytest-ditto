@@ -285,15 +285,34 @@ def test_prune_deletes_from_a_shared_target_with_prune_shared(pytester, monkeypa
     assert any("test_old" in p.name for p in shared.iterdir())
 
 
-def test_prune_dry_run_lists_a_shared_target_s_orphans(pytester, monkeypatch):
-    """A dry run deletes nothing, so it lists a shared target's orphans as usual."""
+def test_prune_dry_run_lists_a_shared_target_s_orphans_apart(pytester, monkeypatch):
+    """A dry run lists a shared target's orphans in their own row, saying prune
+    only deletes them with --ditto-prune-shared, not as ones it would prune."""
     a, shared = _branches_sharing_a_target(pytester, monkeypatch)
 
     result = _run_in(pytester, monkeypatch, a, "--ditto-prune-dry-run")
 
     assert result.ret == 0
-    result.stderr.fnmatch_lines(["*would prune*"])
+    result.stderr.fnmatch_lines([
+        "*shared*1*only pruned with --ditto-prune-shared*",
+        "*test_new*",
+    ])
+    assert "would prune" not in result.stderr.str()
     assert any("test_new" in p.name for p in shared.iterdir())
+
+
+def test_prune_dry_run_with_prune_shared_lists_shared_orphans_as_prunable(
+    pytester, monkeypatch
+):
+    """With --ditto-prune-shared, a shared target's orphans are ones it would prune."""
+    a, _ = _branches_sharing_a_target(pytester, monkeypatch)
+
+    result = _run_in(
+        pytester, monkeypatch, a, "--ditto-prune-dry-run", "--ditto-prune-shared"
+    )
+
+    assert result.ret == 0
+    result.stderr.fnmatch_lines(["*would prune*1*", "*test_new*"])
 
 
 def test_prune_still_deletes_from_a_checkout_local_target(pytester, tmp_path_factory):
