@@ -10,16 +10,19 @@
 }
 
 .ditto-brand .ditto-logo-dark,
-.md-logo .ditto-icon-dark {
+.md-header__button.md-logo .ditto-icon-dark,
+.md-nav .md-nav__title[for="__drawer"] .md-logo .ditto-icon-dark {
   display: none;
 }
 
 [data-md-color-scheme="slate"] .ditto-brand .ditto-logo-light,
-[data-md-color-scheme="slate"] .md-logo .ditto-icon-light {
+[data-md-color-scheme="slate"] .md-header__button.md-logo .ditto-icon-light,
+[data-md-color-scheme="slate"] .md-nav .md-nav__title[for="__drawer"] .md-logo .ditto-icon-light {
   display: none;
 }
 
 [data-md-color-scheme="slate"] .ditto-brand .ditto-logo-dark,
-[data-md-color-scheme="slate"] .md-logo .ditto-icon-dark {
+[data-md-color-scheme="slate"] .md-header__button.md-logo .ditto-icon-dark,
+[data-md-color-scheme="slate"] .md-nav .md-nav__title[for="__drawer"] .md-logo .ditto-icon-dark {
   display: block;
 }
