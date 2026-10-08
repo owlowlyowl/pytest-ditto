@@ -1,6 +1,6 @@
 {
   "name": "pytest-ditto",
-  "description": "The pytest-ditto skill for writing and maintaining snapshot tests",
+  "description": "Snapshot regression testing for dataframe transformations in pytest",
   "owner": {
     "name": "owlowlyowl",
     "url": "https://github.com/owlowlyowl"
@@ -9,11 +9,19 @@
     {
       "name": "pytest-ditto",
       "source": "./skills/pytest-ditto",
-      "description": "Write, debug, and maintain pytest-ditto snapshot tests, baselines, and ditto.lock",
+      "description": "Snapshot regression testing for dataframe transformations in pytest, with a skill for writing and maintaining pytest-ditto tests",
       "homepage": "https://owlowlyowl.github.io/pytest-ditto/guides/agent-skills/",
       "repository": "https://github.com/owlowlyowl/pytest-ditto",
       "license": "MIT",
-      "keywords": ["pytest", "snapshot", "testing"]
+      "keywords": [
+        "pytest",
+        "snapshot-testing",
+        "regression-testing",
+        "dataframe",
+        "pandas",
+        "polars",
+        "pyarrow"
+      ]
     }
   ]
 }

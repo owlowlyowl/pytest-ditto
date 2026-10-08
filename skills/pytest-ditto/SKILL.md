@@ -1,6 +1,6 @@
 ---
 name: pytest-ditto
-description: Write, debug, and maintain pytest-ditto snapshot tests, including the snapshot fixture, @ditto recorder marks, snapshot mismatches, ditto.lock, and the ditto CLI (update, verify, lock, prune, clean). Use in projects that depend on pytest-ditto or when a task requests it.
+description: Write, debug, and maintain pytest-ditto snapshot tests, including dataframe and tabular snapshots, the snapshot fixture, @ditto recorder marks, snapshot mismatches, ditto.lock, and the ditto CLI (update, verify, lock, prune, clean). Use in projects that depend on pytest-ditto or when a task requests it.
 license: MIT
 ---
 
