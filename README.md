@@ -1,5 +1,10 @@
 # pytest-ditto
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/owlowlyowl/pytest-ditto/main/docs/src/assets/branding/logo-dark.svg">
+  <img src="https://raw.githubusercontent.com/owlowlyowl/pytest-ditto/main/docs/src/assets/branding/logo-light.svg" alt="pytest-ditto" width="490" height="120">
+</picture>
+
 [![PyPI version](https://badge.fury.io/py/pytest-ditto.svg)](https://badge.fury.io/py/pytest-ditto)
 [![Continuous Integration](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml/badge.svg)](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml)
 [![Documentation](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/docs.yml/badge.svg)](https://owlowlyowl.github.io/pytest-ditto/)
