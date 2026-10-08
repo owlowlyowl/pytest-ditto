@@ -44,6 +44,7 @@ nav:
     - Storage Backends: guides/backends.md
     - Running in CI: guides/ci.md
     - Maintaining Snapshots: guides/maintaining.md
+    - Coding Agent Skill: guides/agent-skills.md
     - Writing a Recorder: guides/custom-recorders.md
     - Writing a Backend: guides/custom-backends.md
   - Plugins:

@@ -53,6 +53,12 @@ ditto prune --shared
     and prune warns that it was partial. In each target it examines, it deletes
     every orphan, including those left by deselected tests.
 
+!!! note "A deletion preview still runs tests"
+    Prune can record missing snapshots during its test run, including with
+    `--check`. That flag suppresses deletion; it does not make recording
+    read-only. Use `ditto verify` to run tests without writing snapshots or
+    the lock.
+
 !!! note
     Prune needs a single process. Under pytest-xdist distribution (`-n N`, or
     `--dist` with `--tx`) it stops with a usage error before running any tests

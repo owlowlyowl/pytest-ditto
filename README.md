@@ -52,6 +52,7 @@ Full documentation is at
 - [Getting Started](https://owlowlyowl.github.io/pytest-ditto/getting-started/)
 - [Recorders](https://owlowlyowl.github.io/pytest-ditto/guides/recorders/)
 - [Running in CI](https://owlowlyowl.github.io/pytest-ditto/guides/ci/)
+- [Coding Agent Skill](https://owlowlyowl.github.io/pytest-ditto/guides/agent-skills/)
 - [Configuration](https://owlowlyowl.github.io/pytest-ditto/reference/configuration/)
 - [CLI Reference](https://owlowlyowl.github.io/pytest-ditto/cli/)
 
