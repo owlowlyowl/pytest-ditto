@@ -19,7 +19,7 @@ The wordmarks use outlined Inter Regular lettering at its display optical size.
 All production SVGs contain vector paths and shapes, so they render without
 installed fonts. Preserve the lettering, two-color pairing, and spacing when
 resizing. The original [Inter font](https://github.com/rsms/inter) uses the
-[SIL Open Font License](FONT-LICENSE.txt).
+[SIL Open Font License](https://openfontlicense.org/open-font-license-official-text/).
 
 `favicon.svg` adapts to the browser's light or dark preference. The 16px and 32px
 PNG favicons use the light tile and are available as static alternatives.
