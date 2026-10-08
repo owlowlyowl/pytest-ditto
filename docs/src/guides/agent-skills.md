@@ -12,6 +12,29 @@ any recorder plugin.
 
 ## Install the skill
 
+### As a Claude Code plugin
+
+The repository is also a Claude Code
+[plugin marketplace](https://code.claude.com/docs/en/plugins/create-marketplace)
+that offers the skill as the `pytest-ditto` plugin. In a shell:
+
+```bash
+claude plugin marketplace add owlowlyowl/pytest-ditto
+claude plugin install pytest-ditto@pytest-ditto
+```
+
+Inside a session, `/plugin marketplace add owlowlyowl/pytest-ditto` and
+`/plugin install pytest-ditto@pytest-ditto` do the same. The plugin installs
+the skill from the default branch. To match an installed release instead, add
+the marketplace at its tag, such as `owlowlyowl/pytest-ditto#<tag>`.
+
+Claude Code does not update third-party marketplaces automatically unless you
+turn auto-update on for the marketplace in `/plugin`. To update by hand, run
+`claude plugin marketplace update pytest-ditto`, then
+`claude plugin update pytest-ditto@pytest-ditto`.
+
+### By copying the bundle
+
 Get the [repository](https://github.com/owlowlyowl/pytest-ditto) and copy the
 whole `skills/pytest-ditto/` directory, including its references, into a skill
 location supported by your harness. The bundle is distributed in Git; installing
@@ -53,7 +76,9 @@ whole bundle available in that checkout.
 
 The description allows automatic selection for tasks that use or explicitly
 request pytest-ditto. You can also select it explicitly: `$pytest-ditto` in
-Codex, or `/pytest-ditto` in Claude Code and Cursor. For example:
+Codex, `/pytest-ditto` in Claude Code and Cursor, or
+`/pytest-ditto:pytest-ditto` when Claude Code installed it as a plugin. For
+example:
 
 ```text
 Use the pytest-ditto skill to add snapshot coverage for this response schema.
@@ -69,7 +94,12 @@ It does not grant permissions beyond your request and harness configuration.
 `SKILL.md` contains the shared decisions and constraints. Its references are
 loaded when a task needs recorder details, ownership maintenance, or backend
 configuration. Optional `agents/openai.yaml` supplies Codex display metadata;
-other harnesses can use the same Markdown bundle.
+other harnesses can use the same Markdown bundle. The plugin entry in
+`.claude-plugin/marketplace.json` points at the same directory, so the plugin
+needs no files of its own. Don't add a `.claude-plugin/` directory to the
+bundle: Claude Code loads a copied skill that has one as a plugin instead.
+Run `claude plugin validate .` from the repository root after changing the
+marketplace file.
 
 When changing the skill, validate the frontmatter and relative links, then check
 its examples and commands against the matching implementation in disposable

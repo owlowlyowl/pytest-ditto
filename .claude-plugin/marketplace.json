@@ -1,0 +1,19 @@
+{
+  "name": "pytest-ditto",
+  "description": "The pytest-ditto skill for writing and maintaining snapshot tests",
+  "owner": {
+    "name": "owlowlyowl",
+    "url": "https://github.com/owlowlyowl"
+  },
+  "plugins": [
+    {
+      "name": "pytest-ditto",
+      "source": "./skills/pytest-ditto",
+      "description": "Write, debug, and maintain pytest-ditto snapshot tests, baselines, and ditto.lock",
+      "homepage": "https://owlowlyowl.github.io/pytest-ditto/guides/agent-skills/",
+      "repository": "https://github.com/owlowlyowl/pytest-ditto",
+      "license": "MIT",
+      "keywords": ["pytest", "snapshot", "testing"]
+    }
+  ]
+}
