@@ -23,9 +23,15 @@ the Python package with pip does not install it into an agent's configuration.
 | [Claude Code](https://code.claude.com/docs/en/skills) | `.claude/skills/` | `~/.claude/skills/` |
 | [GitHub Copilot](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills) | `.agents/skills/`, `.github/skills/`, or `.claude/skills/` | `~/.agents/skills/` or `~/.copilot/skills/` |
 | [Gemini CLI](https://geminicli.com/docs/cli/skills/) | `.agents/skills/` or `.gemini/skills/` | `~/.agents/skills/` or `~/.gemini/skills/` |
+| [Cursor](https://cursor.com/docs/context/skills) | `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/` | `~/.agents/skills/`, `~/.cursor/skills/`, or `~/.claude/skills/` |
+| [OpenCode](https://opencode.ai/docs/skills/) | `.agents/skills/`, `.opencode/skills/`, or `.claude/skills/` | `~/.agents/skills/`, `~/.config/opencode/skills/`, or `~/.claude/skills/` |
+
+No one directory is read by every harness. `.agents/skills/` covers all of
+them except Claude Code, which reads only `.claude/skills/`; a project used
+with Claude Code and another harness needs a copy in each.
 
 For example, from this checkout, a POSIX shell can install a personal skill
-shared by Codex, Copilot, and Gemini CLI:
+shared by Codex, Copilot, Gemini CLI, Cursor, and OpenCode:
 
 ```bash
 mkdir -p ~/.agents/skills
@@ -39,15 +45,15 @@ bundle so the entrypoint and references stay together.
 
 Check your harness's skill list after installation. Discovery and activation
 depend on its version and configuration. For a harness without native skill
-discovery, add a pointer in its repository instructions to read
-`skills/pytest-ditto/SKILL.md` when working with pytest-ditto, and make the whole
-bundle available in that checkout.
+discovery, add a pointer in its repository instructions, such as `AGENTS.md`,
+to read the bundle's `SKILL.md` when working with pytest-ditto, and make the
+whole bundle available in that checkout.
 
 ## Use the skill
 
 The description allows automatic selection for tasks that use or explicitly
 request pytest-ditto. You can also select it explicitly: `$pytest-ditto` in
-Codex or `/pytest-ditto` in Claude Code. For example:
+Codex, or `/pytest-ditto` in Claude Code and Cursor. For example:
 
 ```text
 Use the pytest-ditto skill to add snapshot coverage for this response schema.
