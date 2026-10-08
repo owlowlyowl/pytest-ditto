@@ -3,7 +3,7 @@ name = "pytest-ditto"
 dynamic = [
     "version",
 ]
-description = "Snapshot regression testing for dataframe transformations in pytest."
+description = "Snapshot regression testing for DataFrames in pytest."
 keywords = [
     "pytest",
     "testing",

@@ -9,8 +9,8 @@
 [![Continuous Integration](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml/badge.svg)](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/ci.yml)
 [![Documentation](https://github.com/owlowlyowl/pytest-ditto/actions/workflows/docs.yml/badge.svg)](https://owlowlyowl.github.io/pytest-ditto/)
 
-Snapshot regression testing for dataframe transformations in pytest, with
-minimal ceremony, pluggable recorders, and local or remote storage backends.
+Snapshot regression testing for DataFrames in pytest, with minimal ceremony,
+pluggable recorders, and local or remote storage backends.
 
 **[📖 Documentation](https://owlowlyowl.github.io/pytest-ditto/)**
 
