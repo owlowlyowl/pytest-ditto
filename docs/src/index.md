@@ -7,8 +7,8 @@ title: pytest-ditto
   <img class="ditto-logo-dark" src="assets/branding/logo-dark.svg" alt="pytest-ditto" width="490" height="120">
 </h1>
 
-Snapshot regression testing for dataframe transformations in pytest, with
-minimal ceremony, pluggable recorders, and local or remote storage backends.
+Snapshot regression testing for DataFrames in pytest, with minimal ceremony,
+pluggable recorders, and local or remote storage backends.
 
 Choose a recorder for pandas or Polars DataFrames or PyArrow Tables, then compare
 snapshots with your library's usual assertions. Add a custom recorder for other
