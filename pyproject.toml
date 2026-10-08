@@ -32,6 +32,13 @@ dependencies = [
     "fsspec",
     "msgspec>=0.18",
 ]
+
+[project.urls]
+Documentation = "https://owlowlyowl.github.io/pytest-ditto/"
+Source = "https://github.com/owlowlyowl/pytest-ditto"
+Issues = "https://github.com/owlowlyowl/pytest-ditto/issues"
+"Release Notes" = "https://github.com/owlowlyowl/pytest-ditto/releases"
+
 [project.optional-dependencies]
 pandas = ["pytest-ditto-pandas"]
 polars = ["pytest-ditto-polars"]
