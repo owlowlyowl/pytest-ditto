@@ -3,8 +3,17 @@ name = "pytest-ditto"
 dynamic = [
     "version",
 ]
-description = "Snapshot testing pytest plugin with minimal ceremony and flexible recorders."
-keywords = ["pytest" , "testing"]
+description = "Snapshot regression testing for dataframe transformations in pytest."
+keywords = [
+    "pytest",
+    "testing",
+    "snapshot-testing",
+    "regression-testing",
+    "dataframe",
+    "pandas",
+    "polars",
+    "pyarrow",
+]
 authors = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 maintainers = [{ name = "Lachlan Taylor", email = "95459213+owlowlyowl@users.noreply.github.com" }]
 requires-python = ">=3.12"
