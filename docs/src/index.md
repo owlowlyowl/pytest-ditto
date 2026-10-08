@@ -1,7 +1,7 @@
 # pytest-ditto
 
-Snapshot testing for tabular data in pytest, with minimal ceremony, pluggable
-recorders, and local or remote storage backends.
+Snapshot regression testing for dataframe transformations in pytest, with
+minimal ceremony, pluggable recorders, and local or remote storage backends.
 
 Choose a recorder for pandas or Polars DataFrames or PyArrow Tables, then compare
 snapshots with your library's usual assertions. Add a custom recorder for other
