@@ -1,0 +1,25 @@
+.ditto-brand {
+  margin-bottom: 1.5rem;
+}
+
+.ditto-brand img {
+  display: block;
+  width: 100%;
+  max-width: 490px;
+  height: auto;
+}
+
+.ditto-brand .ditto-logo-dark,
+.md-logo .ditto-icon-dark {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .ditto-brand .ditto-logo-light,
+[data-md-color-scheme="slate"] .md-logo .ditto-icon-light {
+  display: none;
+}
+
+[data-md-color-scheme="slate"] .ditto-brand .ditto-logo-dark,
+[data-md-color-scheme="slate"] .md-logo .ditto-icon-dark {
+  display: block;
+}

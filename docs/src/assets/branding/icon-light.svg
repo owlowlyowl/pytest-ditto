@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-labelledby="title"><title id="title">Violet + teal transparent icon</title><g transform="translate(0 0) scale(1.0)">
+      <path d="M12 30 V17 Q12 12 17 12 H30 M66 12 H79 Q84 12 84 17 V30 M84 66 V79 Q84 84 79 84 H66 M30 84 H17 Q12 84 12 79 V66" stroke="#7143DB" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M30 32 H40 Q43 32 43 35 V49 Q43 56 34 64 H26 L33 51 H30 Q27 51 27 48 V35 Q27 32 30 32Z" fill="#7143DB" />
+      <path d="M55 32 H65 Q68 32 68 35 V49 Q68 56 59 64 H51 L58 51 H55 Q52 51 52 48 V35 Q52 32 55 32Z" fill="#008F82" />
+    </g></svg>

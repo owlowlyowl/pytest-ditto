@@ -1,5 +1,10 @@
 # pytest-ditto
 
+<div class="ditto-brand">
+  <img class="ditto-logo-light" src="assets/branding/logo-light.svg" alt="pytest-ditto" width="490" height="120">
+  <img class="ditto-logo-dark" src="assets/branding/logo-dark.svg" alt="pytest-ditto" width="490" height="120">
+</div>
+
 Snapshot regression testing for dataframe transformations in pytest, with
 minimal ceremony, pluggable recorders, and local or remote storage backends.
 

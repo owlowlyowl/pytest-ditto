@@ -8,9 +8,13 @@ docs_dir: src
 
 extra_css:
   - stylesheets/text-diagrams.css
+  - assets/stylesheets/branding.css
 
 theme:
   name: material
+  custom_dir: overrides
+  logo: assets/branding/icon-light.svg
+  favicon: assets/branding/favicon.svg
   features:
     - navigation.tabs
     - navigation.sections
