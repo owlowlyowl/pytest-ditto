@@ -1,0 +1,3 @@
+interface:
+  display_name: "pytest-ditto"
+  short_description: "Snapshot regression tests for dataframes with pytest-ditto"
